@@ -9,16 +9,19 @@ Freeboard, and it's maintainer organisation Ologist Ltd, endeavors to acknowledg
 ### Scope
 
 In scope:
+
 - Freeboard product source code: [github.com/ologistio/freeboard](https://github.com/ologistio/freeboard)
 - Freeboard REST API documentation: [freeboardhq.com/docs/rest-api/rest-api](https://freeboardhq.com/docs/rest-api/rest-api)
 
 Out of scope:
+
 - Marketing pages, blogs, and landing pages on freeboardhq.com
 - Third-party hosted services (unless they directly impact a primary in-scope asset)
 - Physical offices and infrastructure
 - Employee social media accounts
 
 Reports that are typically not eligible:
+
 - Missing HTTP security headers (unless they lead to a proven, demonstrated vulnerability)
 - Theoretical vulnerabilities without proof of exploitation
 - Automated tool output without clear impact evidence

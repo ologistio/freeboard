@@ -43,6 +43,8 @@ ScaffoldingReadMe.txt
 ~$*
 *~
 CodeCoverage/
+coveragereport/
+coverage.xml
 
 # MSBuild Binary and Structured Log
 *.binlog
@@ -55,3 +57,6 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# AspNetStatic generated output
+src/Freeboard.Web/_site/

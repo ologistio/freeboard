@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]   # draft -> released
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [linux-x64, win-x64, osx-arm64]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            # Versioned build from the published release tag (strip leading v).
+            version="${GITHUB_REF_NAME#v}"
+          else
+            # Snapshot build from the main branch.
+            version="0.0.0-snapshot.${{ github.run_number }}+${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Agent and CLI (${{ matrix.rid }})
+        run: |
+          for proj in Freeboard.Agent Freeboard.CLI Freeboard; do
+            dotnet publish "src/$proj/$proj.csproj" \
+              -c Release -r ${{ matrix.rid }} --self-contained \
+              -p:Version=${{ steps.version.outputs.version }} \
+              -o "publish/${{ matrix.rid }}/$proj"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freeboard-${{ steps.version.outputs.version }}-${{ matrix.rid }}
+          path: publish/${{ matrix.rid }}
+
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-snapshot.${{ github.run_number }}+${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Generate static website
+        run: dotnet run --project src/Freeboard.Web -c Release -- ssg-only
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freeboard-web-${{ steps.version.outputs.version }}
+          path: src/Freeboard.Web/_site
