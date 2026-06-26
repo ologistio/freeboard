@@ -33,11 +33,8 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Console.SetError(originalErr);
     }
 
-    private static string FixtureDir(string name)
-    {
-        Assert.False(Path.IsPathRooted(name), "fixture name must be relative");
-        return Path.Combine(AppContext.BaseDirectory, "fixtures", name);
-    }
+    // Path.Join (not Path.Combine) so a rooted name cannot silently drop the base path.
+    private static string FixtureDir(string name) => Path.Join(AppContext.BaseDirectory, "fixtures", name);
 
     private static async Task<MySqlTestDatabase> RequireDbAsync()
     {

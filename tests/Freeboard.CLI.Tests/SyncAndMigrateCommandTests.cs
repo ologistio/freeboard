@@ -18,11 +18,8 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
     private readonly TextWriter originalOut = Console.Out;
     private readonly TextWriter originalErr = Console.Error;
 
-    private static string FixtureDir(string name)
-    {
-        Assert.False(Path.IsPathRooted(name), "fixture name must be relative");
-        return Path.Combine(AppContext.BaseDirectory, "fixtures", name);
-    }
+    // Path.Join (not Path.Combine) so a rooted name cannot silently drop the base path.
+    private static string FixtureDir(string name) => Path.Join(AppContext.BaseDirectory, "fixtures", name);
 
     public void Dispose()
     {

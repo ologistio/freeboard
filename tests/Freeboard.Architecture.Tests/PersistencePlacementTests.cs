@@ -59,8 +59,7 @@ public sealed class PersistencePlacementTests
 
     private static IEnumerable<string> ProjectReferences(string projectName)
     {
-        Assert.False(Path.IsPathRooted(projectName), "projectName must be relative");
-        var csproj = Path.Combine(RepoRoot(), "src", projectName, $"{projectName}.csproj");
+        var csproj = Path.Join(RepoRoot(), "src", projectName, $"{projectName}.csproj");
         Assert.True(File.Exists(csproj), $"csproj not found: {csproj}");
 
         var doc = XDocument.Load(csproj);
@@ -72,17 +71,16 @@ public sealed class PersistencePlacementTests
 
     private static string ProjectOutputDir(string projectName)
     {
-        Assert.False(Path.IsPathRooted(projectName), "projectName must be relative");
         var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var tfm = Path.GetFileName(baseDir);
         var config = Path.GetFileName(Path.GetDirectoryName(baseDir)!);
-        return Path.Combine(RepoRoot(), "src", projectName, "bin", config, tfm);
+        return Path.Join(RepoRoot(), "src", projectName, "bin", config, tfm);
     }
 
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Freeboard.slnx")))
+        while (dir is not null && !File.Exists(Path.Join(dir.FullName, "Freeboard.slnx")))
         {
             dir = dir.Parent;
         }

@@ -178,16 +178,17 @@ public static class ConfigValidator
         // Ordinal equality, consistent with id identity. The join tables have composite
         // PKs, so a duplicate would fail import with a duplicate-key error; reject it
         // here as an input error instead.
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var reference in refs)
+        // One diagnostic per duplicated id.
+        var duplicates = refs
+            .GroupBy(reference => reference, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key);
+        foreach (var reference in duplicates)
         {
-            if (!seen.Add(reference))
+            diagnostics.Add(new Diagnostic
             {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{kind} '{Describe(id)}' {field} lists duplicate {targetKind} id '{reference}'.",
-                });
-            }
+                Message = $"{kind} '{Describe(id)}' {field} lists duplicate {targetKind} id '{reference}'.",
+            });
         }
     }
 
