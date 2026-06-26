@@ -13,4 +13,4 @@ Replace:
 - regular spaces for non-breaking or invisible spaces
 
 Exception: Unicode is fine when semantically required - user-facing localized
-copy, fixtures that need it, or exact quotes of third-party text.
+copy, fixtures that need it, text-based diagrams, or exact quotes of third-party text.
