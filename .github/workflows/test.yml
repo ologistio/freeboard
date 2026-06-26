@@ -1,4 +1,4 @@
-name: Code Coverage
+name: Test
 
 on:
   push:
@@ -22,6 +22,14 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Reuse the test-infrastructure compose so CI runs the same MySQL (image,
+      # credentials, and the fb_test_* grant init script) as local dev. The grants
+      # let the integration tests provision throwaway fb_test_* databases. --wait
+      # blocks until the healthcheck passes. Started early so it warms up during
+      # restore and build.
+      - name: Start MySQL
+        run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d --wait
+
       - name: Restore
         run: dotnet restore
 
@@ -31,7 +39,10 @@ jobs:
       - name: Install coverage tool
         run: dotnet tool install --global dotnet-coverage
 
+      # FREEBOARD_TEST_DB switches the integration tests on; without it they skip.
       - name: Run tests with coverage
+        env:
+          FREEBOARD_TEST_DB: "Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
         run: dotnet-coverage collect "dotnet test --configuration Release --no-build --no-restore" -f cobertura -o coverage.xml
 
       - name: Upload coverage report
@@ -41,3 +52,7 @@ jobs:
           file: coverage.xml
           language: "C#"
           label: code-coverage/dotnet
+
+      - name: Stop MySQL
+        if: always()
+        run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml down -v
