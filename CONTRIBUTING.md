@@ -98,6 +98,11 @@ Fix reported issues rather than disabling rules. Suppress a rule inline only whe
 a specific line genuinely needs it, using a `<!-- markdownlint-disable-line -->`
 comment.
 
+One carveout: the OpenSpec CLI generates instruction files under
+`.claude/skills/openspec-*/` and `.claude/commands/opsx/`. The CLI regenerates
+them, so they are excluded from linting via `.markdownlint-cli2.jsonc`. Do not
+hand-edit them or extend the carveout to other paths.
+
 ## Releases
 
 Releases are automated with GitHub Actions. The flow:
