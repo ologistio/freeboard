@@ -1,0 +1,39 @@
+schema: spec-driven
+
+# Project context shown to AI when creating artifacts.
+context: |
+  Freeboard is a .NET 10 solution. Solution file: Freeboard.slnx.
+  All projects live under src/ and target net10.0.
+
+  Projects and reference graph:
+  - Freeboard.Core (classlib): shared base, references nothing.
+  - Freeboard.Enterprise (classlib): EE-only code, references Freeboard.Core.
+  - Freeboard.Agent (console): end-device agent, references Freeboard.Core. Cross-platform.
+  - Freeboard.CLI (console): references Freeboard.Core. Cross-platform.
+  - Freeboard (ASP.NET Core web UI): references Freeboard.Core and Freeboard.Enterprise.
+  - Freeboard.Web (ASP.NET Core, AspNetStatic SSG): standalone public website, references nothing.
+
+  Licensing (hybrid): the repo is MIT Expat by default. The only proprietary
+  carve-out is src/Freeboard.Enterprise, licensed under its own LICENSE.
+  Dependency direction is one-way: Freeboard.Enterprise may reference
+  Freeboard.Core; Core, Agent, and CLI must never reference Freeboard.Enterprise.
+  Agent and CLI ship as community (MIT) components and must build and run on
+  Windows, Linux, and macOS. Never copy or move EE code into an MIT project.
+
+  Conventions: Conventional Commits v1.0.0, Semantic Versioning 2.0.0.
+  Plain ASCII punctuation in all source, docs, and commit messages (no em/en
+  dashes, Unicode arrows, ellipses, or curly quotes). Markdown must pass
+  markdownlint (.markdownlint.jsonc). Treat code as a liability: prefer
+  deleting, simplifying, or reusing over adding; justify new files and deps.
+
+# Per-artifact rules.
+rules:
+  proposal:
+    - State whether the change is MIT (default) or an EE carve-out, and why.
+    - Include a "Non-goals" section.
+  design:
+    - Respect the project reference graph and the one-way EE dependency rule.
+    - Keep Agent and CLI cross-platform and free of EE references.
+  tasks:
+    - Group tasks so each maps to a Conventional Commit (type and scope).
+    - Include a verification step (dotnet build, relevant tests).

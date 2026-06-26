@@ -7,7 +7,8 @@ Copy this to `tmp/plan-implement-review-loop-session.md` at initialization. Repl
 ```markdown
 ---
 session_id: [auto-generated UUID or timestamp]
-artifact_path: [path to plan or code being reviewed]
+openspec_change: [kebab-case OpenSpec change name, e.g. add-agent-heartbeat]
+artifact_path: [openspec/changes/<openspec_change>/ - the change directory]
 mode: plan
 plan_only: false
 rope_length: 3
@@ -35,7 +36,7 @@ original_prompt: |
 <!-- CONTINUATION BLOCK - injected by stop hook, kept compact -->
 plan-implement-review-loop | mode=plan | round=1 | findings=0 | disputes=0 | status=active
 Read tmp/plan-implement-review-loop-session.md. Follow the plan-implement-review-loop skill guide.
-Next: [specific next action, e.g., "Dispatch planner subagent for round 1"]
+Next: [specific next action, e.g., "Create OpenSpec change, dispatch planner subagent for round 1"]
 <!-- END CONTINUATION BLOCK -->
 
 <!-- ROUND LOG - grows each round, NOT injected by stop hook -->
@@ -77,7 +78,8 @@ Review channel: mcp. Reasoning effort: xhigh. Policy compliant: yes.
 
 ## Implementation Decisions
 [Populated at plan->implement transition. Read-only context for implementation phase.
-Contains resolved disputes and rejected-with-reason findings from plan phase.]
+Contains resolved disputes and rejected-with-reason findings from plan phase.
+Durable decisions are also written into the change's design.md.]
 
 ```
 
@@ -88,7 +90,8 @@ Contains resolved disputes and rejected-with-reason findings from plan phase.]
 | Field | Type | Description |
 | ------- | ------ | ------------- |
 | `session_id` | string | Unique identifier for this session |
-| `artifact_path` | string | Path to the artifact under review |
+| `openspec_change` | string | OpenSpec change name (kebab-case). The plan/task store is `openspec/changes/<openspec_change>/` (proposal.md, design.md, tasks.md). |
+| `artifact_path` | string | Path to the OpenSpec change directory under review (`openspec/changes/<openspec_change>/`) |
 | `mode` | enum | `plan` or `implement` |
 | `plan_only` | bool | If true, skip implementation phase after plan converges |
 | `rope_length` | int 0-5 | Interruption threshold (see guide) |

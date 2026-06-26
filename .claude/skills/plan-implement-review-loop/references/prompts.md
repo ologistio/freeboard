@@ -14,26 +14,36 @@ the behavioral bar; the orchestrator imposes the protocol structure.
 
 ## Plan Writer (Opus Subagent, Plan Round 1)
 
-Dispatched by the orchestrator to write the initial plan.
+Dispatched by the orchestrator to write the initial plan as OpenSpec change artifacts.
+The orchestrator has already run `openspec new change "{openspec_change}"`, which
+scaffolds `{artifact_path}` (the change directory).
 
 ```plaintext
-You are writing a plan for the following task. Be thorough and specific.
+You are writing a plan for the following task as OpenSpec change artifacts.
+Be thorough and specific.
 
 Task: {original_prompt}
 
-Write the plan to {artifact_path}. Cover:
-- Architecture and key decisions
-- File changes and their rationale
-- Risks, tradeoffs, and alternatives considered
-- Verification strategy
+The OpenSpec change directory is {artifact_path}. Build the artifacts the schema
+requires for implementation. For each artifact, run:
+  openspec instructions <artifact-id> --change "{openspec_change}" --json
+and follow its template, context, and rules (context/rules are constraints for you,
+not content to copy into the file). Typical artifacts:
+- proposal.md - what and why (include MIT-vs-EE placement and Non-goals)
+- design.md - how: architecture, key decisions, file changes, risks, alternatives,
+  verification strategy (respect the project reference graph and one-way EE rule)
+- tasks.md - implementation steps grouped to map onto Conventional Commits
+
+Run `openspec validate "{openspec_change}"` and fix any errors before finishing.
 
 When done, return a structured summary:
 - Key architectural decisions made
 - Number of files/components in the plan
 - Main risks identified
 - Any open questions for the reviewer
+- Confirm `openspec validate` passed
 
-Do NOT return the full plan text - just the summary above.
+Do NOT return the full artifact text - just the summary above.
 ```
 
 ---
@@ -45,20 +55,24 @@ Dispatched after both the planner's plan and Codex's independent plan exist.
 ```plaintext
 Two independent plans exist for this task:
 
-Plan A (Planner's): {artifact_path}
+Plan A (Planner's): the OpenSpec change artifacts in {artifact_path}
 Plan B (Codex's): provided below
 
 {codex_independent_plan}
 
-Synthesize both into a unified plan at {artifact_path}. Document:
+Synthesize both into the unified OpenSpec change at {artifact_path} (update
+proposal.md, design.md, tasks.md in place). Document in design.md:
 - Which ideas came from each source
 - Where they diverged and how you resolved the divergence
 - The final unified approach
+
+Run `openspec validate "{openspec_change}"` and fix any errors before finishing.
 
 Return a structured summary:
 - Key decisions and which source influenced them
 - Major divergences and how they were resolved
 - Any unresolved tensions that reviewers should examine
+- Confirm `openspec validate` passed
 ```
 
 ---
@@ -70,15 +84,17 @@ Dispatched by the orchestrator each round to make code changes.
 **Round 1 (initial implementation):**
 
 ```plaintext
-You are implementing a plan. Read the plan at {artifact_path} thoroughly, then begin
-implementation.
+You are implementing an OpenSpec change. Read design.md and tasks.md in
+{artifact_path} thoroughly, then implement the tasks in order.
+
+As you complete each task, mark its checkbox done in tasks.md (- [x]).
 
 {additional_instructions}
 
 When done, return a structured summary:
 - Files created or modified (list each)
-- What was implemented
-- Any concerns or deviations from the plan
+- Which tasks.md items are now complete
+- Any concerns or deviations from the design
 - Test results if you ran any (pass/fail counts)
 
 Do NOT return full file contents or diffs - just the summary above.
@@ -87,7 +103,8 @@ Do NOT return full file contents or diffs - just the summary above.
 **Round 2+ (fixing findings):**
 
 ```plaintext
-You are fixing review findings for an implementation. The plan is at {artifact_path}.
+You are fixing review findings for an OpenSpec change. The design and tasks are in
+{artifact_path} (design.md, tasks.md).
 
 Fix the following findings:
 {findings_to_fix}
@@ -113,7 +130,8 @@ artifact fresh and produces structured findings.
 **Plan mode:**
 
 ```plaintext
-You are reviewing a plan at {artifact_path}. Read it critically and thoroughly.
+You are reviewing an OpenSpec change in {artifact_path} (proposal.md, design.md,
+tasks.md). Read the artifacts critically and thoroughly.
 
 The worker reported these changes this round:
 {worker_summary}
@@ -136,8 +154,9 @@ Return ONLY the structured findings list, not a narrative review.
 **Implement mode:**
 
 ```plaintext
-You are reviewing an implementation against the plan at {artifact_path}.
-Review the uncommitted changes and the current state of the codebase.
+You are reviewing an implementation against the OpenSpec change in {artifact_path}
+(design.md, tasks.md). Review the uncommitted changes and the current state of the
+codebase. Check that completed tasks.md items are actually implemented.
 
 The worker reported these changes this round:
 {worker_summary}
@@ -165,9 +184,10 @@ When transitioning to implement mode, the orchestrator reads the converged plan 
 context. This is used internally - not sent to a subagent.
 
 ```plaintext
-Read the converged plan at {artifact_path}. The Implementation Decisions section
-contains resolved disputes and rejected findings from the plan phase - these are
-binding context for reconciliation and synthesis decisions.
+Read the converged OpenSpec change in {artifact_path} (design.md and tasks.md).
+The Implementation Decisions section contains resolved disputes and rejected
+findings from the plan phase - these are binding context for reconciliation and
+synthesis decisions.
 
 You will dispatch subagents for implementation and review. Your role is to:
 - Compose fix instructions from findings for the worker subagent
@@ -247,7 +267,7 @@ Use for plan-phase reviews after Round 1 (which uses Independent Ideation above)
 Reviewer persona is passed via `developer-instructions`, not inlined here.
 
 ```plaintext
-Updated plan at {artifact_path}.
+Updated OpenSpec change at {artifact_path} (proposal.md, design.md, tasks.md).
 
 Open findings (must be addressed or disputed):
 {open_findings_with_ids}
@@ -268,7 +288,8 @@ first-class option that automatically includes the diff.
 **First implementation round:**
 
 ```plaintext
-Plan at {artifact_path}. Review uncommitted changes against it.
+OpenSpec change at {artifact_path} (design.md, tasks.md). Review uncommitted
+changes against it.
 
 Open findings (must be addressed or disputed):
 {open_findings_with_ids}
@@ -277,7 +298,8 @@ Open findings (must be addressed or disputed):
 **Subsequent implementation rounds:**
 
 ```plaintext
-Updated implementation. Review uncommitted changes against the plan at {artifact_path}.
+Updated implementation. Review uncommitted changes against the OpenSpec change at
+{artifact_path} (design.md, tasks.md).
 
 Open findings (must be addressed or disputed):
 {open_findings_with_ids}

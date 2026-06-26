@@ -12,17 +12,45 @@ The loop: **Implement -> Self-Review -> External Review -> Reconciliation -> Syn
 
 ---
 
+## OpenSpec Integration
+
+OpenSpec is the canonical plan/task store. There is no freeform plan file; the
+"plan artifact" is an OpenSpec change directory at `openspec/changes/<name>/`.
+
+| Loop concept | OpenSpec mapping |
+| ------------- | ----------------- |
+| Plan artifact | The change directory `openspec/changes/<name>/` (`artifact_path`) |
+| Plan content | `proposal.md` (what/why), `design.md` (how) |
+| Implementation checklist | `tasks.md` - one checkbox per task |
+| Phase transition gate | Change is apply-ready (all `applyRequires` artifacts done) and `openspec validate <name>` passes |
+| Implement round | Worker completes tasks in `tasks.md`, marking each `- [x]` |
+| Decisions ledger | Mirrored into `design.md`; session keeps the gating copy |
+| Close (implement) | `openspec archive <name>` folds deltas into specs |
+
+Lifecycle: `openspec new change` (init) -> build artifacts (plan rounds) ->
+`openspec validate` (phase gate) -> implement tasks.md (implement rounds) ->
+`openspec archive` (close). The artifact-creation mechanics (`openspec
+instructions <artifact-id> --change <name> --json`, templates, context, rules)
+match the `openspec-propose` and `openspec-apply-change` skills - this loop drives
+the same CLI under review.
+
+The orchestrator reads the change artifacts (proposal/design/tasks) for context.
+It never reads source code or diffs.
+
+---
+
 ## Roles
 
 - **Orchestrator** (Claude, primary agent): Manages the session, dispatches subagents,
-  reconciles findings, resolves disputes, checks the gate. Reads the plan artifact for
-  context but never reads source code or diffs. Does not approve design decisions
-  unilaterally.
-- **Worker** (Opus subagent): Writes and modifies the plan or code. Stateless -
-  reads current file state, makes changes, returns structured summary. Dispatched by
-  the orchestrator each round with `model="opus"`. Called "planner" in plan mode and
-  "implementor" in implement mode - use the phase-appropriate name in status messages.
-- **Self-Reviewer** (Opus subagent): Reads the artifact fresh and produces structured
+  reconciles findings, resolves disputes, checks the gate. Reads the OpenSpec change
+  artifacts (proposal/design/tasks) for context but never reads source code or diffs.
+  Does not approve design decisions unilaterally.
+- **Worker** (Opus subagent): Writes and modifies the OpenSpec change artifacts or
+  code. Stateless - reads current file state, makes changes, returns structured
+  summary. Dispatched by the orchestrator each round with `model="opus"`. Called
+  "planner" in plan mode and "implementor" in implement mode - use the
+  phase-appropriate name in status messages.
+- **Self-Reviewer** (Opus subagent): Reads the artifacts fresh and produces structured
   findings. Stateless - no memory of prior rounds. The orchestrator provides open
   findings list for continuity.
 - **External Reviewer** (Codex): Independent external reviewer. Finds problems, doesn't
@@ -84,26 +112,34 @@ When salience < rope threshold, the system continues without interrupting - but 
 ### Initialization
 
 1. Ensure `tmp/` exists (`mkdir -p tmp/plan-implement-review-loop-history`). Create session file from `@session-template.md` -> `tmp/plan-implement-review-loop-session.md`
-   - Set `artifact_path`, `mode` (plan|implement), `rope_length`, `original_prompt`
+   - Derive a kebab-case `openspec_change` name from the task
+   - Set `mode` (plan|implement), `rope_length`, `original_prompt`
    - Set `reviewer_backend` and `review_channel_status` from preflight results
    - Set `plan_only: true` if user triggered a plan-only mode
    - Generate `session_id` (timestamp or UUID)
-2. If mode=plan: run parallel ideation (see below), then enter round loop
-3. If mode=implement: read converged plan and decisions ledger, begin implementation, enter round loop
+2. If mode=plan:
+   - Create the change: `openspec new change "<openspec_change>"`. Set `artifact_path`
+     to the resulting `openspec/changes/<openspec_change>/` directory.
+   - If a change with that name exists, ask the user to continue it or pick a new name.
+   - Run parallel ideation (see below), then enter round loop
+3. If mode=implement: pick an existing change (set `openspec_change` and `artifact_path`),
+   read its design.md/tasks.md and the decisions ledger, begin implementation, enter round loop
 
 ### Parallel Ideation (Plan Mode, Round 1 Only)
 
 **Independence protocol** - Codex must form its own view without being anchored by the planner's draft.
 
 1. Orchestrator dispatches the planner subagent with the plan kickoff prompt
-   (original task prompt only). Subagent writes initial plan to artifact file.
+   (original task prompt only). Subagent writes the initial change artifacts
+   (proposal/design/tasks) into the change directory and runs `openspec validate`.
 2. Orchestrator calls Codex with the independent ideation prompt from `@prompts.md` -
    containing **ONLY the original task prompt and reviewer persona**. The planner's
    draft is NOT included.
 3. Orchestrator dispatches the planner subagent with both plans: instructs it to
-   synthesize into a unified plan, documenting which ideas came from each source and
-   where they diverge. Subagent writes merged plan to artifact file.
-4. Orchestrator reads the merged plan (Plan Context Loading)
+   synthesize into the unified change artifacts, documenting in design.md which ideas
+   came from each source and where they diverge. Subagent updates the change artifacts
+   and re-runs `openspec validate`.
+4. Orchestrator reads the merged change artifacts (Plan Context Loading)
 5. Update session file: `current_round=2`, record `codex_plan_thread_id`
 
 The independence guarantee: the Round 1 Codex prompt contains the task description and
@@ -115,8 +151,9 @@ reviewer persona, but zero content from the planner subagent's draft.
 1. Implement (Subagent - "planner" or "implementor" depending on mode)
    - Orchestrator dispatches worker subagent with:
      - The task prompt (Round 1) or fix instructions referencing finding IDs
-     - Mode context: plan-mode (write/revise plan) or implement-mode (write/revise code)
-     - Artifact path
+     - Mode context: plan-mode (write/revise change artifacts) or implement-mode
+       (write/revise code, marking completed tasks.md items `- [x]`)
+     - Change directory path (`artifact_path`)
    - Subagent reads current file state, makes changes, returns structured summary
    - Orchestrator records summary in session (does NOT read changed files)
 
@@ -196,20 +233,21 @@ actions. The orchestrator assigns F-{seq} IDs.
 
 ### Plan Context Loading
 
-The orchestrator reads the plan artifact to inform reconciliation and synthesis decisions.
-This is the only artifact content the orchestrator reads directly.
+The orchestrator reads the OpenSpec change artifacts to inform reconciliation and
+synthesis decisions. This is the only artifact content the orchestrator reads directly.
 
 **Plan mode:**
 
-- After parallel ideation (Round 1) produces the merged plan, the orchestrator reads it
-- The orchestrator re-reads the plan if the planner subagent reports significant
+- After parallel ideation (Round 1) produces the merged change, the orchestrator reads
+  proposal.md and design.md
+- The orchestrator re-reads them if the planner subagent reports significant
   structural changes during a round
 
 **Implement mode:**
 
-- The orchestrator reads the converged plan once at phase transition
+- The orchestrator reads design.md and tasks.md once at phase transition
 - This stays in context for the duration of implementation
-- Plans are bounded in size and much smaller than accumulated code diffs
+- Change artifacts are bounded in size and much smaller than accumulated code diffs
 
 **What the orchestrator does NOT read:**
 
@@ -246,24 +284,34 @@ The orchestrator MUST check for `status: awaiting_human` at the start of each tu
 
 On plan-mode close gate passing:
 
-1. Check `plan_only` flag. If true -> skip implementation entirely: attestation + archive + set `status: complete`. Notify: "Plan converged after N rounds. Plan-only mode - no implementation phase."
-2. Verify cumulative counters are current (they are updated event-driven - see below)
-3. Update session: `mode=implement`, `current_round=1`
-4. **Compile decisions ledger**: extract all resolved disputes and rejected-with-reason findings into `## Implementation Decisions` section. Read-only context, not gating state.
-5. Clear finding and dispute ledgers for the implementation phase (fresh start)
-6. Start new Codex MCP thread for implementation reviews (record `codex_impl_thread_id`)
-7. Notify human: "Plan converged after N rounds. Transitioning to implementation."
-8. Orchestrator reads converged plan + decisions ledger, begins implementation
+1. **Verify the change is apply-ready**: run `openspec validate "<openspec_change>"`
+   and `openspec status --change "<openspec_change>" --json`. Every artifact in
+   `applyRequires` (e.g. tasks) must be `done`. If not apply-ready, the plan gate does
+   NOT pass - continue plan rounds. This is an additional hard gate on top of the
+   zero-open-findings close gate.
+2. Check `plan_only` flag. If true -> skip implementation entirely: attestation + archive + set `status: complete`. Notify: "Plan converged after N rounds. Plan-only mode - no implementation phase." Leave the change unarchived for later implementation.
+3. Verify cumulative counters are current (they are updated event-driven - see below)
+4. Update session: `mode=implement`, `current_round=1`
+5. **Compile decisions ledger**: extract all resolved disputes and rejected-with-reason findings into `## Implementation Decisions` section, and mirror durable decisions into the change's design.md. Read-only context, not gating state.
+6. Clear finding and dispute ledgers for the implementation phase (fresh start)
+7. Start new Codex MCP thread for implementation reviews (record `codex_impl_thread_id`)
+8. Notify human: "Plan converged after N rounds. Transitioning to implementation."
+9. Orchestrator reads design.md + tasks.md + decisions ledger, begins implementation
 
 ### Completion
 
 On implement-mode close gate passing:
 
-1. Final synthesis (`status` remains `active` - stop hook keeps enforcing)
-2. Mediator attestation - **required** unless attestation-exempt (see below)
-3. Archive session file to `tmp/plan-implement-review-loop-history/session-{id}.md`
-4. Set `status: complete` (only AFTER synthesis + archive succeed)
-5. Stop hook now allows exit
+1. **Verify all tasks complete**: every checkbox in the change's tasks.md must be
+   `- [x]`. Unchecked tasks block closure - continue implement rounds.
+2. Final synthesis (`status` remains `active` - stop hook keeps enforcing)
+3. Mediator attestation - **required** unless attestation-exempt (see below)
+4. **Archive the change**: `openspec archive "<openspec_change>"` to fold the deltas
+   into the main specs. (If validation flags anything, treat it as a finding and do
+   not set `status: complete`.)
+5. Archive session file to `tmp/plan-implement-review-loop-history/session-{id}.md`
+6. Set `status: complete` (only AFTER synthesis + change archive + session archive succeed)
+7. Stop hook now allows exit
 
 **Attestation-exempt criteria** (ALL must be true, checked against cumulative counters):
 
@@ -544,7 +592,7 @@ The subagent architecture significantly reduces orchestrator context pressure. T
 orchestrator holds:
 
 - Session file (YAML frontmatter + continuation block + round summaries)
-- The plan artifact (read once, bounded size)
+- The OpenSpec change artifacts (read once, bounded size)
 - Subagent summaries (structured, not raw content)
 
 **Active window**: Read full YAML frontmatter + continuation block + last 3 rounds in
@@ -572,6 +620,8 @@ context from subagent summaries.
 | codex exec fails | Read stderr for diagnostics. Self-review-only for this round. |
 | Worker subagent fails (timeout/crash) | Retry once with same prompt -> if still fails, orchestrator performs the step directly for this round (degrades to current behavior). Log in round summary. |
 | Subagent returns malformed summary | Orchestrator re-dispatches with explicit format instructions appended to prompt. If still malformed after retry, treat as empty and log warning. |
+| `openspec validate` fails on a change artifact | Dispatch the worker to fix the artifact; treat the validation error as an M-priority finding until it passes. Phase transition stays blocked. |
+| `openspec archive` fails at close | Do not set `status: complete`. Log the error as a finding, fix, re-run archive. |
 
 Any fallback to a different review channel must be recorded in the round summary:
 

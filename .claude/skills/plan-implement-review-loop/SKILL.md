@@ -121,7 +121,26 @@ another harness entirely.
     > The plan-implement-review loop requires Codex as reviewer. Install: `npm i -g @openai/codex`
     > Then either restart (I'll offer to configure MCP) or ensure the CLI is in your PATH.
 
-### Step 3: Reasoning policy initialization
+### Step 3: OpenSpec store check
+
+This skill uses OpenSpec as the canonical plan/task store. The plan phase produces
+an OpenSpec change (`openspec/changes/<name>/` with proposal.md, design.md,
+tasks.md); the implement phase works through tasks.md and archives the change on
+close.
+
+Verify OpenSpec is available and initialized:
+
+```bash
+openspec --version        # CLI present
+test -f openspec/config.yaml && echo "initialized"
+```
+
+- If the CLI is missing -> hard stop: "OpenSpec CLI not found. Install it, then re-invoke."
+- If `openspec/config.yaml` is missing -> tell the user the repo is not initialized
+  and offer to run `openspec init --tools claude`. Stop until initialized.
+- If both present -> proceed.
+
+### Step 4: Reasoning policy initialization
 
 Confirm rope length and inform the user of the reasoning policy (no action
 needed from them):
@@ -131,6 +150,12 @@ needed from them):
 ## Protocol
 
 Open `@references/guide.md` and follow it. Do not proceed without it.
+
+The plan/task store is OpenSpec. Plan mode builds an OpenSpec change
+(proposal/design/tasks); implement mode works tasks.md and archives on close. The
+guide's "OpenSpec Integration" section defines the mapping. The `openspec-propose`,
+`openspec-apply-change`, and `openspec-archive-change` skills cover the same CLI
+steps for manual use outside this loop.
 
 Automated plan-implement loop with subagent workers and Codex as reviewer. The
 orchestrator dispatches subagents for planning/implementation and self-review, Codex for
