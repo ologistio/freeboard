@@ -1,0 +1,9 @@
+apiVersion: freeboard.io/v1alpha1
+kind: Standard
+id: a1
+title: A One
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Standard
+id: a2
+title: A Two

@@ -1,0 +1,15 @@
+# Sample scopes. Each lists the Control ids it includes.
+apiVersion: freeboard.io/v1alpha1
+kind: Scope
+id: scope-corp-laptops
+title: Corporate laptops
+controls:
+  - ctrl-mfa
+  - ctrl-patching
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Scope
+id: scope-servers
+title: Production servers
+controls:
+  - ctrl-patching

@@ -98,10 +98,14 @@ Fix reported issues rather than disabling rules. Suppress a rule inline only whe
 a specific line genuinely needs it, using a `<!-- markdownlint-disable-line -->`
 comment.
 
-One carveout: the OpenSpec CLI generates instruction files under
-`.claude/skills/openspec-*/` and `.claude/commands/opsx/`. The CLI regenerates
-them, so they are excluded from linting via `.markdownlint-cli2.jsonc`. Do not
-hand-edit them or extend the carveout to other paths.
+One carveout, covering OpenSpec files only. The OpenSpec CLI generates
+instruction files under `.claude/skills/openspec-*/` and
+`.claude/commands/opsx/`; the CLI regenerates them, so they are excluded from
+linting via `.markdownlint-cli2.jsonc`. OpenSpec change files under
+`openspec/changes/**` are also excluded: they use a `## ...`-first heading
+convention (no top-level H1) that conflicts with MD041 and are managed through
+the OpenSpec workflow. Do not hand-edit the CLI-generated files, and do not
+extend the carveout to paths outside these OpenSpec directories.
 
 ## Releases
 

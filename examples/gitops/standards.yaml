@@ -1,0 +1,10 @@
+# Sample standards. Placeholder ids; not a conformance claim.
+apiVersion: freeboard.io/v1alpha1
+kind: Standard
+id: std-cyber-essentials
+title: Cyber Essentials
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Standard
+id: std-soc2
+title: SOC 2

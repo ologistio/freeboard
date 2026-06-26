@@ -7,4 +7,10 @@
     <Project Path="src/Freeboard.Web/Freeboard.Web.csproj" />
     <Project Path="src/Freeboard/Freeboard.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Freeboard.Core.Tests/Freeboard.Core.Tests.csproj" />
+    <Project Path="tests/Freeboard.CLI.Tests/Freeboard.CLI.Tests.csproj" />
+    <Project Path="tests/Freeboard.Web.Tests/Freeboard.Web.Tests.csproj" />
+    <Project Path="tests/Freeboard.Architecture.Tests/Freeboard.Architecture.Tests.csproj" />
+  </Folder>
 </Solution>
