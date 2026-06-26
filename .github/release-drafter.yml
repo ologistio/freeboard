@@ -1,0 +1,50 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: 'Features'
+    labels: ['feature']
+  - title: 'Bug Fixes'
+    labels: ['fix']
+  - title: 'Maintenance'
+    labels: ['chore', 'build', 'ci', 'docs', 'perf', 'refactor', 'style', 'test']
+
+change-template: '- $TITLE ([#$NUMBER](https://github.com/ologistio/freeboard/pulls/$NUMBER)) @$AUTHOR'
+
+# SemVer bump is resolved from PR labels (see autolabeler below).
+version-resolver:
+  major:
+    labels: ['breaking']
+  minor:
+    labels: ['feature']
+  patch:
+    labels: ['fix']
+  default: patch
+
+# Label PRs from their Conventional Commit title so the resolver and categories work.
+autolabeler:
+  - label: 'feature'
+    title: ['/^feat(\(.+\))?!?:/']
+  - label: 'fix'
+    title: ['/^fix(\(.+\))?!?:/']
+  - label: 'chore'
+    title: ['/^(build|chore|ci|docs|perf|refactor|style|test)(\(.+\))?!?:/']
+  - label: 'breaking'
+    title: ['/^\w+(\(.+\))?!:/']
+
+template: |
+  ## Changes
+
+  $CHANGES
+
+  > Freeboard-maintained app updates and vulnerability fixes are applied, whether or not you upgrade.
+
+  ---
+
+  ## Upgrading
+
+  Please visit our [upgrade guide](https://freeboardhq.com/docs/deploying/upgrading-freeboard) for upgrade instructions.
+
+  ## Documentation
+
+  Documentation for Freeboard is available at [freeboardhq.com/docs](https://freeboardhq.com/docs/).

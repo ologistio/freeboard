@@ -1,0 +1,6 @@
+{
+  // Start from markdownlint's default rule set.
+  "default": true,
+  // Allow long lines: URLs, tables, and code blocks should not be wrapped.
+  "MD013": false
+}

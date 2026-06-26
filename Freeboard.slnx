@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Freeboard.Agent/Freeboard.Agent.csproj" />
+    <Project Path="src/Freeboard.CLI/Freeboard.CLI.csproj" />
+    <Project Path="src/Freeboard.Core/Freeboard.Core.csproj" />
+    <Project Path="src/Freeboard.Enterprise/Freeboard.Enterprise.csproj" />
+    <Project Path="src/Freeboard/Freeboard.csproj" />
+  </Folder>
+</Solution>
