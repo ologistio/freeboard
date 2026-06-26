@@ -28,17 +28,15 @@ public sealed class NoNetworkStructuralTests
         using var pe = new PEReader(stream);
         var reader = pe.GetMetadataReader();
 
-        var offenders = new List<string>();
-
-        foreach (var handle in reader.TypeReferences)
-        {
-            var typeRef = reader.GetTypeReference(handle);
-            var ns = reader.GetString(typeRef.Namespace);
-            if (ForbiddenNamespaces.Any(forbidden => ns == forbidden || ns.StartsWith(forbidden + ".", StringComparison.Ordinal)))
+        var offenders = reader.TypeReferences
+            .Select(reader.GetTypeReference)
+            .Where(typeRef =>
             {
-                offenders.Add($"{ns}.{reader.GetString(typeRef.Name)}");
-            }
-        }
+                var ns = reader.GetString(typeRef.Namespace);
+                return ForbiddenNamespaces.Any(forbidden => ns == forbidden || ns.StartsWith(forbidden + ".", StringComparison.Ordinal));
+            })
+            .Select(typeRef => $"{reader.GetString(typeRef.Namespace)}.{reader.GetString(typeRef.Name)}")
+            .ToList();
 
         Assert.True(offenders.Count == 0, "Forbidden network type references found: " + string.Join(", ", offenders));
     }

@@ -20,6 +20,13 @@ public sealed class EnterpriseReferenceTests
     [InlineData("Freeboard.Agent")]
     public void CommunityCsprojDoesNotReferenceEnterprise(string projectName)
     {
+        if (Path.IsPathRooted(projectName)
+            || projectName.Contains(Path.DirectorySeparatorChar)
+            || projectName.Contains(Path.AltDirectorySeparatorChar))
+        {
+            Assert.Fail($"projectName must be a simple folder name, not a rooted or nested path: {projectName}");
+        }
+
         var csproj = Path.Combine(RepoRoot(), "src", projectName, $"{projectName}.csproj");
         Assert.True(File.Exists(csproj), $"csproj not found: {csproj}");
 

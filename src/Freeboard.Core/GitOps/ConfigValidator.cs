@@ -81,15 +81,12 @@ public static class ConfigValidator
                 });
             }
 
-            foreach (var standardId in control.MapsTo)
+            foreach (var standardId in control.MapsTo.Where(standardId => !standardIds.Contains(standardId)))
             {
-                if (!standardIds.Contains(standardId))
+                diagnostics.Add(new Diagnostic
                 {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' maps_to unknown Standard id '{standardId}'.",
-                    });
-                }
+                    Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' maps_to unknown Standard id '{standardId}'.",
+                });
             }
 
             if (!string.IsNullOrEmpty(control.Id))
@@ -127,15 +124,12 @@ public static class ConfigValidator
                 });
             }
 
-            foreach (var controlId in scope.Controls)
+            foreach (var controlId in scope.Controls.Where(controlId => !controlIds.Contains(controlId)))
             {
-                if (!controlIds.Contains(controlId))
+                diagnostics.Add(new Diagnostic
                 {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Control id '{controlId}'.",
-                    });
-                }
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Control id '{controlId}'.",
+                });
             }
 
             if (!string.IsNullOrEmpty(scope.Id) && !seen.Add(scope.Id))

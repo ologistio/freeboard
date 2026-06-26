@@ -71,7 +71,7 @@ public static class ConfigLoader
         {
             text = File.ReadAllText(path);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             diagnostics.Add(new Diagnostic { File = relative, Message = $"Could not read file: {ex.Message}" });
             return;
@@ -80,7 +80,8 @@ public static class ConfigLoader
         var stream = new YamlStream();
         try
         {
-            stream.Load(new StringReader(text));
+            using var reader = new StringReader(text);
+            stream.Load(reader);
         }
         catch (YamlException ex)
         {
@@ -166,7 +167,9 @@ public static class ConfigLoader
         // representation-model parse (for kind/key-diff) and typed binding consistent.
         using var writer = new StringWriter();
         new YamlStream(new YamlDocument(mapping)).Save(writer, assignAnchors: false);
-        return Deserializer.Deserialize<T>(new StringReader(writer.ToString()))!;
+        var yaml = writer.ToString();
+        using var reader = new StringReader(yaml);
+        return Deserializer.Deserialize<T>(reader)!;
     }
 
     private static void ReportUnknownFields(
@@ -198,15 +201,10 @@ public static class ConfigLoader
 
     private static string? ScalarValue(YamlMappingNode mapping, string key)
     {
-        foreach (var entry in mapping.Children)
-        {
-            if (entry.Key is YamlScalarNode scalar && scalar.Value == key)
-            {
-                return (entry.Value as YamlScalarNode)?.Value;
-            }
-        }
-
-        return null;
+        return mapping.Children
+            .Where(entry => entry.Key is YamlScalarNode scalar && scalar.Value == key)
+            .Select(entry => (entry.Value as YamlScalarNode)?.Value)
+            .FirstOrDefault();
     }
 
     private static Diagnostic FromYamlException(string relative, YamlException ex)

@@ -13,7 +13,8 @@ public sealed class GitOpsReadOnlyTests
         using var factory = new GitOpsWebFactory(readOnly: true, repositoryUrl: "https://example.com/repo.git");
         using var client = factory.CreateClient();
 
-        var response = await client.PostAsync("/", new StringContent("", Encoding.UTF8));
+        using var content = new StringContent("", Encoding.UTF8);
+        var response = await client.PostAsync("/", content);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -51,7 +52,8 @@ public sealed class GitOpsReadOnlyTests
         using var factory = new GitOpsWebFactory(readOnly: false);
         using var client = factory.CreateClient();
 
-        var response = await client.PostAsync("/", new StringContent("", Encoding.UTF8));
+        using var content = new StringContent("", Encoding.UTF8);
+        var response = await client.PostAsync("/", content);
 
         Assert.NotEqual(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
@@ -67,7 +69,8 @@ public sealed class GitOpsReadOnlyTests
         using var factory = new GitOpsWebFactory(readOnly: true);
         using var client = factory.CreateClient();
 
-        var response = await client.PostAsync("/", new StringContent("", Encoding.UTF8));
+        using var content = new StringContent("", Encoding.UTF8);
+        var response = await client.PostAsync("/", content);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
