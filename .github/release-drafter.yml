@@ -9,7 +9,7 @@ categories:
   - title: 'Maintenance'
     labels: ['chore', 'build', 'ci', 'docs', 'perf', 'refactor', 'style', 'test']
 
-change-template: '- $TITLE ([#$NUMBER](https://github.com/ologistio/freeboard/pulls/$NUMBER)) @$AUTHOR'
+change-template: '- $TITLE ([#$NUMBER](https://github.com/ologistio/freeboard/pull/$NUMBER)) @$AUTHOR'
 
 # SemVer bump is resolved from PR labels (see autolabeler below).
 version-resolver:
