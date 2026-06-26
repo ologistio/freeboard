@@ -2,6 +2,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Freeboard.Core\Freeboard.Core.csproj" />
+    <ProjectReference Include="..\Freeboard.Persistence\Freeboard.Persistence.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Freeboard.CLI.Tests" />
   </ItemGroup>
 
   <ItemGroup>

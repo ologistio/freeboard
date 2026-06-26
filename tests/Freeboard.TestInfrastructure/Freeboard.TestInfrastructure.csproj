@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Single home for test infrastructure and local-dev tooling: the shared MySQL test
+    fixture, the docker-compose.yml, and the mysql-init grant script. Test-only; no
+    src/ project references this. The compose file and init SQL are dev/test conceits
+    located by a known relative path (tests/Freeboard.TestInfrastructure/), not built.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MySqlConnector" Version="2.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Freeboard.Persistence\Freeboard.Persistence.csproj" />
+  </ItemGroup>
+
+  <!-- Dev/test tooling carried with the project; not compiled, not copied to output. -->
+  <ItemGroup>
+    <None Include="docker-compose.yml" />
+    <None Include="docker\mysql-init\*.sql" />
+  </ItemGroup>
+
+</Project>

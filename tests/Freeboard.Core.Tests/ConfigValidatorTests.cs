@@ -105,6 +105,72 @@ public sealed class ConfigValidatorTests
     }
 
     [Fact]
+    public void DuplicateMapsToIdFails()
+    {
+        using var dir = TempConfig.Create(
+            ("std.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Standard
+                id: iso-27001
+                title: ISO 27001
+                """),
+            ("ctrl.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Control
+                id: ctrl-a
+                title: Control A
+                maps_to:
+                  - iso-27001
+                  - iso-27001
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Message.Contains("ctrl-a") && d.Message.Contains("maps_to")
+                && d.Message.Contains("duplicate") && d.Message.Contains("iso-27001"));
+    }
+
+    [Fact]
+    public void DuplicateScopeControlIdFails()
+    {
+        using var dir = TempConfig.Create(
+            ("ctrl.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Control
+                id: ctrl-a
+                title: Control A
+                maps_to:
+                  - std-a
+                """),
+            ("std.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Standard
+                id: std-a
+                title: A
+                """),
+            ("scope.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Scope
+                id: scope-a
+                title: Scope A
+                controls:
+                  - ctrl-a
+                  - ctrl-a
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Message.Contains("scope-a") && d.Message.Contains("controls")
+                && d.Message.Contains("duplicate") && d.Message.Contains("ctrl-a"));
+    }
+
+    [Fact]
     public void OmittedScopeControlsFails()
     {
         using var dir = TempConfig.Create(
