@@ -18,7 +18,11 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
     private readonly TextWriter originalOut = Console.Out;
     private readonly TextWriter originalErr = Console.Error;
 
-    private static string FixtureDir(string name) => Path.Combine(AppContext.BaseDirectory, "fixtures", name);
+    private static string FixtureDir(string name)
+    {
+        Assert.False(Path.IsPathRooted(name), "fixture name must be relative");
+        return Path.Combine(AppContext.BaseDirectory, "fixtures", name);
+    }
 
     public void Dispose()
     {
@@ -31,8 +35,8 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
 
     private static (int Exit, string Out, string Err) Capture(Func<int> run)
     {
-        var outW = new StringWriter();
-        var errW = new StringWriter();
+        using var outW = new StringWriter();
+        using var errW = new StringWriter();
         Console.SetOut(outW);
         Console.SetError(errW);
         var exit = run();

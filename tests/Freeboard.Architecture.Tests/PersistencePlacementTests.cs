@@ -59,6 +59,7 @@ public sealed class PersistencePlacementTests
 
     private static IEnumerable<string> ProjectReferences(string projectName)
     {
+        Assert.False(Path.IsPathRooted(projectName), "projectName must be relative");
         var csproj = Path.Combine(RepoRoot(), "src", projectName, $"{projectName}.csproj");
         Assert.True(File.Exists(csproj), $"csproj not found: {csproj}");
 
@@ -71,6 +72,7 @@ public sealed class PersistencePlacementTests
 
     private static string ProjectOutputDir(string projectName)
     {
+        Assert.False(Path.IsPathRooted(projectName), "projectName must be relative");
         var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var tfm = Path.GetFileName(baseDir);
         var config = Path.GetFileName(Path.GetDirectoryName(baseDir)!);
