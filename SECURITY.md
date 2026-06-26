@@ -29,8 +29,6 @@ Reports that are typically not eligible:
 
 GitHub issues concerning vulnerabilities will be tagged with the **security** label to differentiate them from other issues and maintain SOC2 compliance.  
 
-See [security/README.md](./security/README.md) for more information on our process to keep Freeboard products secure.
-
 ### Compatibility
 
 Freeboard reserves the right to make breaking changes for security. Security fixes may introduce backward-incompatible changes and may be released in minor or patch versions.
