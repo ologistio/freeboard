@@ -1,3 +1,7 @@
-﻿using ConsoleAppFramework;
+using ConsoleAppFramework;
+using Freeboard.CLI;
 
-ConsoleApp.Run(args, (string name) => Console.WriteLine($"Hello {name}"));
+var app = ConsoleApp.Create();
+app.Add<GitOpsCommands>("gitops");
+app.Run(args);
+return Environment.ExitCode;
