@@ -28,6 +28,19 @@ public sealed class MigrationCatalogTests
     }
 
     [Fact]
+    public void ChecksumIsLineEndingInvariant()
+    {
+        // Same SQL checked out with LF, CRLF, or CR must hash identically, so a database
+        // migrated on one platform is not reported as checksum-corrupt by another.
+        var lf = "CREATE TABLE t (\n  id INT\n);\n";
+        var crlf = "CREATE TABLE t (\r\n  id INT\r\n);\r\n";
+        var cr = "CREATE TABLE t (\r  id INT\r);\r";
+
+        Assert.Equal(MigrationCatalog.Checksum(lf), MigrationCatalog.Checksum(crlf));
+        Assert.Equal(MigrationCatalog.Checksum(lf), MigrationCatalog.Checksum(cr));
+    }
+
+    [Fact]
     public void RealAssemblyContainsInitialSchema()
     {
         var migrations = MigrationCatalog.Load(typeof(IMigrationRunner).Assembly);

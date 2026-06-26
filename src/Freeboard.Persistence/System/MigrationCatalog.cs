@@ -69,10 +69,16 @@ public static partial class MigrationCatalog
         return reader.ReadToEnd();
     }
 
-    /// <summary>SHA-256 of the UTF-8 SQL text as lowercase hex (64 chars).</summary>
+    /// <summary>
+    /// SHA-256 of the SQL text as lowercase hex (64 chars). Line endings are normalized
+    /// to LF first so the same migration hashes identically regardless of checkout EOL
+    /// (CRLF on Windows vs LF elsewhere); otherwise a database migrated on one platform
+    /// would be reported as checksum-corrupt by a build from another.
+    /// </summary>
     public static string Checksum(string sql)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(sql));
+        var normalized = sql.Replace("\r\n", "\n").Replace("\r", "\n");
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
         return Convert.ToHexStringLower(bytes);
     }
 }

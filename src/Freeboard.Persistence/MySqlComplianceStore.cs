@@ -1,3 +1,4 @@
+using System.Data;
 using System.Data.Common;
 using Dapper;
 
@@ -21,18 +22,26 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     public async Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        // One consistent snapshot so the controls and their maps_to rows cannot straddle
+        // a concurrent gitops sync commit and pair old controls with new cross-refs.
+        await using var transaction = await connection
+            .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
         var controls = (await connection.QueryAsync<(string Id, string Title)>(new CommandDefinition(
             "SELECT id AS Id, title AS Title FROM controls ORDER BY id;",
+            transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
         var links = await connection.QueryAsync<(string ControlId, string StandardId)>(new CommandDefinition(
             "SELECT control_id AS ControlId, standard_id AS StandardId FROM control_standards ORDER BY control_id, standard_id;",
+            transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         var mapsTo = links
             .GroupBy(l => l.ControlId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Select(l => l.StandardId).ToList(), StringComparer.Ordinal);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return controls
             .Select(c => new ControlRow(
@@ -45,18 +54,26 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     public async Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        // One consistent snapshot so the scopes and their controls rows cannot straddle
+        // a concurrent gitops sync commit and pair old scopes with new cross-refs.
+        await using var transaction = await connection
+            .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
         var scopes = (await connection.QueryAsync<(string Id, string Title)>(new CommandDefinition(
             "SELECT id AS Id, title AS Title FROM scopes ORDER BY id;",
+            transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
         var links = await connection.QueryAsync<(string ScopeId, string ControlId)>(new CommandDefinition(
             "SELECT scope_id AS ScopeId, control_id AS ControlId FROM scope_controls ORDER BY scope_id, control_id;",
+            transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         var byScope = links
             .GroupBy(l => l.ScopeId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Select(l => l.ControlId).ToList(), StringComparer.Ordinal);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return scopes
             .Select(s => new ScopeRow(
