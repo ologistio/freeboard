@@ -1,0 +1,18 @@
+apiVersion: freeboard.io/v1alpha1
+kind: Standard
+id: std-a
+title: Standard A
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Control
+id: ctrl-a
+title: Control A
+maps_to:
+  - std-a
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Scope
+id: scope-a
+title: Scope A
+controls:
+  - ctrl-a

@@ -1,0 +1,6 @@
+apiVersion: freeboard.io/v1alpha1
+kind: Control
+id: ctrl-a
+title: Control A
+maps_to:
+  - std-missing
