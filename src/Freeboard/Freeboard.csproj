@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Freeboard.Core\Freeboard.Core.csproj" />
     <ProjectReference Include="..\Freeboard.Enterprise\Freeboard.Enterprise.csproj" />
+    <ProjectReference Include="..\Freeboard.Persistence\Freeboard.Persistence.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

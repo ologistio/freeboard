@@ -22,11 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Migrations\*.sql" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Freeboard.CLI\Freeboard.CLI.csproj" />
     <ProjectReference Include="..\..\src\Freeboard.Core\Freeboard.Core.csproj" />
     <ProjectReference Include="..\..\src\Freeboard.Persistence\Freeboard.Persistence.csproj" />
     <ProjectReference Include="..\Freeboard.TestInfrastructure\Freeboard.TestInfrastructure.csproj" />

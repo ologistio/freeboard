@@ -11,5 +11,19 @@ freeboard gitops validate examples/gitops
 freeboard gitops apply examples/gitops --dry-run
 ```
 
-See [docs/gitops.md](docs/gitops.md) for the format, commands, and read-only
-mode. See [examples/gitops/](examples/gitops/) for a sample config.
+Compliance state persists in MySQL. Apply the schema, then sync a validated
+config into the store; the web app serves the persisted domain read-only.
+
+```sh
+docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d
+export FREEBOARD_DB="Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
+freeboard system migrate
+freeboard gitops sync examples/gitops
+```
+
+`gitops sync` hard-removes resources dropped from the config. The connection
+string is a secret: use `FREEBOARD_DB`, user-secrets, or a config provider, never
+git.
+
+See [docs/gitops.md](docs/gitops.md) for the format, commands, persistence, and
+read-only mode. See [examples/gitops/](examples/gitops/) for a sample config.

@@ -89,6 +89,9 @@ public static class ConfigValidator
                 });
             }
 
+            CheckNoDuplicateRefs(
+                control.MapsTo, GitOpsSchema.KindControl, control.Id, "maps_to", "Standard", diagnostics);
+
             if (!string.IsNullOrEmpty(control.Id))
             {
                 if (!seen.Add(control.Id))
@@ -132,6 +135,9 @@ public static class ConfigValidator
                 });
             }
 
+            CheckNoDuplicateRefs(
+                scope.Controls, GitOpsSchema.KindScope, scope.Id, "controls", "Control", diagnostics);
+
             if (!string.IsNullOrEmpty(scope.Id) && !seen.Add(scope.Id))
             {
                 diagnostics.Add(Dup(GitOpsSchema.KindScope, scope.Id));
@@ -157,6 +163,31 @@ public static class ConfigValidator
             diagnostics.Add(new Diagnostic
             {
                 Message = $"{kind} '{Describe(otherId)}' is missing required field '{field}'.",
+            });
+        }
+    }
+
+    private static void CheckNoDuplicateRefs(
+        IReadOnlyList<string> refs,
+        string kind,
+        string id,
+        string field,
+        string targetKind,
+        List<Diagnostic> diagnostics)
+    {
+        // Ordinal equality, consistent with id identity. The join tables have composite
+        // PKs, so a duplicate would fail import with a duplicate-key error; reject it
+        // here as an input error instead.
+        // One diagnostic per duplicated id.
+        var duplicates = refs
+            .GroupBy(reference => reference, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key);
+        foreach (var reference in duplicates)
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{kind} '{Describe(id)}' {field} lists duplicate {targetKind} id '{reference}'.",
             });
         }
     }

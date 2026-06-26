@@ -72,15 +72,24 @@ network call.
 
 ### Requirement: CLI stays community and cross-platform
 
-The `gitops` command group SHALL live in `Freeboard.CLI`, reference only
-`Freeboard.Core`, and contain no reference to `Freeboard.Enterprise`. It SHALL
-run on Windows, Linux, and macOS without platform-specific code.
+The `gitops` command group SHALL live in `Freeboard.CLI` and reference only
+`Freeboard.Core` and the MIT persistence project (`Freeboard.Persistence`),
+and SHALL contain no reference to `Freeboard.Enterprise`. The MySQL client pulled
+in by the persistence project SHALL be a fully managed, cross-platform client, so
+the CLI continues to run on Windows, Linux, and macOS without platform-specific
+code.
 
 #### Scenario: No enterprise reference
 
 - **WHEN** the solution is built
 - **THEN** `Freeboard.CLI` resolves without any dependency on
   `Freeboard.Enterprise`
+
+#### Scenario: Cross-platform with the persistence dependency
+
+- **WHEN** the CLI is built and run on Windows, Linux, or macOS
+- **THEN** it runs without platform-specific code, the MySQL client being a fully
+  managed cross-platform client
 
 ### Requirement: EE one-way rule pinned by architecture test
 
@@ -93,4 +102,17 @@ An architecture test SHALL assert that `Freeboard.Core`, `Freeboard.CLI`, and
 - **WHEN** the architecture test runs
 - **THEN** it passes only if none of `Freeboard.Core`, `Freeboard.CLI`, or
   `Freeboard.Agent` references `Freeboard.Enterprise`
+
+### Requirement: Command-group documentation reflects the write path
+
+The `gitops` command-group documentation SHALL NOT claim that the group makes no
+network calls or writes no state, because `sync` now connects to MySQL and writes.
+Only `validate` and `apply --dry-run` SHALL be described as non-writing,
+non-connecting commands.
+
+#### Scenario: Group doc no longer claims no writes or no network
+
+- **WHEN** the `gitops` command-group documentation is read
+- **THEN** it does not claim the group writes no state or makes no network calls,
+  and it scopes the non-writing description to `validate` and `apply --dry-run`
 
