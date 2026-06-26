@@ -47,3 +47,30 @@ jobs:
         with:
           name: freeboard-${{ steps.version.outputs.version }}-${{ matrix.rid }}
           path: publish/${{ matrix.rid }}
+
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-snapshot.${{ github.run_number }}+${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Generate static website
+        run: dotnet run --project src/Freeboard.Web -c Release -- ssg-only
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freeboard-web-${{ steps.version.outputs.version }}
+          path: src/Freeboard.Web/_site
