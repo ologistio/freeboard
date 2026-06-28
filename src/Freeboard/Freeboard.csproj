@@ -6,6 +6,13 @@
     <ProjectReference Include="..\Freeboard.Persistence\Freeboard.Persistence.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- WebAuthn/FIDO2 (D4): MIT, passwordless-lib. The web app runs the ceremonies; the
+         persistence layer only stores credential rows. -->
+    <PackageReference Include="Fido2" Version="4.0.1" />
+    <PackageReference Include="Fido2.AspNet" Version="4.0.1" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>

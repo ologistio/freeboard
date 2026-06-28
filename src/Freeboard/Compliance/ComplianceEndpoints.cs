@@ -1,3 +1,4 @@
+using Freeboard.Api;
 using Freeboard.Persistence;
 
 namespace Freeboard.Compliance;
@@ -12,7 +13,7 @@ public static class ComplianceEndpoints
 {
     public static void MapComplianceEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/standards", async (IComplianceStore store, CancellationToken ct) =>
+        app.MapGet(ApiRoutes.ApiRoutePrefix + "/standards", async (IComplianceStore store, CancellationToken ct) =>
         {
             try
             {
@@ -25,7 +26,7 @@ public static class ComplianceEndpoints
             }
         });
 
-        app.MapGet("/api/controls", async (IComplianceStore store, CancellationToken ct) =>
+        app.MapGet(ApiRoutes.ApiRoutePrefix + "/controls", async (IComplianceStore store, CancellationToken ct) =>
         {
             try
             {
@@ -38,7 +39,7 @@ public static class ComplianceEndpoints
             }
         });
 
-        app.MapGet("/api/scopes", async (IComplianceStore store, CancellationToken ct) =>
+        app.MapGet(ApiRoutes.ApiRoutePrefix + "/scopes", async (IComplianceStore store, CancellationToken ct) =>
         {
             try
             {
@@ -51,7 +52,7 @@ public static class ComplianceEndpoints
             }
         });
 
-        app.MapGet("/api/compliance/status", async (IComplianceStore store, CancellationToken ct) =>
+        app.MapGet(ApiRoutes.ApiRoutePrefix + "/compliance/status", async (IComplianceStore store, CancellationToken ct) =>
         {
             try
             {
