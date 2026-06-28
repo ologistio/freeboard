@@ -7,7 +7,6 @@ namespace Freeboard.Web.Tests;
 
 public sealed class ComplianceDiTests
 {
-    // 7.3
     [Fact]
     public void WebResolvesReaderButNotImporterOrMigrationRunner()
     {

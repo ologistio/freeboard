@@ -14,6 +14,7 @@ internal sealed class GitOpsWebFactory(bool readOnly, string? repositoryUrl = nu
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("Freeboard:GitOps:ReadOnly", readOnly ? "true" : "false");
+        AuthTestConfig.Apply(builder);
         if (repositoryUrl is not null)
         {
             builder.UseSetting("Freeboard:GitOps:RepositoryUrl", repositoryUrl);
