@@ -1,5 +1,8 @@
+using System.Globalization;
+using Freeboard.Persistence.Auth;
 using Freeboard.Persistence.GitOps;
 using Freeboard.Persistence.System;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -8,7 +11,8 @@ namespace Freeboard.Persistence;
 /// <summary>
 /// DI registration, split by role so consumers only register what they use. The web
 /// app calls <see cref="AddComplianceStore"/> (reader only). The CLI calls
-/// <see cref="AddGitOpsImport"/> and <see cref="AddSystemMigrations"/>.
+/// <see cref="AddGitOpsImport"/> and <see cref="AddSystemMigrations"/>. The web app calls
+/// <see cref="AddAuth"/> for the full auth stack.
 /// </summary>
 public static class PersistenceServiceCollectionExtensions
 {
@@ -39,10 +43,123 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory ONCE plus the full auth stack: all stores, the
+    /// password hasher, token hasher, secret protector, and ULID factory. Crypto material is
+    /// bound from <paramref name="configuration"/> under <paramref name="cryptoSectionName"/>
+    /// and validated eagerly (fail loudly on missing/weak keys). The <see
+    /// cref="IAuthEmailSender"/> seam is intentionally NOT registered here: the transport is
+    /// operator config added later; consumers register a concrete sender themselves.
+    /// </summary>
+    public static IServiceCollection AddAuth(
+        this IServiceCollection services,
+        string connectionString,
+        IConfiguration configuration,
+        string cryptoSectionName = "Auth")
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        AddConnectionFactory(services, connectionString);
+
+        var cryptoOptions = BindAuthCryptoOptions(configuration.GetSection(cryptoSectionName));
+
+        // Eagerly validate ALL THREE key sets at registration so a misconfigured
+        // deployment fails fast at startup, not lazily at first hash/token/decrypt. Each set
+        // must be non-empty, every key at least the minimum length, and the current version
+        // must name a present key.
+        AuthKeyMaterial.Validate(
+            cryptoOptions.PasswordSecrets, cryptoOptions.CurrentPasswordSecretVersion, "AuthCryptoOptions.PasswordSecrets");
+        AuthKeyMaterial.Validate(
+            cryptoOptions.TokenKeys, cryptoOptions.CurrentTokenKeyVersion, "AuthCryptoOptions.TokenKeys");
+        AuthKeyMaterial.Validate(
+            cryptoOptions.SecretProtectionKeys, cryptoOptions.CurrentSecretProtectionKeyVersion,
+            "AuthCryptoOptions.SecretProtectionKeys", exactLength: true);
+
+        services.TryAddSingleton(cryptoOptions);
+
+        services.TryAddSingleton<IUlidFactory, UlidFactory>();
+        services.TryAddSingleton<IPasswordHasher, Argon2idPasswordHasher>();
+        services.TryAddSingleton<ITokenHasher, HmacTokenHasher>();
+        services.TryAddSingleton<ISecretProtector, AesGcmSecretProtector>();
+
+        services.TryAddSingleton<IUserStore, MySqlUserStore>();
+        services.TryAddSingleton<IPasswordCredentialStore, MySqlPasswordCredentialStore>();
+        services.TryAddSingleton<IPasswordResetStore, MySqlPasswordResetStore>();
+        services.TryAddSingleton<ISessionStore, MySqlSessionStore>();
+        services.TryAddSingleton<IAuthRateLimitStore, MySqlAuthRateLimitStore>();
+        services.TryAddSingleton<ITotpStore, MySqlTotpStore>();
+        services.TryAddSingleton<IRecoveryCodeStore, MySqlRecoveryCodeStore>();
+        services.TryAddSingleton<IWebAuthnCredentialStore, MySqlWebAuthnCredentialStore>();
+        services.TryAddSingleton<IMfaChallengeStore, MySqlMfaChallengeStore>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Builds <see cref="AuthCryptoOptions"/> from config. Each versioned key set is a child
+    /// section of <c>version -> base64-key</c> entries; the current version is a sibling int.
+    /// Keys are REQUIRED out-of-band material (env/user-secrets/config), so a missing section
+    /// is a hard error. Strength is validated downstream by each component at construction.
+    /// </summary>
+    private static AuthCryptoOptions BindAuthCryptoOptions(IConfigurationSection section)
+    {
+        return new AuthCryptoOptions
+        {
+            PasswordSecrets = ReadKeySet(section, "PasswordSecrets"),
+            CurrentPasswordSecretVersion = ReadCurrentVersion(section, "CurrentPasswordSecretVersion"),
+            TokenKeys = ReadKeySet(section, "TokenKeys"),
+            CurrentTokenKeyVersion = ReadCurrentVersion(section, "CurrentTokenKeyVersion"),
+            SecretProtectionKeys = ReadKeySet(section, "SecretProtectionKeys"),
+            CurrentSecretProtectionKeyVersion = ReadCurrentVersion(section, "CurrentSecretProtectionKeyVersion"),
+        };
+    }
+
+    private static IReadOnlyDictionary<int, byte[]> ReadKeySet(IConfigurationSection parent, string name)
+    {
+        var section = parent.GetSection(name);
+        var keys = new Dictionary<int, byte[]>();
+        foreach (var child in section.GetChildren())
+        {
+            if (!int.TryParse(child.Key, NumberStyles.None, CultureInfo.InvariantCulture, out var version))
+            {
+                throw new InvalidOperationException(
+                    $"{parent.Path}:{name} has a non-integer version key '{child.Key}'.");
+            }
+
+            if (string.IsNullOrEmpty(child.Value))
+            {
+                throw new InvalidOperationException($"{parent.Path}:{name}:{child.Key} is empty.");
+            }
+
+            keys[version] = Convert.FromBase64String(child.Value);
+        }
+
+        if (keys.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"{parent.Path}:{name} is missing. It is REQUIRED and must be supplied out-of-band (env/user-secrets/config).");
+        }
+
+        return keys;
+    }
+
+    private static int ReadCurrentVersion(IConfigurationSection parent, string name)
+    {
+        var value = parent[name];
+        if (string.IsNullOrEmpty(value)
+            || !int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var version))
+        {
+            throw new InvalidOperationException($"{parent.Path}:{name} is missing or not an integer.");
+        }
+
+        return version;
+    }
+
     private static void AddConnectionFactory(IServiceCollection services, string connectionString)
     {
         services.TryAddPersistenceOptions(connectionString);
-        services.AddSingleton<IDbConnectionFactory, MySqlConnectionFactory>();
+        // TryAdd so calling more than one Add* extension (e.g. AddComplianceStore +
+        // AddAuth on the web app) registers the factory exactly once instead of duplicating it.
+        services.TryAddSingleton<IDbConnectionFactory, MySqlConnectionFactory>();
     }
 
     private static void TryAddPersistenceOptions(this IServiceCollection services, string connectionString)
