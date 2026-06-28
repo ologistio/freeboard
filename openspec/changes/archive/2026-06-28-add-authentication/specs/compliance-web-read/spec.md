@@ -1,8 +1,5 @@
-# compliance-web-read Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-gitops-mysql-persistence. Update Purpose after archive.
-## Requirements
 ### Requirement: Web read endpoints serve the persisted compliance domain
 
 The web app SHALL expose read-only HTTP endpoints that return the persisted
@@ -75,34 +72,6 @@ zero.
 - **THEN** the endpoint returns HTTP 503 with an RFC 7807 problem body rather than
   an unhandled exception
 
-### Requirement: Web tests inject a compliance store double
-
-All web tests SHALL inject an `IComplianceStore` test double so `dotnet test`
-stays green without a MySQL database. Web/double tests assert endpoint
-serialization shape and ordering only; cross-reference (`maps_to`/`controls`)
-resolution correctness from the SQL joins is asserted only by the MySQL
-integration tests in the persistence capability, which skip when no MySQL is
-reachable.
-
-#### Scenario: Web tests run without MySQL
-
-- **WHEN** the web test suite runs with no MySQL available
-- **THEN** every web test injects an `IComplianceStore` double and the suite is
-  green
-
-### Requirement: Read endpoints are GET-only and unaffected by read-only mode
-
-The compliance read endpoints SHALL serve only `GET` requests. Because they are
-read-only, the existing GitOps read-only middleware SHALL NOT block them when
-read-only mode is on.
-
-#### Scenario: Read endpoints work in read-only mode
-
-- **WHEN** read-only mode is on and a client issues a `GET` to a compliance read
-  endpoint
-- **THEN** the request is served normally and is not rejected with the
-  read-only-mode 409 response
-
 ### Requirement: Compliance status endpoint reports persisted counts
 
 The web app SHALL provide `GET /api/v1/freeboard/compliance/status` returning a
@@ -148,4 +117,3 @@ registered. (Its path moves under the `/api/v1/freeboard/` namespace.)
   `IComplianceStore` available or with the store unreachable
 - **THEN** the endpoint still returns its normal `gitOps`/`repositoryUrl` response
   rather than failing
-

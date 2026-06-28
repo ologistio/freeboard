@@ -1,25 +1,4 @@
-# gitops-readonly-ui Specification
-
-## Purpose
-TBD - created by archiving change add-gitops-config-management. Update Purpose after archive.
-## Requirements
-### Requirement: GitOps read-only mode flag
-
-The web app SHALL read a configuration flag `Freeboard:GitOps:ReadOnly`
-(boolean, default false). When true, the app is in GitOps mode: git is the
-source of truth and the UI must not accept changes. The web app SHALL also read
-`Freeboard:GitOps:RepositoryUrl` (string, optional, default empty), the git repo
-URL surfaced to callers; when empty it is omitted from responses.
-
-#### Scenario: Default is off
-
-- **WHEN** the flag is not set
-- **THEN** the app behaves normally and does not advertise GitOps mode
-
-#### Scenario: Flag enables GitOps mode
-
-- **WHEN** `Freeboard:GitOps:ReadOnly` is true
-- **THEN** the app reports that it is in GitOps mode
+## MODIFIED Requirements
 
 ### Requirement: Mutating requests rejected in GitOps mode
 
@@ -99,4 +78,3 @@ path change for the status endpoint).
 - **WHEN** the app is not in GitOps mode and a client requests
   `GET /api/v1/freeboard/gitops/status`
 - **THEN** the response indicates GitOps mode is off
-
