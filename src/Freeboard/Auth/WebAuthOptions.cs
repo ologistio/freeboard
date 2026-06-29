@@ -29,8 +29,9 @@ public sealed class WebAuthOptions
 
     /// <summary>
     /// Whether the password-reset (forgot/reset) flow is enabled. When true, an
-    /// <see cref="Persistence.Auth.IAuthEmailSender"/> MUST be registered or the app fails fast
-    /// at startup, so the runtime behavior of forgot-password stays uniform. Default false.
+    /// <see cref="AuthEmailService"/> MUST be registered (i.e. an email transport is configured) or
+    /// the app fails fast at startup, so the runtime behavior of forgot-password stays uniform.
+    /// Default false.
     /// </summary>
     public bool PasswordResetEnabled { get; set; }
 

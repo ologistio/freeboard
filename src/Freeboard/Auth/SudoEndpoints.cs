@@ -135,7 +135,7 @@ public static class SudoEndpoints
         }
 
         var user = await users.GetByIdAsync(userId, ct).ConfigureAwait(false);
-        var sender = sp.GetService<IAuthEmailSender>();
+        var sender = sp.GetService<AuthEmailService>();
         if (user is null || sender is null)
         {
             return Results.Json(new { error = "magic_link_unavailable" }, statusCode: StatusCodes.Status400BadRequest);

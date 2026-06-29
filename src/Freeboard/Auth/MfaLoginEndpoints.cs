@@ -101,7 +101,7 @@ public static class MfaLoginEndpoints
             return GenericUnauthorized();
         }
 
-        var sender = sp.GetService<IAuthEmailSender>();
+        var sender = sp.GetService<AuthEmailService>();
         if (sender is null || !challenge.Factors.Split(',').Contains(MfaFactors.MagicLink))
         {
             return Results.Json(new { error = "magic_link_unavailable" }, statusCode: StatusCodes.Status400BadRequest);

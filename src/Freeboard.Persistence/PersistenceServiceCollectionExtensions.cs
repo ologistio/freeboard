@@ -47,9 +47,9 @@ public static class PersistenceServiceCollectionExtensions
     /// Registers the connection factory ONCE plus the full auth stack: all stores, the
     /// password hasher, token hasher, secret protector, and ULID factory. Crypto material is
     /// bound from <paramref name="configuration"/> under <paramref name="cryptoSectionName"/>
-    /// and validated eagerly (fail loudly on missing/weak keys). The <see
-    /// cref="IAuthEmailSender"/> seam is intentionally NOT registered here: the transport is
-    /// operator config added later; consumers register a concrete sender themselves.
+    /// and validated eagerly (fail loudly on missing/weak keys). Email delivery is not part of
+    /// this layer: the consuming web app configures an email transport and builds the auth
+    /// messages.
     /// </summary>
     public static IServiceCollection AddAuth(
         this IServiceCollection services,
