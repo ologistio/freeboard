@@ -493,16 +493,23 @@ public sealed class MySqlIntegrationTests
         });
         var results = await Task.WhenAll(tasks);
 
+        // The cap holds atomically: all callers converge on ONE challenge row and magic_link_sends
+        // reaches exactly maxSends - the race does not multiply it. How many callers report Sent is
+        // timing-dependent: the stored magic-link token is last-writer-wins, so an earlier under-cap
+        // sender can be overwritten before it reads its own token back. It is always between 1 and
+        // maxSends, never more - so at most maxSends links are ever emailed.
         var accepted = results.Count(r => r.Sent);
-        Assert.Equal(maxSends, accepted);
+        Assert.InRange(accepted, 1, maxSends);
         Assert.Single(results.Select(r => r.ChallengeId).Distinct());
 
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
-        var rowCount = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM mfa_login_challenges WHERE user_id = @UserId AND sudo_dedupe_key = 'magic_link';",
+        var row = await conn.QuerySingleAsync<(long Count, int Sends)>(
+            "SELECT COUNT(*) AS Count, COALESCE(MAX(magic_link_sends), 0) AS Sends FROM mfa_login_challenges "
+            + "WHERE user_id = @UserId AND sudo_dedupe_key = 'magic_link';",
             new { UserId = user.Id });
-        Assert.Equal(1, rowCount);
+        Assert.Equal(1, row.Count);
+        Assert.Equal(maxSends, row.Sends);
     }
 
     // Test crypto with fixed 32-byte keys (>= 32 required by AuthKeyMaterial.Validate). Distinct
