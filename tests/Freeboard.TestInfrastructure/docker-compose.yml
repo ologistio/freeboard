@@ -11,6 +11,11 @@
 # The connection string is a secret in real deployments. Supply it via an
 # environment variable, .NET user-secrets, or a config provider - never commit it.
 
+# Mailpit is a local SMTP sink for the gated auth-email integration test. Stand it up the
+# same way as MySQL, then point FREEBOARD_TEST_SMTP at it:
+#   FREEBOARD_TEST_SMTP="Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
+# SMTP listens on 1025 (no TLS); the web UI / messages API on 8025.
+
 services:
   mysql:
     image: mysql:8.4
@@ -31,6 +36,12 @@ services:
       # Local-only grants so the freeboard user can provision the fb_test_* throwaway
       # databases the integration tests create. Dev/test convenience, not for production.
       - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
 
 volumes:
   freeboard-mysql:
