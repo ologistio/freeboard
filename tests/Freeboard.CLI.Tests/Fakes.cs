@@ -71,3 +71,85 @@ internal sealed class FakeMigrationRunner : IMigrationRunner
         return Task.FromResult<IReadOnlyList<string>>(["001"]);
     }
 }
+
+/// <summary>
+/// Records IFreeboardApiClient calls and returns canned ApiResults so the user commands run with
+/// no live API and no database. Each method's return value is configurable; calls are counted so
+/// tests can assert the command hit the API (and, implicitly, opened no DB connection - this fake
+/// has no IDbConnectionFactory).
+/// </summary>
+internal sealed class FakeApiClient : IFreeboardApiClient
+{
+    public int CreateCalls { get; private set; }
+
+    public int ListCalls { get; private set; }
+
+    public int DisableCalls { get; private set; }
+
+    public int EnableCalls { get; private set; }
+
+    public int ResetCalls { get; private set; }
+
+    public int BootstrapCalls { get; private set; }
+
+    public string? LastId { get; private set; }
+
+    public ApiResult<CreatedUser> CreateResult { get; init; } =
+        ApiResult<CreatedUser>.Success(new CreatedUser(SampleUser, "temp-create-pw"));
+
+    public ApiResult<IReadOnlyList<ApiUser>> ListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiUser>>.Success([SampleUser]);
+
+    public ApiResult<Unit> DisableResult { get; init; } = ApiResult<Unit>.Success(Unit.Value);
+
+    public ApiResult<Unit> EnableResult { get; init; } = ApiResult<Unit>.Success(Unit.Value);
+
+    public ApiResult<ResetPassword> ResetResult { get; init; } =
+        ApiResult<ResetPassword>.Success(new ResetPassword("temp-reset-pw"));
+
+    public ApiResult<BootstrapResult> BootstrapResult { get; init; } =
+        ApiResult<BootstrapResult>.Success(new BootstrapResult(SampleUser, "admin-token-xyz"));
+
+    public static ApiUser SampleUser { get; } =
+        new("01HZZ0000000000000000000AA", "user@example.test", "User", "member", true);
+
+    public Task<ApiResult<CreatedUser>> CreateUserAsync(string email, string name, string role, CancellationToken ct)
+    {
+        CreateCalls++;
+        return Task.FromResult(CreateResult);
+    }
+
+    public Task<ApiResult<IReadOnlyList<ApiUser>>> ListUsersAsync(CancellationToken ct)
+    {
+        ListCalls++;
+        return Task.FromResult(ListResult);
+    }
+
+    public Task<ApiResult<Unit>> DisableUserAsync(string id, CancellationToken ct)
+    {
+        DisableCalls++;
+        LastId = id;
+        return Task.FromResult(DisableResult);
+    }
+
+    public Task<ApiResult<Unit>> EnableUserAsync(string id, CancellationToken ct)
+    {
+        EnableCalls++;
+        LastId = id;
+        return Task.FromResult(EnableResult);
+    }
+
+    public Task<ApiResult<ResetPassword>> ResetPasswordAsync(string id, CancellationToken ct)
+    {
+        ResetCalls++;
+        LastId = id;
+        return Task.FromResult(ResetResult);
+    }
+
+    public Task<ApiResult<BootstrapResult>> BootstrapAsync(
+        string email, string name, string? password, string bootstrapSecret, CancellationToken ct)
+    {
+        BootstrapCalls++;
+        return Task.FromResult(BootstrapResult);
+    }
+}

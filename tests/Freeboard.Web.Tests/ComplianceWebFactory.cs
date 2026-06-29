@@ -17,6 +17,7 @@ internal sealed class ComplianceWebFactory(IComplianceStore store, bool readOnly
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("Freeboard:GitOps:ReadOnly", readOnly ? "true" : "false");
+        AuthTestConfig.Apply(builder);
 
         builder.ConfigureTestServices(services =>
         {

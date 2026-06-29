@@ -82,7 +82,7 @@ public sealed class GitOpsReadOnlyTests
         using var factory = new GitOpsWebFactory(readOnly: true, repositoryUrl: "https://example.com/repo.git");
         using var client = factory.CreateClient();
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/gitops/status");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/gitops/status");
 
         Assert.True(json.GetProperty("gitOps").GetBoolean());
         Assert.Equal("https://example.com/repo.git", json.GetProperty("repositoryUrl").GetString());
@@ -94,7 +94,7 @@ public sealed class GitOpsReadOnlyTests
         using var factory = new GitOpsWebFactory(readOnly: false);
         using var client = factory.CreateClient();
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/gitops/status");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/gitops/status");
 
         Assert.False(json.GetProperty("gitOps").GetBoolean());
         Assert.False(json.TryGetProperty("repositoryUrl", out _));

@@ -14,28 +14,26 @@ public sealed class ComplianceEndpointTests
         Scopes = [new ScopeRow("scope-a", "Scope A", ["ctrl-a"])],
     };
 
-    // 7.1
     [Fact]
     public async Task StandardsEndpointReturnsIdsAndTitlesOrderedById()
     {
         using var factory = new ComplianceWebFactory(PopulatedStore());
         using var client = factory.CreateClient();
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/standards");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/standards");
 
         Assert.Equal(2, json.GetArrayLength());
         Assert.Equal("std-a", json[0].GetProperty("id").GetString());
         Assert.Equal("Standard A", json[0].GetProperty("title").GetString());
     }
 
-    // 7.1
     [Fact]
     public async Task ControlsEndpointReturnsResolvedMapsTo()
     {
         using var factory = new ComplianceWebFactory(PopulatedStore());
         using var client = factory.CreateClient();
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/controls");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/controls");
 
         var control = json[0];
         Assert.Equal("ctrl-a", control.GetProperty("id").GetString());
@@ -43,28 +41,26 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(["std-a", "std-b"], mapsTo);
     }
 
-    // 7.1
     [Fact]
     public async Task ScopesEndpointReturnsResolvedControls()
     {
         using var factory = new ComplianceWebFactory(PopulatedStore());
         using var client = factory.CreateClient();
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/scopes");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/scopes");
 
         var scope = json[0];
         Assert.Equal("scope-a", scope.GetProperty("id").GetString());
         Assert.Equal(["ctrl-a"], scope.GetProperty("controls").EnumerateArray().Select(e => e.GetString()).ToList());
     }
 
-    // 7.1
     [Fact]
     public async Task StatusEndpointReturnsPersistedCounts()
     {
         using var factory = new ComplianceWebFactory(PopulatedStore());
         using var client = factory.CreateClient();
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/compliance/status");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/compliance/status");
 
         var persisted = json.GetProperty("persisted");
         Assert.Equal(2, persisted.GetProperty("standards").GetInt32());
@@ -72,26 +68,24 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(1, persisted.GetProperty("scopes").GetInt32());
     }
 
-    // 7.2
     [Fact]
     public async Task ReadEndpointServedInReadOnlyMode()
     {
         using var factory = new ComplianceWebFactory(PopulatedStore(), readOnly: true);
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/standards");
+        var response = await client.GetAsync("/api/v1/freeboard/standards");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // 7.4
     [Fact]
     public async Task UnreachableStoreReturns503ProblemForReads()
     {
         using var factory = new ComplianceWebFactory(new FakeComplianceStore { Unreachable = true });
         using var client = factory.CreateClient();
 
-        foreach (var path in new[] { "/api/standards", "/api/controls", "/api/scopes" })
+        foreach (var path in new[] { "/api/v1/freeboard/standards", "/api/v1/freeboard/controls", "/api/v1/freeboard/scopes" })
         {
             var response = await client.GetAsync(path);
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
@@ -106,14 +100,13 @@ public sealed class ComplianceEndpointTests
         }
     }
 
-    // 7.4
     [Fact]
     public async Task UnreachableStoreStatusReturns200WithNullCounts()
     {
         using var factory = new ComplianceWebFactory(new FakeComplianceStore { Unreachable = true });
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/compliance/status");
+        var response = await client.GetAsync("/api/v1/freeboard/compliance/status");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -123,7 +116,6 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("scopes").ValueKind);
     }
 
-    // 7.5
     [Fact]
     public async Task GitOpsStatusUnchangedAndIndependentOfStore()
     {
@@ -131,7 +123,7 @@ public sealed class ComplianceEndpointTests
         using var factory = new ComplianceWebFactory(new FakeComplianceStore { Unreachable = true }, readOnly: true);
         using var client = factory.CreateClient();
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/gitops/status");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/gitops/status");
 
         Assert.True(json.GetProperty("gitOps").GetBoolean());
         Assert.False(json.TryGetProperty("persisted", out _));

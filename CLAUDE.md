@@ -9,6 +9,7 @@ All projects live under `src/` and target `net10.0`.
 | Project | Type | Purpose |
 | --- | --- | --- |
 | `src/Freeboard.Core` | classlib | Shared library used by all Freeboard components. |
+| `src/Freeboard.Persistence` | classlib | MIT. All DB code (MySQL store, migrations, auth). Referenced by web and CLI. |
 | `src/Freeboard.Enterprise` | classlib | Enterprise-only code (EE license carve-outs). |
 | `src/Freeboard.Agent` | console | End-device agent that collects data. Cross-platform. |
 | `src/Freeboard` | ASP.NET Core | Web-based UI. |
@@ -18,10 +19,11 @@ All projects live under `src/` and target `net10.0`.
 ## Reference graph
 
 - `Freeboard.Core` references nothing (the shared base).
+- `Freeboard.Persistence` -> `Freeboard.Core` (MIT; holds all DB code).
 - `Freeboard.Enterprise` -> `Freeboard.Core`.
 - `Freeboard.Agent` -> `Freeboard.Core`.
-- `Freeboard.CLI` -> `Freeboard.Core`.
-- `Freeboard` (web) -> `Freeboard.Core`, `Freeboard.Enterprise`.
+- `Freeboard.CLI` -> `Freeboard.Core`, `Freeboard.Persistence`.
+- `Freeboard` (web) -> `Freeboard.Core`, `Freeboard.Enterprise`, `Freeboard.Persistence`.
 - `Freeboard.Web` references nothing (standalone public website).
 
 `Freeboard.Agent` and `Freeboard.CLI` must NOT reference `Freeboard.Enterprise`. They
@@ -52,6 +54,47 @@ and exits.
 
 `Program.cs` disables HTTP/3 (QUIC) via a `DllImportResolver`. The SSG only
 serves HTTP/1 to itself, so QUIC is never needed.
+
+## Testing
+
+```sh
+dotnet test                       # run all test projects
+```
+
+Tests split into two tiers:
+
+- Unit/web tests run with no external dependencies. They use in-memory fakes and
+  `WebApplicationFactory`, so `dotnet test` passes out of the box.
+- MySQL integration tests are gated on the `FREEBOARD_TEST_DB` connection string.
+  When it is unset they **skip cleanly** (via `Xunit.SkippableFact`); when it is
+  set they run against a real database. Each test provisions a throwaway
+  `fb_test_<guid>` database and drops it on dispose (see
+  `tests/Freeboard.TestInfrastructure/MySqlTestDatabase.cs`).
+
+### Start the test MySQL
+
+A local MySQL for tests (and `FREEBOARD_DB` at runtime) is defined in
+`tests/Freeboard.TestInfrastructure/docker-compose.yml`. From the repo root:
+
+```sh
+docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d
+```
+
+It exposes MySQL 8.4 on `127.0.0.1:3306` with database/user/password
+`freeboard`, and an init grant script so the `freeboard` user can create the
+`fb_test_*` throwaway databases.
+
+Then run the integration tests by pointing `FREEBOARD_TEST_DB` at it:
+
+```sh
+export FREEBOARD_TEST_DB="Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
+dotnet test
+```
+
+Tear down with `docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml down`
+(add `-v` to also drop the data volume). The connection string is a secret in
+real deployments - supply it via env var, user-secrets, or a config provider;
+never commit it.
 
 ## Cross-platform publish
 

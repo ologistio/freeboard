@@ -13,7 +13,6 @@ public sealed class PersistencePlacementTests
     private const string Enterprise = "Freeboard.Enterprise";
     private const string Persistence = "Freeboard.Persistence";
 
-    // 8.1
     [Fact]
     public void PersistenceDoesNotReferenceEnterprise()
     {
@@ -21,7 +20,6 @@ public sealed class PersistencePlacementTests
         Assert.DoesNotContain(refs, r => r.Contains(Enterprise, StringComparison.OrdinalIgnoreCase));
     }
 
-    // 8.2
     [Theory]
     [InlineData(Persistence)]
     [InlineData("MySqlConnector")]
@@ -32,7 +30,6 @@ public sealed class PersistencePlacementTests
         Assert.DoesNotContain(refs, r => r.Contains(forbidden, StringComparison.OrdinalIgnoreCase));
     }
 
-    // 8.2 - the Agent build output ships no persistence or DB-client assembly.
     [Theory]
     [InlineData("Freeboard.Persistence")]
     [InlineData("MySqlConnector")]
@@ -49,7 +46,6 @@ public sealed class PersistencePlacementTests
         Assert.True(matches.Count == 0, $"Agent output contains {assemblyName}: {string.Join(", ", matches)}");
     }
 
-    // 8.3
     [Fact]
     public void CoreDoesNotReferencePersistence()
     {

@@ -40,7 +40,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         return (exit, outW.ToString(), errW.ToString());
     }
 
-    // 5.1
     [Fact]
     public void SyncInvalidConfigExitsOneAndDoesNotImport()
     {
@@ -56,7 +55,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Equal(0, importer.Calls);
     }
 
-    // 5.2
     [Fact]
     public void SyncValidConfigImportsOnceAndExitsZero()
     {
@@ -72,7 +70,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Single(importer.LastConfig!.Standards);
     }
 
-    // 5.3
     [Fact]
     public void SyncUnmigratedWithoutMigrateExitsThreeAndWritesNothing()
     {
@@ -92,7 +89,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Equal(0, importer.Calls);
     }
 
-    // 5.3
     [Fact]
     public void SyncUnmigratedWithMigrateAppliesThenImports()
     {
@@ -150,7 +146,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Equal(0, importer.Calls);
     }
 
-    // 5.4
     [Fact]
     public void MigrateInvokesRunnerAndExitsZero()
     {
@@ -163,7 +158,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Equal(1, runner.ApplyCalls);
     }
 
-    // 5.6 - missing connection string
     [Fact]
     public void SyncWithoutConnectionStringExitsThree()
     {
@@ -176,7 +170,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Contains("connection string", err, StringComparison.OrdinalIgnoreCase);
     }
 
-    // 5.6 - missing connection string for migrate
     [Fact]
     public void MigrateWithoutConnectionStringExitsThree()
     {
@@ -188,7 +181,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Contains("connection string", err, StringComparison.OrdinalIgnoreCase);
     }
 
-    // 5.6 - checksum mismatch surfaces as exit 3
     [Fact]
     public void MigrateChecksumMismatchExitsThree()
     {
@@ -203,7 +195,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Contains("checksum", err, StringComparison.OrdinalIgnoreCase);
     }
 
-    // 5.6 - recorded-but-missing migration surfaces as exit 3
     [Fact]
     public void MigrateMissingMigrationExitsThree()
     {
@@ -218,7 +209,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Contains("missing", err, StringComparison.OrdinalIgnoreCase);
     }
 
-    // 5.6 - migration execution failure surfaces as exit 3
     [Fact]
     public void MigrateExecutionFailureExitsThree()
     {
@@ -233,7 +223,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Contains("failed", err, StringComparison.OrdinalIgnoreCase);
     }
 
-    // 5.7 - explicit option overrides env var
     [Fact]
     public void ExplicitConnectionStringOverridesEnvVar()
     {
@@ -246,7 +235,6 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Equal("Server=explicit;", seen);
     }
 
-    // 5.7 - env var used when no option
     [Fact]
     public void EnvVarUsedWhenNoOption()
     {
