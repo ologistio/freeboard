@@ -22,12 +22,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Reuse the test-infrastructure compose so CI runs the same MySQL (image,
-      # credentials, and the fb_test_* grant init script) as local dev. The grants
-      # let the integration tests provision throwaway fb_test_* databases. --wait
-      # blocks until the healthcheck passes. Started early so it warms up during
-      # restore and build.
-      - name: Start MySQL
+      # Reuse the test-infrastructure compose so CI runs the same services (MySQL
+      # and the Mailpit SMTP sink) as local dev: the same images, credentials, and
+      # the fb_test_* grant init script. The grants let the integration tests
+      # provision throwaway fb_test_* databases. --wait blocks until healthchecks
+      # pass. Started early so they warm up during restore and build.
+      - name: Start test services
         run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d --wait
 
       - name: Restore
@@ -39,10 +39,12 @@ jobs:
       - name: Install coverage tool
         run: dotnet tool install --global dotnet-coverage
 
-      # FREEBOARD_TEST_DB switches the integration tests on; without it they skip.
+      # FREEBOARD_TEST_DB and FREEBOARD_TEST_SMTP switch the integration tests on;
+      # without them they skip. Both target the compose services started above.
       - name: Run tests with coverage
         env:
           FREEBOARD_TEST_DB: "Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
+          FREEBOARD_TEST_SMTP: "Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
         run: dotnet-coverage collect "dotnet test --configuration Release --no-build --no-restore" -f cobertura -o coverage.xml
 
       - name: Upload coverage report
@@ -53,6 +55,6 @@ jobs:
           language: "C#"
           label: code-coverage/dotnet
 
-      - name: Stop MySQL
+      - name: Stop test services
         if: always()
         run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml down -v
