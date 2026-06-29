@@ -74,10 +74,11 @@ Tests split into two tiers:
   is unset it **skips cleanly** (via `Xunit.SkippableFact`); when it is set it
   sends through a local Mailpit and asserts delivery via the Mailpit HTTP API.
 
-### Start the test MySQL
+### Start the test services
 
-A local MySQL for tests (and `FREEBOARD_DB` at runtime) is defined in
-`tests/Freeboard.TestInfrastructure/docker-compose.yml`. From the repo root:
+The test compose file `tests/Freeboard.TestInfrastructure/docker-compose.yml`
+defines a local MySQL (and `FREEBOARD_DB` at runtime) plus a Mailpit SMTP sink;
+one command brings up both. From the repo root:
 
 ```sh
 docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d
@@ -99,12 +100,11 @@ Tear down with `docker compose -f tests/Freeboard.TestInfrastructure/docker-comp
 real deployments - supply it via env var, user-secrets, or a config provider;
 never commit it.
 
-### Start the test Mailpit
+### SMTP integration test (Mailpit)
 
-The same compose file defines a Mailpit SMTP sink: SMTP on `127.0.0.1:1025`
-(unencrypted) and the web UI / messages API on `127.0.0.1:8025`. After
-`docker compose ... up -d`, run the SMTP integration test by pointing
-`FREEBOARD_TEST_SMTP` at it:
+The Mailpit sink (started above) exposes SMTP on `127.0.0.1:1025` (unencrypted)
+and the web UI / messages API on `127.0.0.1:8025`. Run the SMTP integration test
+by pointing `FREEBOARD_TEST_SMTP` at it:
 
 ```sh
 export FREEBOARD_TEST_SMTP="Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
