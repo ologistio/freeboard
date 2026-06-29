@@ -17,20 +17,15 @@ public sealed class SmtpEmailSender(EmailOptions options, ILogger<SmtpEmailSende
 {
     public async Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
     {
-        var mime = new MimeMessage();
+        using var mime = new MimeMessage();
         mime.From.Add(new MailboxAddress(options.FromName, options.FromAddress));
         mime.To.Add(MailboxAddress.Parse(message.To));
         mime.Subject = message.Subject;
 
         // Text-only unless an HTML body is supplied; then send both as multipart/alternative.
-        if (message.HtmlBody is null)
-        {
-            mime.Body = new TextPart("plain") { Text = message.TextBody };
-        }
-        else
-        {
-            mime.Body = new BodyBuilder { TextBody = message.TextBody, HtmlBody = message.HtmlBody }.ToMessageBody();
-        }
+        mime.Body = message.HtmlBody is null
+            ? new TextPart("plain") { Text = message.TextBody }
+            : new BodyBuilder { TextBody = message.TextBody, HtmlBody = message.HtmlBody }.ToMessageBody();
 
         using var client = new SmtpClient { Timeout = options.Smtp.TimeoutSeconds * 1000 };
         var secureOptions = options.Smtp.UseStartTls ? SecureSocketOptions.StartTls : SecureSocketOptions.None;
