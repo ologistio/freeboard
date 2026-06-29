@@ -1,3 +1,4 @@
+using System.Data;
 using Dapper;
 
 namespace Freeboard.Persistence.Auth;
@@ -101,72 +102,100 @@ public sealed class MySqlMfaChallengeStore(
     {
         ArgumentNullException.ThrowIfNull(magicLinkTokenHash);
 
-        var id = ulidFactory.NewId();
         var challengeToken = tokenHasher.MintPrefixed();
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
 
-        // Atomic find-or-create + record-one-send in a single statement. The unique key on
-        // (user_id, sudo_dedupe_key) makes concurrent first sends converge on ONE row.
-        //
-        // ON DUPLICATE KEY UPDATE branches on whether the existing row is RESETTABLE - consumed or
-        // expired - inlined as (consumed_at IS NOT NULL OR expires_at <= @Now). MySQL evaluates the
-        // assignments left to right and later ones see already-updated columns, so consumed_at and
-        // expires_at (the two columns the reset predicate reads) are assigned LAST; every earlier
-        // assignment therefore sees the ORIGINAL row state.
-        //
-        // Resettable -> rewrite as a brand-new challenge with magic_link_sends = 1. Active and under
-        // the cap -> replace the magic-link token and increment sends. Active and AT the cap -> every
-        // column keeps its current value (a no-op), rejecting the send; the follow-up read detects
-        // this because the stored hash is not the one we just minted.
+        // Find-or-create-or-reset the single sudo challenge row (the (user_id, sudo_dedupe_key) unique
+        // key, migration 004). This manages only challenge identity/expiry/consume; the magic-link
+        // tokens live in their own table. The upsert locks the row, so concurrent sudo sends for one
+        // user serialise here and the active-token cap below cannot be multiplied by a race. A
+        // consumed or expired row is reset in place (fresh identity, created_at bumped), which orphans
+        // the prior instance's tokens because they keep the old created_at. consumed_at/expires_at are
+        // assigned LAST so every IF predicate reads the ORIGINAL row state.
         await connection.ExecuteAsync(new CommandDefinition(
             "INSERT INTO mfa_login_challenges "
             + "(id, challenge_token_hash, token_key_version, user_id, credential_version, factors, "
-            + "webauthn_options, sudo_dedupe_key, magic_link_token_hash, magic_link_token_key_version, "
-            + "magic_link_expires_at, magic_link_sends, expires_at, consumed_at, attempts, created_at) "
+            + "webauthn_options, sudo_dedupe_key, magic_link_sends, expires_at, consumed_at, attempts, created_at) "
             + "VALUES (@Id, @ChallengeHash, @ChallengeKeyVersion, @UserId, @CredentialVersion, @Factors, "
-            + "NULL, @DedupeKey, @LinkHash, @LinkKeyVersion, @LinkExpiresAt, 1, @ExpiresAt, NULL, 0, @Now) "
+            + "NULL, @DedupeKey, 0, @ExpiresAt, NULL, 0, @Now) "
             + "ON DUPLICATE KEY UPDATE "
-            // Challenge identity is rewritten only on reset; sends/token honour the cap when active.
             + "challenge_token_hash = IF(consumed_at IS NOT NULL OR expires_at <= @Now, @ChallengeHash, challenge_token_hash), "
             + "token_key_version = IF(consumed_at IS NOT NULL OR expires_at <= @Now, @ChallengeKeyVersion, token_key_version), "
             + "credential_version = IF(consumed_at IS NOT NULL OR expires_at <= @Now, @CredentialVersion, credential_version), "
             + "attempts = IF(consumed_at IS NOT NULL OR expires_at <= @Now, 0, attempts), "
             + "created_at = IF(consumed_at IS NOT NULL OR expires_at <= @Now, @Now, created_at), "
-            + "magic_link_token_hash = IF(consumed_at IS NOT NULL OR expires_at <= @Now OR magic_link_sends < @MaxSends, @LinkHash, magic_link_token_hash), "
-            + "magic_link_token_key_version = IF(consumed_at IS NOT NULL OR expires_at <= @Now OR magic_link_sends < @MaxSends, @LinkKeyVersion, magic_link_token_key_version), "
-            + "magic_link_expires_at = IF(consumed_at IS NOT NULL OR expires_at <= @Now OR magic_link_sends < @MaxSends, @LinkExpiresAt, magic_link_expires_at), "
-            + "magic_link_sends = IF(consumed_at IS NOT NULL OR expires_at <= @Now, 1, IF(magic_link_sends < @MaxSends, magic_link_sends + 1, magic_link_sends)), "
             // Assigned LAST so the predicate above reads the ORIGINAL consumed_at / expires_at.
             + "consumed_at = IF(consumed_at IS NOT NULL OR expires_at <= @Now, NULL, consumed_at), "
             + "expires_at = IF(consumed_at IS NOT NULL OR expires_at <= @Now, @ExpiresAt, expires_at);",
             new
             {
-                Id = id,
+                Id = ulidFactory.NewId(),
                 ChallengeHash = challengeToken.Hash,
                 ChallengeKeyVersion = challengeToken.KeyVersion,
                 UserId = userId,
                 CredentialVersion = credentialVersion,
                 Factors = SudoMagicLinkDedupeKey,
                 DedupeKey = SudoMagicLinkDedupeKey,
-                LinkHash = magicLinkTokenHash,
-                LinkKeyVersion = magicLinkTokenKeyVersion,
-                LinkExpiresAt = magicLinkExpiresAt,
                 ExpiresAt = challengeExpiresAt,
                 Now = now,
-                MaxSends = maxSends,
             },
+            transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
-        // Read back the resulting single row to report the id and whether our send landed.
-        var row = await connection.QuerySingleAsync<(string Id, byte[]? Hash)>(new CommandDefinition(
-            "SELECT id AS Id, magic_link_token_hash AS Hash FROM mfa_login_challenges "
+        // The single sudo row for this user. created_at identifies the current instance; tokens are
+        // bound to it, so a prior instance's tokens (kept under the old created_at) never count here.
+        var challenge = await connection.QuerySingleAsync<(string Id, DateTime CreatedAt)>(new CommandDefinition(
+            "SELECT id AS Id, created_at AS CreatedAt FROM mfa_login_challenges "
             + "WHERE user_id = @UserId AND sudo_dedupe_key = @DedupeKey;",
             new { UserId = userId, DedupeKey = SudoMagicLinkDedupeKey },
+            transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
-        var sent = row.Hash is not null && row.Hash.AsSpan().SequenceEqual(magicLinkTokenHash);
-        return new SudoMagicLinkSendResult(row.Id, sent);
+        // Bound table growth: drop tokens from prior instances and any that have expired. Current,
+        // unexpired tokens stay; the active count below is the per-challenge re-send cap.
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM mfa_sudo_magic_link_tokens "
+            + "WHERE challenge_id = @ChallengeId AND (challenge_created_at <> @CreatedAt OR expires_at <= @Now);",
+            new { ChallengeId = challenge.Id, CreatedAt = challenge.CreatedAt, Now = now },
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        var activeTokens = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            "SELECT COUNT(*) FROM mfa_sudo_magic_link_tokens "
+            + "WHERE challenge_id = @ChallengeId AND challenge_created_at = @CreatedAt "
+            + "AND consumed_at IS NULL AND expires_at > @Now;",
+            new { ChallengeId = challenge.Id, CreatedAt = challenge.CreatedAt, Now = now },
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        var sent = false;
+        if (activeTokens < maxSends)
+        {
+            // Each accepted send is its OWN token row, so a later send never clobbers this link.
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO mfa_sudo_magic_link_tokens "
+                + "(id, challenge_id, challenge_created_at, token_hash, token_key_version, expires_at, consumed_at, created_at) "
+                + "VALUES (@Id, @ChallengeId, @CreatedAt, @Hash, @KeyVersion, @LinkExpiresAt, NULL, @Now);",
+                new
+                {
+                    Id = ulidFactory.NewId(),
+                    ChallengeId = challenge.Id,
+                    CreatedAt = challenge.CreatedAt,
+                    Hash = magicLinkTokenHash,
+                    KeyVersion = magicLinkTokenKeyVersion,
+                    LinkExpiresAt = magicLinkExpiresAt,
+                    Now = now,
+                },
+                transaction: transaction,
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+            sent = true;
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new SudoMagicLinkSendResult(challenge.Id, sent);
     }
 
     public async Task<bool> RegisterFailedAttemptAsync(string id, int maxAttempts, CancellationToken cancellationToken = default)
@@ -264,32 +293,54 @@ public sealed class MySqlMfaChallengeStore(
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        // Load the row bound to the CURRENT user: a challenge for user A cannot be used by B.
-        var row = await connection.QuerySingleOrDefaultAsync<(byte[]? Hash, int? KeyVersion, DateTime? ExpiresAt, DateTime? ConsumedAt)?>(
+        // The challenge must exist for THIS user (a challenge for user A cannot be used by B), be
+        // unconsumed and unexpired. created_at scopes the tokens to the current instance.
+        var challenge = await connection.QuerySingleOrDefaultAsync<(DateTime CreatedAt, DateTime ExpiresAt, DateTime? ConsumedAt)?>(
             new CommandDefinition(
-                "SELECT magic_link_token_hash AS Hash, magic_link_token_key_version AS KeyVersion, "
-                + "magic_link_expires_at AS ExpiresAt, consumed_at AS ConsumedAt "
+                "SELECT created_at AS CreatedAt, expires_at AS ExpiresAt, consumed_at AS ConsumedAt "
                 + "FROM mfa_login_challenges WHERE id = @Id AND user_id = @UserId;",
                 new { Id = id, UserId = userId },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
 
-        if (row is not { } r
-            || r.Hash is null
-            || r.KeyVersion is not { } keyVersion
-            || r.ConsumedAt is not null
-            || r.ExpiresAt is not { } expiresAt
-            || expiresAt <= now
-            || !tokenHasher.VerifyPrefixless(magicLinkToken, keyVersion, r.Hash))
+        if (challenge is not { } c || c.ConsumedAt is not null || c.ExpiresAt <= now)
         {
             return false;
         }
 
-        // Atomic single-use consume: only the call that flips consumed_at from NULL wins, and
-        // it stays bound to the user. A replay finds the row consumed and affects zero rows.
+        // Match the presented prefixless token against ANY active token of THIS instance, HMACing
+        // under each token's stored key version (constant-time). At most maxSends candidates, so a
+        // later send never invalidated an earlier emitted token.
+        var candidates = await connection.QueryAsync<(string Id, byte[] Hash, int KeyVersion)>(new CommandDefinition(
+            "SELECT id AS Id, token_hash AS Hash, token_key_version AS KeyVersion "
+            + "FROM mfa_sudo_magic_link_tokens "
+            + "WHERE challenge_id = @Id AND challenge_created_at = @CreatedAt "
+            + "AND consumed_at IS NULL AND expires_at > @Now;",
+            new { Id = id, CreatedAt = c.CreatedAt, Now = now },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        var matched = candidates.FirstOrDefault(t => tokenHasher.VerifyPrefixless(magicLinkToken, t.KeyVersion, t.Hash));
+        if (matched.Hash is null)
+        {
+            return false;
+        }
+
+        // Atomic single-use consume of the CHALLENGE, bound to the user: only the call that flips
+        // consumed_at from NULL wins, so the step-up is single-use even with multiple outstanding
+        // tokens. A replay finds it consumed and affects zero rows.
         var affected = await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE mfa_login_challenges SET consumed_at = @Now WHERE id = @Id AND user_id = @UserId AND consumed_at IS NULL;",
             new { Id = id, UserId = userId, Now = now },
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return affected > 0;
+        if (affected == 0)
+        {
+            return false;
+        }
+
+        // Mark the matched token consumed for hygiene; the challenge consume already gates reuse.
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE mfa_sudo_magic_link_tokens SET consumed_at = @Now WHERE id = @TokenId AND consumed_at IS NULL;",
+            new { TokenId = matched.Id, Now = now },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return true;
     }
 }

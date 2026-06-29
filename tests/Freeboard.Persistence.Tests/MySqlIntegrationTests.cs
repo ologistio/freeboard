@@ -441,18 +441,21 @@ public sealed class MySqlIntegrationTests
         var found = await challenges.FindByTokenAsync(minted.Token, DateTime.UtcNow);
         Assert.Equal(7, found!.CredentialVersion);
 
-        // Set a magic-link token on the challenge.
+        // Send a sudo magic-link for user A; its token lands in its own row, and verify-and-consume
+        // (the sudo-only verify) matches it. FindOrCreate makes its own dedupe-keyed challenge row.
+        var now = DateTime.UtcNow;
         var link = hasher.MintPrefixless();
-        Assert.True(await challenges.SetMagicLinkAsync(
-            minted.Row.Id, link.Hash, link.KeyVersion, DateTime.UtcNow.AddMinutes(10), 3));
+        var send = await challenges.FindOrCreateSudoMagicLinkAsync(
+            userA.Id, 1, link.Hash, link.KeyVersion, now.AddMinutes(10), now.AddMinutes(10), 3, now);
+        Assert.True(send.Sent);
 
         // User B cannot consume user A's challenge.
-        Assert.False(await challenges.VerifyAndConsumeMagicLinkAsync(minted.Row.Id, userB.Id, link.Token, DateTime.UtcNow));
+        Assert.False(await challenges.VerifyAndConsumeMagicLinkAsync(send.ChallengeId, userB.Id, link.Token, now));
 
         // User A consumes it once...
-        Assert.True(await challenges.VerifyAndConsumeMagicLinkAsync(minted.Row.Id, userA.Id, link.Token, DateTime.UtcNow));
+        Assert.True(await challenges.VerifyAndConsumeMagicLinkAsync(send.ChallengeId, userA.Id, link.Token, now));
         // ...and a replay fails (single-use).
-        Assert.False(await challenges.VerifyAndConsumeMagicLinkAsync(minted.Row.Id, userA.Id, link.Token, DateTime.UtcNow));
+        Assert.False(await challenges.VerifyAndConsumeMagicLinkAsync(send.ChallengeId, userA.Id, link.Token, now));
     }
 
     // Concurrent sudo magic-link sends with NO pre-existing challenge must converge on ONE row
@@ -493,23 +496,73 @@ public sealed class MySqlIntegrationTests
         });
         var results = await Task.WhenAll(tasks);
 
-        // The cap holds atomically: all callers converge on ONE challenge row and magic_link_sends
-        // reaches exactly maxSends - the race does not multiply it. How many callers report Sent is
-        // timing-dependent: the stored magic-link token is last-writer-wins, so an earlier under-cap
-        // sender can be overwritten before it reads its own token back. It is always between 1 and
-        // maxSends, never more - so at most maxSends links are ever emailed.
+        // The cap holds atomically: concurrent sends serialise on the challenge row, so EXACTLY
+        // maxSends are accepted and each lands its OWN token row - the race neither multiplies the
+        // cap nor clobbers an accepted token (every accepted link stays verifiable).
         var accepted = results.Count(r => r.Sent);
-        Assert.InRange(accepted, 1, maxSends);
+        Assert.Equal(maxSends, accepted);
         Assert.Single(results.Select(r => r.ChallengeId).Distinct());
 
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
-        var row = await conn.QuerySingleAsync<(long Count, int Sends)>(
-            "SELECT COUNT(*) AS Count, COALESCE(MAX(magic_link_sends), 0) AS Sends FROM mfa_login_challenges "
-            + "WHERE user_id = @UserId AND sudo_dedupe_key = 'magic_link';",
+        var challengeCount = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM mfa_login_challenges WHERE user_id = @UserId AND sudo_dedupe_key = 'magic_link';",
             new { UserId = user.Id });
-        Assert.Equal(1, row.Count);
-        Assert.Equal(maxSends, row.Sends);
+        Assert.Equal(1, challengeCount);
+        var activeTokens = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM mfa_sudo_magic_link_tokens t "
+            + "JOIN mfa_login_challenges c ON c.id = t.challenge_id "
+            + "WHERE c.user_id = @UserId AND c.sudo_dedupe_key = 'magic_link' "
+            + "AND t.consumed_at IS NULL AND t.expires_at > @Now;",
+            new { UserId = user.Id, Now = now });
+        Assert.Equal((long)maxSends, activeTokens);
+    }
+
+    // Option D: each sudo magic-link send stores its own token, so a later send does NOT clobber an
+    // earlier emitted token. Either emitted token verifies; consuming the challenge via one makes the
+    // step-up single-use. The re-send cap counts active tokens.
+    [SkippableFact]
+    public async Task SudoMagicLinkSendsAreEachIndependentlyVerifiable()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var ulids = new Freeboard.Persistence.Auth.UlidFactory();
+        var users = new Freeboard.Persistence.Auth.MySqlUserStore(db.ConnectionFactory, ulids);
+        var hasher = new Freeboard.Persistence.Auth.HmacTokenHasher(TestCrypto());
+        var challenges = new Freeboard.Persistence.Auth.MySqlMfaChallengeStore(db.ConnectionFactory, ulids, hasher);
+        var now = DateTime.UtcNow;
+        var exp = now.AddMinutes(10);
+
+        // The EARLIER token still verifies after a later send (the fix).
+        var u1 = await users.CreateAsync(new Freeboard.Persistence.Auth.NewUser("e1@e.com", "E1", "member"));
+        var a = hasher.MintPrefixless();
+        var sendA = await challenges.FindOrCreateSudoMagicLinkAsync(u1.Id, 1, a.Hash, a.KeyVersion, exp, exp, 3, now);
+        var b = hasher.MintPrefixless();
+        var sendB = await challenges.FindOrCreateSudoMagicLinkAsync(u1.Id, 1, b.Hash, b.KeyVersion, exp, exp, 3, now);
+        Assert.True(sendA.Sent);
+        Assert.True(sendB.Sent);
+        Assert.Equal(sendA.ChallengeId, sendB.ChallengeId);
+        Assert.True(await challenges.VerifyAndConsumeMagicLinkAsync(sendA.ChallengeId, u1.Id, a.Token, now));
+        // Single-use: once the challenge is consumed, the other token cannot be used.
+        Assert.False(await challenges.VerifyAndConsumeMagicLinkAsync(sendB.ChallengeId, u1.Id, b.Token, now));
+
+        // The LATER token is itself valid too (either of the two works, not just one).
+        var u2 = await users.CreateAsync(new Freeboard.Persistence.Auth.NewUser("e2@e.com", "E2", "member"));
+        var c = hasher.MintPrefixless();
+        var sendC = await challenges.FindOrCreateSudoMagicLinkAsync(u2.Id, 1, c.Hash, c.KeyVersion, exp, exp, 3, now);
+        var d = hasher.MintPrefixless();
+        await challenges.FindOrCreateSudoMagicLinkAsync(u2.Id, 1, d.Hash, d.KeyVersion, exp, exp, 3, now);
+        Assert.True(await challenges.VerifyAndConsumeMagicLinkAsync(sendC.ChallengeId, u2.Id, d.Token, now));
+
+        // Cap: a third active send is rejected when maxSends = 2.
+        var u3 = await users.CreateAsync(new Freeboard.Persistence.Auth.NewUser("e3@e.com", "E3", "member"));
+        var m1 = hasher.MintPrefixless();
+        var m2 = hasher.MintPrefixless();
+        var m3 = hasher.MintPrefixless();
+        Assert.True((await challenges.FindOrCreateSudoMagicLinkAsync(u3.Id, 1, m1.Hash, m1.KeyVersion, exp, exp, 2, now)).Sent);
+        Assert.True((await challenges.FindOrCreateSudoMagicLinkAsync(u3.Id, 1, m2.Hash, m2.KeyVersion, exp, exp, 2, now)).Sent);
+        Assert.False((await challenges.FindOrCreateSudoMagicLinkAsync(u3.Id, 1, m3.Hash, m3.KeyVersion, exp, exp, 2, now)).Sent);
     }
 
     // Test crypto with fixed 32-byte keys (>= 32 required by AuthKeyMaterial.Validate). Distinct
