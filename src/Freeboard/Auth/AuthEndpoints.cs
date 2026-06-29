@@ -86,11 +86,11 @@ public static class AuthEndpoints
         // by the bearer epoch check (non-MFA) or the completion re-check (MFA).
         var verifiedCredentialVersion = credential.CredentialVersion;
 
-        // Authenticated. Reset ONLY the account bucket; the IP bucket persists.
-        await rateLimiter.ResetAccountAsync(accountKey, ct).ConfigureAwait(false);
-
         // A fully-credentialed user with MFA enrolled gets a 202 challenge with a
         // body-only mfa_token and the available factor set. The mfa_token is never a session bearer.
+        // Do NOT reset the account bucket here: the password step alone is not a successful auth, so
+        // resetting it would let someone who knows the password wipe the per-account throttle and
+        // brute-force the MFA factor. The reset happens only after MFA completion succeeds.
         if (user.MfaEnabled)
         {
             var (mfaToken, factors) = await mfa
@@ -99,6 +99,10 @@ public static class AuthEndpoints
                 new { mfa_required = true, mfa_token = mfaToken, factors },
                 statusCode: StatusCodes.Status202Accepted);
         }
+
+        // Non-MFA path: authentication has fully succeeded. Reset ONLY the account bucket; the IP
+        // bucket persists.
+        await rateLimiter.ResetAccountAsync(accountKey, ct).ConfigureAwait(false);
 
         var authState = user.ForcePasswordReset ? SessionAuthState.ForceResetLimited : SessionAuthState.Full;
         var (token, _) = await sessions
@@ -244,11 +248,12 @@ public static class AuthEndpoints
             return ApiResponses.ValidationProblem("token", "The reset token is invalid or expired.");
         }
 
-        // One transaction: set the new hash, bump the credential epoch, and revoke ALL of the
-        // user's sessions.
+        // One transaction: set the new hash, bump the credential epoch, clear any force-reset flag
+        // (the user just chose a new password, so do not make them change it again on next login),
+        // and revoke ALL of the user's sessions.
         await credentials.UpdateHashAndRevokeSessionsAsync(
             userId, hasher.Hash(body.NewPassword), CurrentSecretVersion(sp),
-            keepSessionId: null, setForcePasswordReset: null, upgradeKeptSessionToFull: false, ct)
+            keepSessionId: null, setForcePasswordReset: false, upgradeKeptSessionToFull: false, ct)
             .ConfigureAwait(false);
         return Results.Ok(new { password_reset = true });
     }

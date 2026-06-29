@@ -40,9 +40,9 @@ internal sealed class FakeSessionStore : ISessionStore
     {
         foreach (var (hash, id) in _byHash)
         {
-            if (hash.AsSpan().SequenceEqual(tokenHash) && _byId.ContainsKey(id))
+            if (hash.AsSpan().SequenceEqual(tokenHash) && _byId.TryGetValue(id, out var row))
             {
-                return Task.FromResult<SessionRow?>(_byId[id]);
+                return Task.FromResult<SessionRow?>(row);
             }
         }
 
@@ -305,12 +305,11 @@ internal sealed class FakeCredentialStore(FakeSessionStore? sessions = null, Fak
         if (sessions is not null)
         {
             var rows = await sessions.ListByUserAsync(userId, cancellationToken).ConfigureAwait(false);
-            foreach (var row in rows)
+            var deletable = rows.Where(row =>
+                keepSessionId is null || !string.Equals(row.Id, keepSessionId, StringComparison.Ordinal));
+            foreach (var row in deletable)
             {
-                if (keepSessionId is null || !string.Equals(row.Id, keepSessionId, StringComparison.Ordinal))
-                {
-                    await sessions.DeleteAsync(row.Id, cancellationToken).ConfigureAwait(false);
-                }
+                await sessions.DeleteAsync(row.Id, cancellationToken).ConfigureAwait(false);
             }
 
             // Stamp the kept session's epoch to the new value; optionally upgrade it to full.

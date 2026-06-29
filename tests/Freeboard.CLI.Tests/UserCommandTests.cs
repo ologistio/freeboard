@@ -160,8 +160,8 @@ public sealed class UserCommandTests : IDisposable
     [Fact]
     public void SuccessWithUnparseableBodyExitsThree()
     {
-        var handler = new StubHandler(HttpStatusCode.OK, "this-is-not-json");
-        var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
+        using var handler = new StubHandler(HttpStatusCode.OK, "this-is-not-json");
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
         ApiClientFactory.Create = (_, _) => new HttpFreeboardApiClient(http);
 
         var (exit, _, err) = Capture(() => new UserCommands().List());

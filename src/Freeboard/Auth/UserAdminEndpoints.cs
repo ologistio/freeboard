@@ -39,18 +39,22 @@ public static class UserAdminEndpoints
         IServiceProvider sp,
         CancellationToken ct)
     {
+        // A missing JSON body binds as null; treat it as an empty request so the field-level
+        // validation below produces the same 422 instead of dereferencing null.
+        body ??= new CreateUserRequest(null, null, null);
+
         var errors = new Dictionary<string, string[]>();
-        if (string.IsNullOrWhiteSpace(body?.Email))
+        if (string.IsNullOrWhiteSpace(body.Email))
         {
             errors["email"] = ["An email is required."];
         }
 
-        if (string.IsNullOrWhiteSpace(body?.Name))
+        if (string.IsNullOrWhiteSpace(body.Name))
         {
             errors["name"] = ["A name is required."];
         }
 
-        var role = body?.GlobalRole ?? GlobalRoles.Member;
+        var role = body.GlobalRole ?? GlobalRoles.Member;
         if (!GlobalRoles.IsValid(role))
         {
             errors["global_role"] = ["Unknown role."];
@@ -63,7 +67,7 @@ public static class UserAdminEndpoints
 
         // Pre-check gives a clean 422 in the common case; the DB unique index is still the
         // authoritative guard under a concurrent-create race (caught below).
-        if (await users.GetByEmailAsync(body!.Email!, ct).ConfigureAwait(false) is not null)
+        if (await users.GetByEmailAsync(body.Email!, ct).ConfigureAwait(false) is not null)
         {
             return ApiResponses.ValidationProblem("email", "A user with this email already exists.");
         }

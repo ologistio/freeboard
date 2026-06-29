@@ -199,14 +199,8 @@ public sealed class UserCommands
             return 3;
         }
 
-        try
-        {
-            return action(client, CancellationToken.None).GetAwaiter().GetResult();
-        }
-        finally
-        {
-            (client as IDisposable)?.Dispose();
-        }
+        using var disposableClient = client as IDisposable;
+        return action(client, CancellationToken.None).GetAwaiter().GetResult();
     }
 
     /// <summary>Maps an API outcome to an exit code, running <paramref name="onSuccess"/> on 2xx.</summary>
