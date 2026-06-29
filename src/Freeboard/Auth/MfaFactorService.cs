@@ -48,7 +48,7 @@ public sealed class MfaFactorService(
         }
 
         // Magic-link is the fallback only with no strong factor AND a configured sender.
-        if (user.MfaEnabled && !hasPasskey && !hasTotp && services.GetService<IAuthEmailSender>() is not null)
+        if (user.MfaEnabled && !hasPasskey && !hasTotp && services.GetService<AuthEmailService>() is not null)
         {
             factors.Add(MfaFactors.MagicLink);
         }

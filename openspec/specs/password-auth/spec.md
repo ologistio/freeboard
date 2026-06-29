@@ -86,8 +86,9 @@ The web app SHALL provide `POST /api/v1/freeboard/auth/password/forgot` acceptin
 of whether the email exists AND regardless of whether an email sender is configured
 (anti-enumeration; no per-request divergence). When the email exists and an email
 sender is configured it SHALL issue a single-use, expiring password reset token,
-store only the token's keyed hash, and send the raw token via the `IAuthEmailSender`
-seam; the raw token SHALL NEVER be returned in a response. If password reset is
+store only the token's keyed hash, and send the raw token via the configured email
+sender (`AuthEmailService` over the `IEmailSender` seam); the raw token SHALL NEVER be
+returned in a response. If password reset is
 enabled with NO email sender configured, the app SHALL fail fast at STARTUP (a
 configuration error), so the no-enumeration property always holds at runtime. The web
 app SHALL provide `POST /api/v1/freeboard/auth/password/reset` accepting

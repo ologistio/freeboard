@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Freeboard.Core.Email;
 using Freeboard.Persistence.Auth;
 
 namespace Freeboard.Web.Tests;
@@ -398,24 +399,45 @@ internal sealed class FakePasswordHasher : IPasswordHasher
     }
 }
 
-/// <summary>Recording <see cref="IAuthEmailSender"/>.</summary>
-internal sealed class FakeEmailSender : IAuthEmailSender
+/// <summary>Recording <see cref="IEmailSender"/>: captures every delivered message for assertion.</summary>
+internal sealed class RecordingEmailSender : IEmailSender
 {
-    public List<(string Email, string Token)> PasswordResets { get; } = [];
+    public List<EmailMessage> Sent { get; } = [];
 
-    public List<(string Email, string Token)> MagicLinks { get; } = [];
+    /// <summary>The captured password-reset messages (subject built by AuthEmailService).</summary>
+    public IReadOnlyList<EmailMessage> PasswordResets
+        => Sent.Where(m => m.TextBody.Contains("/reset-password?token=", StringComparison.Ordinal)).ToList();
 
-    public Task SendPasswordResetAsync(string email, string resetToken, CancellationToken cancellationToken = default)
+    /// <summary>The captured magic-link messages.</summary>
+    public IReadOnlyList<EmailMessage> MagicLinks
+        => Sent.Where(m => m.TextBody.Contains("/auth/magic-link?token=", StringComparison.Ordinal)).ToList();
+
+    public Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
     {
-        PasswordResets.Add((email, resetToken));
+        Sent.Add(message);
         return Task.CompletedTask;
     }
 
-    public Task SendMagicLinkAsync(string email, string magicLinkToken, CancellationToken cancellationToken = default)
+    /// <summary>Extracts the (url-decoded) <c>token</c> query value from a captured message body.</summary>
+    public static string TokenOf(EmailMessage message)
     {
-        MagicLinks.Add((email, magicLinkToken));
-        return Task.CompletedTask;
+        const string marker = "token=";
+        var start = message.TextBody.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
+        var end = message.TextBody.IndexOfAny([' ', '\n', '\r'], start);
+        var raw = end < 0 ? message.TextBody[start..] : message.TextBody[start..end];
+        return Uri.UnescapeDataString(raw);
     }
+}
+
+/// <summary>
+/// An <see cref="IEmailSender"/> that always throws, to prove the send path is hardened. The
+/// thrown exception embeds the message body, modelling a sender/SMTP exception that carries the
+/// token (a credential) in its Message - so the failure log can be asserted to never leak it.
+/// </summary>
+internal sealed class ThrowingEmailSender : IEmailSender
+{
+    public Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException($"simulated SMTP failure (body={message.TextBody})");
 }
 
 /// <summary>

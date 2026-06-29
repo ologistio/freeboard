@@ -182,8 +182,45 @@ public sealed class AuthEndpointTests
 
         Assert.Equal(HttpStatusCode.OK, known.StatusCode);
         Assert.Equal(HttpStatusCode.OK, unknown.StatusCode);
-        // Only the known account triggered an email.
-        Assert.Single(factory.Email.PasswordResets);
+        // Only the known account triggered an email, sent to that account's address, and the body
+        // carries the absolute reset URL.
+        var message = factory.Email.PasswordResets.Single();
+        Assert.Equal("fp1@example.com", message.To);
+        Assert.Contains($"{AuthWebFactory.AuthBaseUrl}/reset-password?token=", message.TextBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordStays200WhenSenderThrows()
+    {
+        using var factory = new AuthWebFactory { RegisterEmailSender = true, EmailSenderThrows = true };
+        SeedUser(factory, AuthWebFactory.MakeUser("fp2"));
+        using var client = factory.CreateClient();
+
+        // A throwing send for a REAL account must not surface as a 500: that would be an
+        // enumeration oracle. It stays the same uniform 200 an unknown account gets.
+        var known = await client.PostAsJsonAsync($"{Prefix}/auth/password/forgot", new { email = "fp2@example.com" });
+        var unknown = await client.PostAsJsonAsync($"{Prefix}/auth/password/forgot", new { email = "ghost@example.com" });
+
+        Assert.Equal(HttpStatusCode.OK, known.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, unknown.StatusCode);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordSendFailureNeverLogsTheToken()
+    {
+        using var factory = new AuthWebFactory { RegisterEmailSender = true, EmailSenderThrows = true };
+        SeedUser(factory, AuthWebFactory.MakeUser("fp3"));
+        using var client = factory.CreateClient();
+
+        // The throwing sender embeds the reset token in its exception Message. The failure log must
+        // record only the recipient and a sanitized error identity, never the token - a credential
+        // must not appear in any entry at information level or above. FakeResetStore mints the first
+        // token as "reset-token-1".
+        var known = await client.PostAsJsonAsync($"{Prefix}/auth/password/forgot", new { email = "fp3@example.com" });
+        Assert.Equal(HttpStatusCode.OK, known.StatusCode);
+
+        Assert.DoesNotContain(
+            factory.Logs.Entries, e => e.Text.Contains("reset-token-1", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -194,7 +231,7 @@ public sealed class AuthEndpointTests
         using var client = factory.CreateClient();
 
         await client.PostAsJsonAsync($"{Prefix}/auth/password/forgot", new { email = "rp1@example.com" });
-        var token = factory.Email.PasswordResets.Single().Token;
+        var token = RecordingEmailSender.TokenOf(factory.Email.PasswordResets.Single());
 
         var ok = await client.PostAsJsonAsync(
             $"{Prefix}/auth/password/reset", new { token, new_password = "brandnew" });

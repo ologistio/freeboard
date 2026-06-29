@@ -235,12 +235,49 @@ When at least one is configured the app honours `X-Forwarded-For`,
 headers are ignored and the socket peer address is used, so a client cannot spoof
 its IP to evade rate limiting.
 
-### Email sender
+### Email transport
 
-Magic-link and password-reset emails go through an `IAuthEmailSender` seam. No
-SMTP transport ships by default; the operator registers a concrete sender (SMTP
-or a provider API). With password reset enabled and no sender registered the app
-fails fast at startup. Without a sender, magic-link is simply not offered.
+Email delivery goes through a generic `IEmailSender` seam (in `Freeboard.Core`).
+The web layer's `AuthEmailService` builds the magic-link and password-reset
+messages and hands them to the configured sender. The transport is selected by
+`Email:Transport`:
+
+- `none` (default) - no sender is registered, so `AuthEmailService` is not
+  registered. With password reset enabled and no transport, the app fails fast at
+  startup. Without a sender, magic-link is simply not offered.
+- `log` - a non-delivering developer sink. It logs the subject and recipient
+  only, never the body (which carries the token), so a registered sender exists
+  (password reset can be enabled, magic-link is offered) but no email is
+  delivered. It is for wiring and local development, not a working transport, and
+  the app logs a startup warning when it is selected. For a real, clickable link
+  in development, run the `smtp` transport against a local Mailpit.
+- `smtp` - a real SMTP transport (MailKit).
+
+`Email` settings (generic, transport-level):
+
+- `Transport` - `none` | `log` | `smtp`.
+- `FromAddress`, `FromName` - the From identity on every email.
+- `Smtp:Host`, `Smtp:Port` (default 587).
+- `Smtp:UseStartTls` (default `true`) - STARTTLS so tokens are never sent in the
+  clear. An operator must explicitly set it `false` to send over an unencrypted
+  connection (e.g. a local Mailpit on 1025).
+- `Smtp:Username` - when empty, the sender skips authentication.
+- `Smtp:Password` - a secret. Supply it via env / user-secrets / a config
+  provider and never commit it.
+- `Smtp:TimeoutSeconds` (default 30) - bounds a hung connect/send.
+
+The auth-link base URL is auth-specific and lives under auth config, not the
+generic `Email` section:
+
+- `Auth:Email:BaseUrl` - the absolute http(s) base the reset / magic-link URLs
+  are built from. When an email transport is configured, an invalid or missing
+  value fails fast at startup.
+
+When `Transport=smtp` the app fails fast at startup unless `Email:Smtp:Host` and
+a parseable `Email:FromAddress` are set.
+
+The SMTP delivery integration test is gated on `FREEBOARD_TEST_SMTP` and runs
+against a local Mailpit; see the Testing section of `CLAUDE.md`.
 
 ### One-time bootstrap secret
 

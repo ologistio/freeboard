@@ -70,11 +70,15 @@ Tests split into two tiers:
   set they run against a real database. Each test provisions a throwaway
   `fb_test_<guid>` database and drops it on dispose (see
   `tests/Freeboard.TestInfrastructure/MySqlTestDatabase.cs`).
+- The SMTP auth-email integration test is gated on `FREEBOARD_TEST_SMTP`. When it
+  is unset it **skips cleanly** (via `Xunit.SkippableFact`); when it is set it
+  sends through a local Mailpit and asserts delivery via the Mailpit HTTP API.
 
-### Start the test MySQL
+### Start the test services
 
-A local MySQL for tests (and `FREEBOARD_DB` at runtime) is defined in
-`tests/Freeboard.TestInfrastructure/docker-compose.yml`. From the repo root:
+The test compose file `tests/Freeboard.TestInfrastructure/docker-compose.yml`
+defines a local MySQL (and `FREEBOARD_DB` at runtime) plus a Mailpit SMTP sink;
+one command brings up both. From the repo root:
 
 ```sh
 docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d
@@ -95,6 +99,21 @@ Tear down with `docker compose -f tests/Freeboard.TestInfrastructure/docker-comp
 (add `-v` to also drop the data volume). The connection string is a secret in
 real deployments - supply it via env var, user-secrets, or a config provider;
 never commit it.
+
+### SMTP integration test (Mailpit)
+
+The Mailpit sink (started above) exposes SMTP on `127.0.0.1:1025` (unencrypted)
+and the web UI / messages API on `127.0.0.1:8025`. Run the SMTP integration test
+by pointing `FREEBOARD_TEST_SMTP` at it:
+
+```sh
+export FREEBOARD_TEST_SMTP="Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
+dotnet test
+```
+
+`FREEBOARD_TEST_SMTP` is one connection-string-shaped value: `Smtp=host:port` is
+the SMTP send target, `Http=base-url` is the Mailpit HTTP API base. Unset, the
+test skips.
 
 ## Cross-platform publish
 

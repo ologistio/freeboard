@@ -203,6 +203,7 @@ public static class AuthEndpoints
         IUserStore users,
         IPasswordResetStore resets,
         Microsoft.Extensions.Options.IOptions<WebAuthOptions> options,
+        ILoggerFactory loggerFactory,
         IServiceProvider sp,
         CancellationToken ct)
     {
@@ -213,12 +214,30 @@ public static class AuthEndpoints
         // (Program.cs) prevents enabling reset with no sender, so the runtime stays uniform.
         var email = body?.Email ?? string.Empty;
         var user = await users.GetByEmailAsync(email, ct).ConfigureAwait(false);
-        var emailSender = sp.GetService<IAuthEmailSender>();
-        if (user is not null && options.Value.PasswordResetEnabled && emailSender is not null)
+        var emailService = sp.GetService<AuthEmailService>();
+        if (user is not null && options.Value.PasswordResetEnabled && emailService is not null)
         {
-            var expiresAt = DateTime.UtcNow + options.Value.PasswordResetLifetime;
-            var minted = await resets.CreateAsync(user.Id, expiresAt, ct).ConfigureAwait(false);
-            await emailSender.SendPasswordResetAsync(user.Email, minted.Token, ct).ConfigureAwait(false);
+            try
+            {
+                var expiresAt = DateTime.UtcNow + options.Value.PasswordResetLifetime;
+                var minted = await resets.CreateAsync(user.Id, expiresAt, ct).ConfigureAwait(false);
+                await emailService.SendPasswordResetAsync(user.Email, minted.Token, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Both the token mint and the send run only on the known-account branch, so a failure
+                // in either must NOT escape as a 500: a known account that 500s while an unknown
+                // account 200s is an enumeration oracle. Both stay inside this catch and fall through
+                // to the same uniform 200. The reset token row may already exist; it expires unused.
+                // The Warning is the observability path for a masked provisioning/delivery outage.
+                //
+                // Log the exception TYPE only, never the exception object or its Message: a sender or
+                // wrapped SMTP exception could carry the reset token in its Message, and the token is a
+                // credential that must never be logged at information level or above.
+                loggerFactory.CreateLogger("Freeboard.Auth.ForgotPassword").LogWarning(
+                    "Password-reset provisioning or delivery failed for {Recipient} ({Error}); returning the uniform 200.",
+                    user.Email, ex.GetType().Name);
+            }
         }
 
         return Results.Ok(new { ok = true });

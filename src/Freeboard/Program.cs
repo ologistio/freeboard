@@ -98,6 +98,18 @@ builder.Services.AddScoped<WebAuthnCeremony>();
 builder.Services.AddScoped<MfaFactorService>();
 builder.Services.AddScoped<MfaChallengeService>();
 
+// Generic email transport, selected by Email:Transport. Registers the matching IEmailSender and
+// fails fast on an smtp transport that could not deliver. AuthEmailService (which builds the auth
+// messages and owns the auth base URL) is registered only when a sender is present, so the
+// optional-presence contract the auth endpoints depend on is keyed on a configured transport.
+var emailOptions = Freeboard.Email.EmailRegistration.Add(builder.Services, builder.Configuration);
+if (emailOptions.Transport != Freeboard.Email.EmailTransport.None)
+{
+    var authBaseUrl = builder.Configuration["Auth:Email:BaseUrl"] ?? string.Empty;
+    builder.Services.AddSingleton(sp =>
+        new AuthEmailService(sp.GetRequiredService<Freeboard.Core.Email.IEmailSender>(), authBaseUrl));
+}
+
 builder.Services.AddAuthentication(AuthClaims.Scheme)
     .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AuthClaims.Scheme, _ => { });
 
@@ -117,15 +129,31 @@ builder.Services.AddAuthorizationBuilder()
 
 var app = builder.Build();
 
-// Startup fail-fast: if the password-reset flow is enabled but no email sender is
-// registered, forgot-password could not deliver a token, which would make its behavior
-// non-uniform. Fail at startup so forgot-password is always a uniform 200. Checked against the
-// built provider so any concrete sender registration is visible.
+// Startup fail-fast: if the password-reset flow is enabled but no AuthEmailService is registered
+// (email transport is none), forgot-password could not deliver a token, which would make its
+// behavior non-uniform. Fail at startup so forgot-password is always a uniform 200. Checked against
+// the built provider so any registration is visible.
 var webAuth = app.Services.GetRequiredService<IOptions<WebAuthOptions>>().Value;
-if (webAuth.PasswordResetEnabled && app.Services.GetService<Freeboard.Persistence.Auth.IAuthEmailSender>() is null)
+if (webAuth.PasswordResetEnabled && app.Services.GetService<AuthEmailService>() is null)
 {
     throw new InvalidOperationException(
-        "Auth:PasswordResetEnabled is true but no IAuthEmailSender is registered. Register an email sender or disable password reset.");
+        "Auth:PasswordResetEnabled is true but no email transport is configured. Set Email:Transport or disable password reset.");
+}
+
+// Construct AuthEmailService now so its Auth:Email:BaseUrl validation fails fast at startup rather
+// than lazily on the first send. The singleton factory is otherwise not invoked until first resolved,
+// which (with password reset disabled) would defer an invalid base URL to a magic-link send.
+if (emailOptions.Transport != Freeboard.Email.EmailTransport.None)
+{
+    _ = app.Services.GetRequiredService<AuthEmailService>();
+}
+
+// The log transport is a non-delivering development sink. Warn loudly at startup so it is never
+// mistaken for a working transport in production.
+if (emailOptions.Transport == Freeboard.Email.EmailTransport.Log)
+{
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Freeboard.Email").LogWarning(
+        "The 'log' email transport is a non-delivering development sink and must not be used in production.");
 }
 
 // Only honor forwarded headers when trusted proxies/networks are configured. With none

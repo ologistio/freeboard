@@ -53,6 +53,28 @@ public sealed class PersistencePlacementTests
         Assert.DoesNotContain(refs, r => r.Contains(Persistence, StringComparison.OrdinalIgnoreCase));
     }
 
+    // The generic email seam (IEmailSender/EmailMessage) lives in Core, but the SMTP transport does
+    // not: MailKit is a web concern and Core must pull no MailKit dependency.
+    [Fact]
+    public void CoreDoesNotReferenceMailKit()
+    {
+        var refs = ProjectReferences("Freeboard.Core");
+        Assert.DoesNotContain(refs, r => r.Contains("MailKit", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // MailKit is referenced only by the web project. The Agent and CLI ship as community components
+    // and must gain no email/MailKit dependency.
+    [Theory]
+    [InlineData("Freeboard.Agent")]
+    [InlineData("Freeboard.CLI")]
+    [InlineData("Freeboard.Persistence")]
+    [InlineData("Freeboard.Enterprise")]
+    public void NonWebProjectsDoNotReferenceMailKit(string projectName)
+    {
+        var refs = ProjectReferences(projectName);
+        Assert.DoesNotContain(refs, r => r.Contains("MailKit", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static IEnumerable<string> ProjectReferences(string projectName)
     {
         var csproj = Path.Join(RepoRoot(), "src", projectName, $"{projectName}.csproj");

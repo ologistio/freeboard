@@ -150,7 +150,7 @@ public sealed class AuthHardeningTests
 
         using var client = factory.CreateClient();
         await client.PostAsJsonAsync($"{Prefix}/auth/password/forgot", new { email = user.Email });
-        var token = factory.Email.PasswordResets.Single().Token;
+        var token = RecordingEmailSender.TokenOf(factory.Email.PasswordResets.Single());
 
         var response = await client.PostAsJsonAsync(
             $"{Prefix}/auth/password/reset", new { token, new_password = "brandnew" });
