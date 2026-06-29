@@ -1,4 +1,6 @@
 using System.Net.Http.Headers;
+using Freeboard.Auth;
+using Freeboard.Core.Email;
 using Freeboard.Persistence;
 using Freeboard.Persistence.Auth;
 using Microsoft.AspNetCore.Hosting;
@@ -7,6 +9,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace Freeboard.Web.Tests;
 
@@ -35,7 +38,10 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
 
     public FakePasswordHasher Hasher { get; } = new();
 
-    public FakeEmailSender Email { get; } = new();
+    public RecordingEmailSender Email { get; } = new();
+
+    /// <summary>The auth base URL the registered AuthEmailService builds links from.</summary>
+    public const string AuthBaseUrl = "https://freeboard.example";
 
     public FakeRateLimitStore RateLimit { get; } = new();
 
@@ -47,8 +53,22 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
 
     public FakeWebAuthnCredentialStore WebAuthn { get; } = new();
 
+    /// <summary>
+    /// Captures every log entry the app emits at information level and above, so a test can assert a
+    /// credential (e.g. a reset token) never reaches the logs. Each entry records both the rendered
+    /// message and the exception's full string - a real provider renders the exception separately, so
+    /// a leak hiding in an attached exception object must be caught too.
+    /// </summary>
+    public CapturingLoggerProvider Logs { get; } = new();
+
     /// <summary>When true, AddAuth's email-sender seam is registered (for password-reset tests).</summary>
     public bool RegisterEmailSender { get; init; }
+
+    /// <summary>
+    /// When true, the registered sender throws on send. Used to prove forgot-password stays a
+    /// uniform 200 when the reset email send fails (enumeration-safe on send failure).
+    /// </summary>
+    public bool EmailSenderThrows { get; init; }
 
     /// <summary>When true, the app boots in GitOps read-only mode.</summary>
     public bool ReadOnly { get; init; }
@@ -74,6 +94,8 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
         builder.UseSetting("Auth:PasswordResetEnabled", RegisterEmailSender ? "true" : "false");
         builder.UseSetting("Auth:WebAuthn:RpId", "localhost");
         builder.UseSetting("Auth:WebAuthn:Origins:0", "https://localhost");
+
+        builder.ConfigureLogging(logging => logging.AddProvider(Logs));
 
         builder.ConfigureTestServices(services =>
         {
@@ -106,8 +128,14 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
 
             if (RegisterEmailSender)
             {
-                services.RemoveAll<IAuthEmailSender>();
-                services.AddSingleton<IAuthEmailSender>(Email);
+                // Register a REAL AuthEmailService (it builds the messages and validates the base
+                // URL) backed by a recording or throwing IEmailSender, so the endpoint tests exercise
+                // the production message-building path.
+                services.RemoveAll<IEmailSender>();
+                services.RemoveAll<AuthEmailService>();
+                IEmailSender sender = EmailSenderThrows ? new ThrowingEmailSender() : Email;
+                services.AddSingleton(sender);
+                services.AddSingleton(new AuthEmailService(sender, AuthBaseUrl));
             }
         });
     }
@@ -146,4 +174,46 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
         string id, string role = "member", bool enabled = true, bool forcePasswordReset = false, bool mfaEnabled = false)
         => new(id, $"{id}@example.com", $"{id}@example.com", id, role, enabled, forcePasswordReset, mfaEnabled,
             DateTime.UtcNow, DateTime.UtcNow);
+}
+
+/// <summary>Captures app log entries at information level and above for assertion in tests.</summary>
+internal sealed class CapturingLoggerProvider : ILoggerProvider
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(LogLevel Level, string Text)> _entries = new();
+
+    /// <summary>Each entry's full text: the rendered message plus the exception string, if any.</summary>
+    public IReadOnlyCollection<(LogLevel Level, string Text)> Entries => _entries.ToArray();
+
+    public ILogger CreateLogger(string categoryName) => new CapturingLogger(_entries);
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class CapturingLogger(System.Collections.Concurrent.ConcurrentQueue<(LogLevel, string)> entries)
+        : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel < LogLevel.Information)
+            {
+                return;
+            }
+
+            var text = formatter(state, exception);
+            if (exception is not null)
+            {
+                text = $"{text} {exception}";
+            }
+
+            entries.Enqueue((logLevel, text));
+        }
+    }
 }

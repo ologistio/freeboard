@@ -50,7 +50,7 @@ public sealed class SudoMagicLinkTests
 
         var send = await client.PostAsJsonAsync($"{Prefix}/auth/sudo/magic-link/send", new { });
         var challengeId = (await send.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("challenge_id").GetString();
-        var linkToken = factory.Email.MagicLinks.Single().Token;
+        var linkToken = RecordingEmailSender.TokenOf(factory.Email.MagicLinks.Single());
 
         var first = await client.PostAsJsonAsync(
             $"{Prefix}/auth/sudo", new { factor = "magic_link", challenge_id = challengeId, link_token = linkToken });
@@ -76,7 +76,7 @@ public sealed class SudoMagicLinkTests
         // The victim requests a sudo magic-link.
         var send = await victimClient.PostAsJsonAsync($"{Prefix}/auth/sudo/magic-link/send", new { });
         var challengeId = (await send.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("challenge_id").GetString();
-        var linkToken = factory.Email.MagicLinks.Single().Token;
+        var linkToken = RecordingEmailSender.TokenOf(factory.Email.MagicLinks.Single());
 
         // The attacker tries to use the victim's challenge id + token to stamp sudo on THEIR session.
         var attack = await attackerClient.PostAsJsonAsync(

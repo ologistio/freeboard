@@ -101,7 +101,7 @@ public sealed class MfaEndpointTests
 
         var send = await client.PostAsJsonAsync($"{Prefix}/auth/mfa/magic-link/send", new { mfa_token = mfaToken });
         Assert.Equal(HttpStatusCode.OK, send.StatusCode);
-        var linkToken = factory.Email.MagicLinks.Single().Token;
+        var linkToken = RecordingEmailSender.TokenOf(factory.Email.MagicLinks.Single());
 
         var verify = await client.PostAsJsonAsync(
             $"{Prefix}/auth/mfa/magic-link/verify", new { mfa_token = mfaToken, link_token = linkToken });
@@ -208,7 +208,7 @@ public sealed class MfaEndpointTests
         var send = await client.PostAsJsonAsync($"{Prefix}/auth/sudo/magic-link/send", new { });
         Assert.Equal(HttpStatusCode.OK, send.StatusCode);
         var challengeId = (await send.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("challenge_id").GetString();
-        var linkToken = factory.Email.MagicLinks.Single().Token;
+        var linkToken = RecordingEmailSender.TokenOf(factory.Email.MagicLinks.Single());
 
         var sudo = await client.PostAsJsonAsync(
             $"{Prefix}/auth/sudo", new { factor = "magic_link", challenge_id = challengeId, link_token = linkToken });
