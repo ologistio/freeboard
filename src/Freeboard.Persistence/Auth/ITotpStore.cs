@@ -13,15 +13,19 @@ public readonly record struct TotpEnrollment(string ProvisioningUri);
 public interface ITotpStore
 {
     /// <summary>
-    /// Generates a new secret for the user, encrypts it, and stores it UNCONFIRMED (replacing
-    /// any prior unconfirmed/confirmed secret). Returns the otpauth:// provisioning URI.
+    /// Generates a new secret for the user and encrypts it. If the user has no secret or only an
+    /// UNCONFIRMED one, it replaces that secret. If the user already has a CONFIRMED secret, the new
+    /// secret is STAGED as pending and the confirmed secret keeps working until
+    /// <see cref="ActivateAsync"/> verifies and promotes the pending one, so an abandoned rotation
+    /// never locks the user out. Returns the otpauth:// provisioning URI.
     /// </summary>
     Task<TotpEnrollment> EnrollAsync(string userId, string accountName, string issuer, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Confirms enrollment: verifies <paramref name="code"/> against the stored secret and, on
-    /// success, stamps <c>confirmed_at</c> and advances the replay step. Returns true if the
-    /// code was valid and not a replay.
+    /// Confirms enrollment: verifies <paramref name="code"/> against the newly enrolled secret (the
+    /// pending one when rotating, otherwise the live one) and, on success, stamps <c>confirmed_at</c>,
+    /// promotes a pending secret to live, and advances the replay step. Returns true if the code was
+    /// valid and not a replay.
     /// </summary>
     Task<bool> ActivateAsync(string userId, string code, CancellationToken cancellationToken = default);
 

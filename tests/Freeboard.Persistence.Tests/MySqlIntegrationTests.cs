@@ -574,6 +574,62 @@ public sealed class MySqlIntegrationTests
         Assert.False(await totp.VerifyAsync(user.Id, code));         // replay within the same step rejected
     }
 
+    // Rotating an already-confirmed TOTP secret stages the replacement and keeps the old secret
+    // live and confirmed until the new one is activated, so an abandoned rotation cannot lock the
+    // user out. Activation must prove the NEW secret; on success it is promoted to live and the
+    // pending slot is cleared.
+    [SkippableFact]
+    public async Task TotpRotationPreservesConfirmedSecretUntilNewOneActivated()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var ulids = new UlidFactory();
+        var protector = new AesGcmSecretProtector(TestCrypto());
+        var users = new MySqlUserStore(db.ConnectionFactory, ulids);
+        var totp = new MySqlTotpStore(db.ConnectionFactory, protector);
+
+        static byte[] SecretFromUri(string uri) =>
+            Base32Encoding.ToBytes(HttpUtility.ParseQueryString(new Uri(uri).Query)["secret"]);
+
+        var user = await users.CreateAsync(new NewUser("rotate@e.com", "R", "admin"));
+
+        // Enroll and confirm the first secret.
+        var first = await totp.EnrollAsync(user.Id, "rotate@e.com", "Freeboard");
+        var secretA = SecretFromUri(first.ProvisioningUri);
+        Assert.True(await totp.ActivateAsync(user.Id, new Totp(secretA).ComputeTotp()));
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        var liveAfterActivate = await conn.ExecuteScalarAsync<byte[]>(
+            "SELECT secret_ciphertext FROM totp_credentials WHERE user_id = @UserId;", new { UserId = user.Id });
+
+        // Rotate: enrolling a replacement stages it as pending and leaves the confirmed secret live.
+        var second = await totp.EnrollAsync(user.Id, "rotate@e.com", "Freeboard");
+        var secretB = SecretFromUri(second.ProvisioningUri);
+
+        var during = await conn.QuerySingleAsync<(byte[] Live, byte[]? Pending, DateTime? Confirmed)>(
+            "SELECT secret_ciphertext AS Live, pending_secret_ciphertext AS Pending, confirmed_at AS Confirmed "
+            + "FROM totp_credentials WHERE user_id = @UserId;", new { UserId = user.Id });
+        Assert.Equal(liveAfterActivate, during.Live);   // live secret untouched by enrollment
+        Assert.NotNull(during.Pending);                  // replacement staged
+        Assert.NotEqual(during.Live, during.Pending);
+        Assert.NotNull(during.Confirmed);                // still a confirmed factor
+        Assert.True(await totp.IsConfirmedAsync(user.Id));
+
+        // The old secret's code cannot promote the pending one: activation must prove the new secret.
+        Assert.False(await totp.ActivateAsync(user.Id, new Totp(secretA).ComputeTotp()));
+
+        // Activating with the new secret promotes it to live and clears the pending slot.
+        Assert.True(await totp.ActivateAsync(user.Id, new Totp(secretB).ComputeTotp()));
+        var after = await conn.QuerySingleAsync<(byte[] Live, byte[]? Pending, DateTime? Confirmed)>(
+            "SELECT secret_ciphertext AS Live, pending_secret_ciphertext AS Pending, confirmed_at AS Confirmed "
+            + "FROM totp_credentials WHERE user_id = @UserId;", new { UserId = user.Id });
+        Assert.Null(after.Pending);
+        Assert.NotNull(after.Confirmed);
+        Assert.NotEqual(during.Live, after.Live);        // live secret is now the rotated one
+    }
+
     // Concurrent single-admin bootstrap: N concurrent TryBootstrapAdminAsync calls
     // against one fresh DB create EXACTLY ONE admin. The bootstrap_marker sentinel PK collision
     // makes the losers return null, and the users table ends with exactly one row.
