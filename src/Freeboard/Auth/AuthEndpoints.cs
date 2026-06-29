@@ -225,15 +225,17 @@ public static class AuthEndpoints
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // A send failure must not escape as a 500 only for real accounts: that difference
-                // is an enumeration oracle. Fall through to the same uniform 200. The reset token row
-                // may already exist; it expires unused.
+                // Both the token mint and the send run only on the known-account branch, so a failure
+                // in either must NOT escape as a 500: a known account that 500s while an unknown
+                // account 200s is an enumeration oracle. Both stay inside this catch and fall through
+                // to the same uniform 200. The reset token row may already exist; it expires unused.
+                // The Warning is the observability path for a masked provisioning/delivery outage.
                 //
                 // Log the exception TYPE only, never the exception object or its Message: a sender or
                 // wrapped SMTP exception could carry the reset token in its Message, and the token is a
                 // credential that must never be logged at information level or above.
                 loggerFactory.CreateLogger("Freeboard.Auth.ForgotPassword").LogWarning(
-                    "Password-reset email send failed for {Recipient} ({Error}); returning the uniform 200.",
+                    "Password-reset provisioning or delivery failed for {Recipient} ({Error}); returning the uniform 200.",
                     user.Email, ex.GetType().Name);
             }
         }
