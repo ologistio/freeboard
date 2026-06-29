@@ -13,9 +13,26 @@ internal sealed class FakeMfaChallengeStore(ITokenHasher? tokenHasher = null) : 
     {
         public required MfaChallengeRow Row { get; set; }
 
+        // Login magic-link fallback: the single-slot keyed hash (SetMagicLinkAsync / VerifyMagicLinkAsync).
         public byte[]? MagicLinkHash { get; set; }
 
         public int MagicLinkKeyVersion { get; set; }
+
+        // Sudo magic-link: one token per send, each bound to the challenge instance (Row.CreatedAt).
+        public List<SudoToken> SudoTokens { get; } = [];
+    }
+
+    private sealed class SudoToken
+    {
+        public required byte[] Hash { get; init; }
+
+        public required int KeyVersion { get; init; }
+
+        public required DateTime ChallengeCreatedAt { get; init; }
+
+        public required DateTime ExpiresAt { get; init; }
+
+        public DateTime? ConsumedAt { get; set; }
     }
 
     private readonly ConcurrentDictionary<string, Entry> _byToken = new(StringComparer.Ordinal);
@@ -67,45 +84,44 @@ internal sealed class FakeMfaChallengeStore(ITokenHasher? tokenHasher = null) : 
                 .OrderByDescending(e => e.Row.CreatedAt)
                 .FirstOrDefault();
 
-            var resettable = entry is null || entry.Row.ConsumedAt is not null || entry.Row.ExpiresAt <= now;
             if (entry is null)
             {
                 var id = $"chal-{++_seq:D4}";
                 var token = $"mfa-token-{id}";
                 var row = new MfaChallengeRow(
-                    id, userId, 1, credentialVersion, "magic_link", null, challengeExpiresAt, null, 0, 1, magicLinkExpiresAt, now);
-                entry = new Entry { Row = row, MagicLinkHash = magicLinkTokenHash, MagicLinkKeyVersion = magicLinkTokenKeyVersion };
+                    id, userId, 1, credentialVersion, "magic_link", null, challengeExpiresAt, null, 0, 0, null, now);
+                entry = new Entry { Row = row };
                 _byToken[token] = entry;
                 _byId[id] = entry;
-                return Task.FromResult(new SudoMagicLinkSendResult(id, true));
             }
-
-            if (resettable)
+            else if (entry.Row.ConsumedAt is not null || entry.Row.ExpiresAt <= now)
             {
+                // Reset the expired/consumed instance in place; the new CreatedAt orphans its tokens.
                 entry.Row = entry.Row with
                 {
                     CredentialVersion = credentialVersion,
                     Attempts = 0,
                     ConsumedAt = null,
                     ExpiresAt = challengeExpiresAt,
-                    MagicLinkExpiresAt = magicLinkExpiresAt,
-                    MagicLinkSends = 1,
                     CreatedAt = now,
                 };
-                entry.MagicLinkHash = magicLinkTokenHash;
-                entry.MagicLinkKeyVersion = magicLinkTokenKeyVersion;
-                return Task.FromResult(new SudoMagicLinkSendResult(entry.Row.Id, true));
             }
 
-            if (entry.Row.MagicLinkSends >= maxSends)
+            // Drop tokens from prior instances and any that have expired; the active count is the cap.
+            entry.SudoTokens.RemoveAll(t => t.ChallengeCreatedAt != entry.Row.CreatedAt || t.ExpiresAt <= now);
+            var active = entry.SudoTokens.Count(t => t.ConsumedAt is null && t.ExpiresAt > now);
+            if (active >= maxSends)
             {
-                // Cap reached: leave the row unchanged and reject the send.
                 return Task.FromResult(new SudoMagicLinkSendResult(entry.Row.Id, false));
             }
 
-            entry.Row = entry.Row with { MagicLinkSends = entry.Row.MagicLinkSends + 1, MagicLinkExpiresAt = magicLinkExpiresAt };
-            entry.MagicLinkHash = magicLinkTokenHash;
-            entry.MagicLinkKeyVersion = magicLinkTokenKeyVersion;
+            entry.SudoTokens.Add(new SudoToken
+            {
+                Hash = magicLinkTokenHash,
+                KeyVersion = magicLinkTokenKeyVersion,
+                ChallengeCreatedAt = entry.Row.CreatedAt,
+                ExpiresAt = magicLinkExpiresAt,
+            });
             return Task.FromResult(new SudoMagicLinkSendResult(entry.Row.Id, true));
         }
     }
@@ -166,20 +182,31 @@ internal sealed class FakeMfaChallengeStore(ITokenHasher? tokenHasher = null) : 
 
     public Task<bool> VerifyAndConsumeMagicLinkAsync(string id, string userId, string magicLinkToken, DateTime now, CancellationToken cancellationToken = default)
     {
-        // Bind to the user: a challenge for another user does not match.
+        // Sudo path: bind to the user and the unconsumed, unexpired challenge, then match the token
+        // against ANY active token of the current instance. A later send never clobbered an earlier
+        // emitted token.
         if (!_byId.TryGetValue(id, out var entry)
             || entry.Row.UserId != userId
             || entry.Row.ConsumedAt is not null
-            || entry.MagicLinkHash is null
-            || entry.Row.MagicLinkExpiresAt is not { } exp || exp <= now
-            || tokenHasher is null
-            || !tokenHasher.VerifyPrefixless(magicLinkToken, entry.MagicLinkKeyVersion, entry.MagicLinkHash))
+            || entry.Row.ExpiresAt <= now
+            || tokenHasher is null)
         {
             return Task.FromResult(false);
         }
 
-        // Atomic single-use consume.
+        var matched = entry.SudoTokens.FirstOrDefault(t =>
+            t.ChallengeCreatedAt == entry.Row.CreatedAt
+            && t.ConsumedAt is null
+            && t.ExpiresAt > now
+            && tokenHasher.VerifyPrefixless(magicLinkToken, t.KeyVersion, t.Hash));
+        if (matched is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        // Single-use consume of the challenge gates reuse even with multiple outstanding tokens.
         entry.Row = entry.Row with { ConsumedAt = now };
+        matched.ConsumedAt = now;
         return Task.FromResult(true);
     }
 
