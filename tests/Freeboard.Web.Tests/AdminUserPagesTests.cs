@@ -367,6 +367,44 @@ public sealed class AdminUserPagesTests
     }
 
     [Fact]
+    public async Task AdminCannotResetOwnPasswordAndKeepsSession()
+    {
+        using var factory = new AuthWebFactory();
+        var admin = AuthWebFactory.MakeUser("admin-self-reset", role: "admin");
+        var token = factory.SeedSession(admin);
+        using var client = NoRedirectClient(factory);
+
+        var reset = await AuthFormTestHelpers.PostFormAsync(
+            client, $"{UsersPath}?handler=ResetPassword", [new("id", admin.Id)],
+            extraCookies: SessionCookieFor(token).ToList(), getPath: UsersPath);
+
+        // Self-reset would revoke the acting admin's sessions and redirect to a credential page the
+        // now-logged-out admin could not load. The handler re-renders the list with a notice instead.
+        Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
+        Assert.Contains("your own password", await reset.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.NotEmpty(await factory.Sessions.ListByUserAsync(admin.Id));
+        Assert.False((await factory.Users.GetByIdAsync(admin.Id))!.ForcePasswordReset);
+    }
+
+    [Fact]
+    public async Task AdminCannotDisableOwnAccount()
+    {
+        using var factory = new AuthWebFactory();
+        var admin = AuthWebFactory.MakeUser("admin-self-disable", role: "admin");
+        var token = factory.SeedSession(admin);
+        using var client = NoRedirectClient(factory);
+
+        var disable = await AuthFormTestHelpers.PostFormAsync(
+            client, $"{UsersPath}?handler=Disable", [new("id", admin.Id)],
+            extraCookies: SessionCookieFor(token).ToList(), getPath: UsersPath);
+
+        Assert.Equal(HttpStatusCode.OK, disable.StatusCode);
+        Assert.Contains("your own account", await disable.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.True((await factory.Users.GetByIdAsync(admin.Id))!.Enabled);
+        Assert.NotEmpty(await factory.Sessions.ListByUserAsync(admin.Id));
+    }
+
+    [Fact]
     public async Task DuplicateEmailReRendersCreateErrorAndAddsNoUser()
     {
         using var factory = new AuthWebFactory();

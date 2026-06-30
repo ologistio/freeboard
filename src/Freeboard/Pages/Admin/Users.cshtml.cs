@@ -104,6 +104,15 @@ public sealed class UsersModel(
             return denied;
         }
 
+        // Reset revokes all of the target's sessions, so resetting your own account would log you out
+        // before the temp-password display page could load. Manage your own credential via account settings.
+        if (IsSelf(id))
+        {
+            Notice = "You cannot reset your own password here; use your account settings.";
+            await LoadAsync(ct).ConfigureAwait(false);
+            return Page();
+        }
+
         var result = await AuthFlows.ResetUserPasswordAsync(id, users, credentials, hasher, serviceProvider, ct)
             .ConfigureAwait(false);
 
@@ -123,6 +132,15 @@ public sealed class UsersModel(
         if (AdminGuard.Check(User) is { } denied)
         {
             return denied;
+        }
+
+        // Disabling revokes the target's sessions; disabling your own account would lock you out of the
+        // admin pages with no way back in. Block self-disable.
+        if (IsSelf(id))
+        {
+            Notice = "You cannot disable your own account.";
+            await LoadAsync(ct).ConfigureAwait(false);
+            return Page();
         }
 
         if (await users.GetByIdAsync(id, ct).ConfigureAwait(false) is null)
@@ -159,6 +177,10 @@ public sealed class UsersModel(
         await LoadAsync(ct).ConfigureAwait(false);
         return Page();
     }
+
+    /// <summary>True when the target id is the signed-in admin's own user id.</summary>
+    private bool IsSelf(string id)
+        => string.Equals(id, User.FindFirst(AuthClaims.UserId)?.Value, StringComparison.Ordinal);
 
     private async Task LoadAsync(CancellationToken ct)
     {
