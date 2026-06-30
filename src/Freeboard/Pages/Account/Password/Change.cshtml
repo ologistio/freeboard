@@ -1,0 +1,19 @@
+@page "/account/password/change"
+@model Freeboard.Pages.Account.Password.ChangeModel
+@{
+    ViewData["Title"] = "Change password";
+}
+<h1>Change password</h1>
+@if (Model.Changed)
+{
+    <p class="success">Your password has been changed.</p>
+}
+<partial name="_ErrorSummary" model="ModelState" />
+<form method="post">
+    <label for="old_password">Current password</label>
+    <input type="password" id="old_password" name="old_password" autocomplete="current-password" />
+    <label for="new_password">New password</label>
+    <input type="password" id="new_password" name="new_password" autocomplete="new-password" />
+    <button type="submit">Change password</button>
+</form>
+<p><a href="/account">Back to account</a></p>

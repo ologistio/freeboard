@@ -1,0 +1,19 @@
+@page "/login/mfa/recovery"
+@model Freeboard.Pages.Login.Mfa.RecoveryModel
+@{
+    ViewData["Title"] = "Recovery code";
+}
+<h1>Recovery code</h1>
+@if (!Model.HasPendingChallenge)
+{
+    <p class="error">Your sign-in could not be continued. <a href="/login">Start again</a>.</p>
+}
+else
+{
+    <partial name="_ErrorSummary" model="ModelState" />
+    <form method="post">
+        <label for="recovery_code">Enter one of your recovery codes</label>
+        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" />
+        <button type="submit">Verify</button>
+    </form>
+}

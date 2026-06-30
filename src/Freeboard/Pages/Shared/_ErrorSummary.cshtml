@@ -1,0 +1,12 @@
+@model Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary
+@if (!Model.IsValid)
+{
+    <div class="error-summary" role="alert">
+        <ul>
+            @foreach (var error in Model.Values.SelectMany(v => v.Errors))
+            {
+                <li>@error.ErrorMessage</li>
+            }
+        </ul>
+    </div>
+}

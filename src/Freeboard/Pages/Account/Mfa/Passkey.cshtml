@@ -1,0 +1,28 @@
+@page "/account/mfa/passkey"
+@model Freeboard.Pages.Account.Mfa.PasskeyModel
+@{
+    ViewData["Title"] = "Add a passkey";
+}
+<h1>Add a passkey</h1>
+@if (Model.WebAuthnUnconfigured)
+{
+    <p class="error">Passkeys are not available on this server.</p>
+}
+else if (Model.OptionsJson is null)
+{
+    <p class="error">Could not start passkey registration. <a href="/account/mfa">Go back</a> and try again.</p>
+}
+else
+{
+    <partial name="_ErrorSummary" model="ModelState" />
+    <div data-passkey-register
+         data-action="/account/mfa/passkey"
+         data-antiforgery="@Model.AntiforgeryToken"
+         data-options="@Model.OptionsJson"
+         data-correlation="@Model.Correlation">
+        <label for="nickname">Passkey name (optional)</label>
+        <input type="text" id="nickname" data-nickname />
+        <button type="button" data-passkey-go>Add passkey</button>
+    </div>
+    <script src="~/js/passkey.js"></script>
+}

@@ -1,0 +1,22 @@
+@page "/login/mfa/passkey"
+@model Freeboard.Pages.Login.Mfa.PasskeyModel
+@{
+    ViewData["Title"] = "Use your passkey";
+}
+<h1>Use your passkey</h1>
+@if (!Model.HasPendingChallenge || Model.OptionsJson is null)
+{
+    <p class="error">Your sign-in could not be continued. <a href="/login">Start again</a>.</p>
+}
+else
+{
+    <partial name="_ErrorSummary" model="ModelState" />
+    <div data-passkey-assert
+         data-action="/login/mfa/passkey"
+         data-antiforgery="@Model.AntiforgeryToken"
+         data-options="@Model.OptionsJson">
+        <p>Confirm with your passkey to finish signing in.</p>
+        <button type="button" data-passkey-go>Use passkey</button>
+    </div>
+    <script src="~/js/passkey.js"></script>
+}

@@ -1,0 +1,21 @@
+@page "/account/mfa/recovery-codes"
+@model Freeboard.Pages.Account.Mfa.RecoveryCodesModel
+@{
+    ViewData["Title"] = "Recovery codes";
+}
+<h1>Recovery codes</h1>
+@if (Model.RecoveryCodes is { Count: > 0 })
+{
+    <p class="success">Save these recovery codes now - they are shown only once. Each code works once if you lose your other factors.</p>
+    <ul class="recovery-codes">
+        @foreach (var code in Model.RecoveryCodes)
+        {
+            <li>@code</li>
+        }
+    </ul>
+}
+else
+{
+    <p>There are no recovery codes to show. They are displayed only once, right after they are generated.</p>
+}
+<p><a href="/account/mfa">Back to security settings</a></p>

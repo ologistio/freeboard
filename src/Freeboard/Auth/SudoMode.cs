@@ -37,11 +37,30 @@ public sealed class RequireSudoModeHandler(
             return; // not authenticated as a session: leave unsatisfied (-> 401/403 upstream).
         }
 
-        var session = await sessionStore.GetByIdAsync(sessionId).ConfigureAwait(false);
-        if (session?.SudoAt is { } sudoAt && sudoAt > DateTime.UtcNow - _options.SudoModeTtl)
+        if (await SudoRecency.IsRecentAsync(sessionStore, sessionId, _options.SudoModeTtl).ConfigureAwait(false))
         {
             context.Succeed(requirement);
         }
+    }
+}
+
+/// <summary>
+/// The single sudo-recency predicate shared by the API's <see cref="RequireSudoModeHandler"/> and the
+/// page handlers. Pipeline authorization policies do not run for in-process page handlers, so a
+/// sudo-gated page must check recency itself with the exact same rule the API enforces.
+/// </summary>
+public static class SudoRecency
+{
+    /// <summary>True when the session has a step-up within <paramref name="ttl"/> of now.</summary>
+    public static async Task<bool> IsRecentAsync(ISessionStore sessionStore, string? sessionId, TimeSpan ttl)
+    {
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            return false;
+        }
+
+        var session = await sessionStore.GetByIdAsync(sessionId).ConfigureAwait(false);
+        return session?.SudoAt is { } sudoAt && sudoAt > DateTime.UtcNow - ttl;
     }
 }
 

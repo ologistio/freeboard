@@ -223,8 +223,18 @@ internal sealed class FakeTotpStore : ITotpStore
     /// <summary>The code that <see cref="VerifyAsync"/>/<see cref="ActivateAsync"/> accept.</summary>
     public string ValidCode { get; set; } = "123456";
 
+    private int _enrollCount;
+
+    /// <summary>How many times <see cref="EnrollAsync"/> ran: proves a secret is staged exactly once.</summary>
+    public int EnrollCount => _enrollCount;
+
     public Task<TotpEnrollment> EnrollAsync(string userId, string accountName, string issuer, CancellationToken cancellationToken = default)
-        => Task.FromResult(new TotpEnrollment($"otpauth://totp/{issuer}:{accountName}?secret=ABC"));
+    {
+        // Each enroll yields a DISTINCT secret in the URI, so a rotation is visible to a test that
+        // compares the provisioning URI across an activation retry.
+        var n = Interlocked.Increment(ref _enrollCount);
+        return Task.FromResult(new TotpEnrollment($"otpauth://totp/{issuer}:{accountName}?secret=SECRET{n}"));
+    }
 
     public Task<bool> ActivateAsync(string userId, string code, CancellationToken cancellationToken = default)
     {
@@ -316,12 +326,16 @@ internal sealed class FakeWebAuthnCredentialStore : IWebAuthnCredentialStore
         return Task.FromResult(true);
     }
 
-    /// <summary>Test helper: seed a credential so the user "has a passkey".</summary>
-    public void Seed(string userId, byte[] credentialId)
+    /// <summary>Test helper: seed a credential so the user "has a passkey". Returns its id.</summary>
+    public string Seed(string userId, byte[] credentialId)
     {
         var id = $"cred-{++_seq:D4}";
         _byId[id] = new WebAuthnCredentialRow(
             id, userId, credentialId, [1, 2], 0, System.Text.Encoding.UTF8.GetBytes(userId),
             null, null, "public-key", null, null, "test", DateTime.UtcNow, null);
+        return id;
     }
+
+    /// <summary>Test helper: whether a credential with the given id still exists.</summary>
+    public bool Exists(string id) => _byId.ContainsKey(id);
 }
