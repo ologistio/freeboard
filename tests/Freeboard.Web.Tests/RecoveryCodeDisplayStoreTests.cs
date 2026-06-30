@@ -10,13 +10,13 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class RecoveryCodeDisplayStoreTests
 {
-    private static RecoveryCodeDisplayStore NewStore()
-        => new(new MemoryCache(new MemoryCacheOptions()));
-
     [Fact]
     public void SecondSequentialTakeReturnsNothing()
     {
-        var store = NewStore();
+        // The store does not own the cache (it is injected and disposed by DI in the app), so the test
+        // owns and disposes the MemoryCache it creates.
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new RecoveryCodeDisplayStore(cache);
         var nonce = store.Stash(new[] { "code-1", "code-2" });
 
         var first = store.Take(nonce);
@@ -30,7 +30,8 @@ public sealed class RecoveryCodeDisplayStoreTests
     [Fact]
     public async Task ConcurrentTakesYieldTheCodesToExactlyOneCaller()
     {
-        var store = NewStore();
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new RecoveryCodeDisplayStore(cache);
         var nonce = store.Stash(new[] { "code-1", "code-2" });
 
         // Fire many concurrent reads of the same nonce; only one may observe the codes.

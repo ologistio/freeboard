@@ -40,7 +40,7 @@ internal static class E2EGate
             browser.CloseAsync().GetAwaiter().GetResult();
             return null;
         }
-        catch (Exception ex)
+        catch (PlaywrightException ex)
         {
             // No browser binary, missing OS deps, or a sandbox that blocks launch: skip, never fail.
             return $"Chromium is not launchable ({ex.GetType().Name}); install it with "

@@ -42,11 +42,20 @@ public sealed class MagicLinkModel(
             return Page();
         }
 
-        // The outcome is intentionally not surfaced: sent, rate-limited, and send-cap all render the
-        // same confirmation so the page is not an oracle. The challenge stays pending for the landing.
-        await AuthFlows.MagicLinkSendAsync(
-            MfaToken, HttpContext.Connection.RemoteIpAddress?.ToString(),
-            _mfa, challenges, tokenHasher, _users, _rateLimiter, serviceProvider, ct).ConfigureAwait(false);
+        // The outcome is intentionally not surfaced: sent, rate-limited, send-cap, and even a transient
+        // send failure (for example an SMTP outage) all render the same confirmation so the page is
+        // neither an oracle nor a 500. The challenge stays pending for the landing, matching the
+        // forgot-password hardening.
+        try
+        {
+            await AuthFlows.MagicLinkSendAsync(
+                MfaToken, HttpContext.Connection.RemoteIpAddress?.ToString(),
+                _mfa, challenges, tokenHasher, _users, _rateLimiter, serviceProvider, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A failed send must not 500 the screen or block login; the sender logs its own failures.
+        }
 
         Sent = true;
         return Page();

@@ -73,7 +73,7 @@ internal sealed class E2EAppFixture : AuthWebFactory
     // process could grab the port. Standard pattern for ephemeral test ports; acceptable here.
     private static int FreeTcpPort()
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();

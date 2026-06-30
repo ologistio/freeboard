@@ -128,10 +128,10 @@ public sealed class SessionCookieBridgeTests
         Assert.NotEqual(first, second);
     }
 
-    private static Task<HttpResponseMessage> GetWithCookie(HttpClient client, string path, string token)
+    private static async Task<HttpResponseMessage> GetWithCookie(HttpClient client, string path, string token)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
-        return client.SendAsync(request);
+        return await client.SendAsync(request);
     }
 }

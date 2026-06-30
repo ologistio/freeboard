@@ -43,7 +43,7 @@ internal static partial class AuthFormTestHelpers
             new("__RequestVerificationToken", token),
         };
 
-        var request = new HttpRequestMessage(HttpMethod.Post, path)
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
         {
             Content = new FormUrlEncodedContent(form),
         };
@@ -60,9 +60,8 @@ internal static partial class AuthFormTestHelpers
             return result;
         }
 
-        foreach (var raw in setCookies)
+        foreach (var nameValue in setCookies.Select(raw => raw.Split(';', 2)[0]))
         {
-            var nameValue = raw.Split(';', 2)[0];
             var eq = nameValue.IndexOf('=');
             if (eq <= 0)
             {
@@ -89,9 +88,8 @@ internal static partial class AuthFormTestHelpers
             return false;
         }
 
-        foreach (var raw in setCookies)
+        foreach (var nameValue in setCookies.Select(raw => raw.Split(';', 2)[0]))
         {
-            var nameValue = raw.Split(';', 2)[0];
             if (nameValue.StartsWith($"{name}=", StringComparison.Ordinal)
                 && nameValue.Length == name.Length + 1)
             {

@@ -120,18 +120,16 @@ public sealed class SudoModel(
 
         // A failed verify or rate-limit surfaces one generic message; re-render the offered factors.
         await ComputeOfferedFactorsAsync(user, ct).ConfigureAwait(false);
-        if (Request.HasJsonContentType())
+        // The shim re-renders the returned HTML in place, so a JSON (passkey) request must carry the
+        // offered passkey factors.
+        if (Request.HasJsonContentType() && OfferPasskey)
         {
-            // The shim re-renders the returned HTML in place, so it must carry the offered factors.
-            if (OfferPasskey)
+            var options = await AuthFlows.SudoPasskeyOptionsAsync(UserId, webAuthn, enrollment, ct).ConfigureAwait(false);
+            if (options is AuthFlows.SudoPasskeyOptionsResult.Ok ok)
             {
-                var options = await AuthFlows.SudoPasskeyOptionsAsync(UserId, webAuthn, enrollment, ct).ConfigureAwait(false);
-                if (options is AuthFlows.SudoPasskeyOptionsResult.Ok ok)
-                {
-                    PasskeyOptionsJson = ok.OptionsJson;
-                    PasskeyCorrelation = ok.Correlation;
-                    AntiforgeryToken = antiforgery.GetAndStoreTokens(HttpContext).RequestToken;
-                }
+                PasskeyOptionsJson = ok.OptionsJson;
+                PasskeyCorrelation = ok.Correlation;
+                AntiforgeryToken = antiforgery.GetAndStoreTokens(HttpContext).RequestToken;
             }
         }
 

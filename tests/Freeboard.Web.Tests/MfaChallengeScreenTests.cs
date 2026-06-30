@@ -106,14 +106,15 @@ public sealed class MfaChallengeScreenTests
         var nonce = await LoginAndGetNonceAsync(factory, client, user);
 
         // The shared challenge consumes itself after the 5th failed attempt; the page then restarts login.
-        HttpResponseMessage? last = null;
-        for (var i = 0; i < 5; i++)
+        var last = await AuthFormTestHelpers.PostFormAsync(client, "/login/mfa/totp",
+            new[] { new KeyValuePair<string, string>("code", "000000") }, extraCookies: NonceCookie(nonce));
+        for (var i = 1; i < 5; i++)
         {
             last = await AuthFormTestHelpers.PostFormAsync(client, "/login/mfa/totp",
                 new[] { new KeyValuePair<string, string>("code", "000000") }, extraCookies: NonceCookie(nonce));
         }
 
-        Assert.Equal(HttpStatusCode.Redirect, last!.StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, last.StatusCode);
         Assert.Equal("/login", last.Headers.Location!.OriginalString);
         Assert.Null(factory.Services.GetRequiredService<PendingMfaStore>().Peek(nonce));
     }
