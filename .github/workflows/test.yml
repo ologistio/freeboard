@@ -10,8 +10,17 @@ permissions:
   contents: read
   code-quality: write
 
+# The four jobs below have no `needs`, so they run in parallel. The suite splits
+# its tiers by environment variable rather than by project (a single project can
+# hold both fast and infrastructure-backed tests, gated with Xunit.SkippableFact),
+# so each job selects its tier by which FREEBOARD_TEST_* gates it sets.
 jobs:
-  test:
+  # Fast deterministic tests: pure logic, no network, no database, no filesystem
+  # dependency beyond temporary directories. With no FREEBOARD_TEST_* set and no
+  # services running, the database, SMTP, and browser suites all skip, leaving
+  # only the fast tests.
+  unit:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -22,11 +31,35 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Reuse the test-infrastructure compose so CI runs the same services (MySQL
-      # and the Mailpit SMTP sink) as local dev: the same images, credentials, and
-      # the fb_test_* grant init script. The grants let the integration tests
-      # provision throwaway fb_test_* databases. --wait blocks until healthchecks
-      # pass. Started early so they warm up during restore and build.
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test --configuration Release --no-build --no-restore
+
+  # Integration tests: database, container-backed, and service-boundary tests
+  # that need local infrastructure. Reuses the test-infrastructure compose (the
+  # same MySQL 8.4 and Mailpit SMTP sink as local dev, with the fb_test_* grant
+  # init script) and switches the gated tests on via FREEBOARD_TEST_DB and
+  # FREEBOARD_TEST_SMTP. Coverage is collected here because this is the broadest
+  # in-process run (every suite enabled).
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # Started early so the services warm up during restore and build. --wait
+      # blocks until the healthchecks pass.
       - name: Start test services
         run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d --wait
 
@@ -39,9 +72,7 @@ jobs:
       - name: Install coverage tool
         run: dotnet tool install --global dotnet-coverage
 
-      # FREEBOARD_TEST_DB and FREEBOARD_TEST_SMTP switch the integration tests on;
-      # without them they skip. Both target the compose services started above.
-      - name: Run tests with coverage
+      - name: Run integration tests with coverage
         env:
           FREEBOARD_TEST_DB: "Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
           FREEBOARD_TEST_SMTP: "Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
@@ -59,12 +90,12 @@ jobs:
         if: always()
         run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml down -v
 
-  # Runs in parallel with `test` (no `needs`). The browser E2E suite
-  # (tests/Freeboard.WebE2E) drives the auth screens in real Chromium over HTTPS
-  # Kestrel using the in-memory fakes, so it needs no MySQL/SMTP services - just a
-  # browser. The `test` job above still builds the E2E project, but skips it
-  # because FREEBOARD_TEST_E2E is unset there.
+  # E2E tests: the auth screens driven in real Chromium over an HTTPS Kestrel
+  # origin, using the CDP virtual authenticator for the WebAuthn flows. The
+  # fixture serves its own self-signed origin and uses in-memory fakes, so this
+  # tier needs no database or SMTP services - just a browser.
   e2e:
+    name: E2E Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -87,9 +118,19 @@ jobs:
       - name: Install Playwright browser
         run: pwsh tests/Freeboard.WebE2E/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
 
-      # FREEBOARD_TEST_E2E switches on the otherwise-skipped browser suite. The
-      # fixture serves its own self-signed HTTPS origin, so no dev cert is needed.
       - name: Run E2E tests
         env:
           FREEBOARD_TEST_E2E: "1"
         run: dotnet test tests/Freeboard.WebE2E --configuration Release --no-build --no-restore
+
+  # Slow or specialised tests: performance, migration-against-a-real-database,
+  # compatibility, and large-fixture suites. None exist yet (migration *logic*
+  # runs in Unit Tests; migration *execution* against MySQL runs in Integration
+  # Tests), so this is a passing stub. When such a suite is added, gate it behind
+  # a FREEBOARD_TEST_NFR variable and run it here.
+  nfr:
+    name: NFR Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: No NFR tests defined yet
+        run: echo "No performance/migration/compatibility/large-fixture tests defined yet; nothing to run."
