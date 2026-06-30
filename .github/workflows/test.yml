@@ -121,21 +121,35 @@ jobs:
       - name: Install Playwright browser
         run: pwsh tests/Freeboard.WebE2E/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
 
+      # Exclude the NFR tier: the accessibility baseline is in this project but runs
+      # browser-free in the NFR job below, so it must not double-run here.
       - name: Run E2E tests
         env:
           FREEBOARD_TEST_E2E: "1"
-        run: dotnet test tests/Freeboard.WebE2E --configuration Release --no-build --no-restore
+        run: dotnet test tests/Freeboard.WebE2E --configuration Release --no-build --no-restore --filter "Category!=NFR"
 
-  # Slow or specialised tests: performance, migration-against-a-real-database,
-  # compatibility, and large-fixture suites. None exist yet (migration *logic*
-  # runs in Unit Tests; migration *execution* against MySQL runs in Integration
-  # Tests), so this is a passing stub. When such a suite is added, tag it
-  # `[Trait("Category", TestCategories.Nfr)]` (gating any resource it needs with a
-  # RequiresEnvVar precondition) and replace the stub with:
-  #   dotnet test --configuration Release --filter "Category=NFR"
+  # Non-functional tests: accessibility, performance, migration-against-a-real-
+  # database, compatibility, and large-fixture suites. Selected by `Category=NFR`.
+  # These are deterministic and need no external services or browser (a test that
+  # needs a resource gates it with a RequiresEnvVar precondition and skips when
+  # absent), so this job just builds and runs the NFR filter.
   nfr:
     name: NFR Tests
     runs-on: ubuntu-latest
     steps:
-      - name: No NFR tests defined yet
-        run: echo "No performance/migration/compatibility/large-fixture tests defined yet; nothing to run."
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run NFR tests
+        run: dotnet test --configuration Release --no-build --no-restore --filter "Category=NFR"
