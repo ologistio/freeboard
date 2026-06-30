@@ -37,15 +37,29 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      - name: Run unit tests
-        run: dotnet test --configuration Release --no-build --no-restore
+      - name: Install coverage tool
+        run: dotnet tool install --global dotnet-coverage
+
+      # No FREEBOARD_TEST_* and no services, plus a Category filter that excludes
+      # the other tiers, so only the fast deterministic tests run. Coverage is
+      # collected here: it is the broadest deterministic in-process run.
+      - name: Run unit tests with coverage
+        run: |
+          dotnet-coverage collect 'dotnet test --configuration Release --no-build --no-restore --filter "Category!=Integration&Category!=E2E&Category!=NFR"' -f cobertura -o coverage.xml
+
+      - name: Upload coverage report
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage.xml
+          language: "C#"
+          label: code-coverage/dotnet
 
   # Integration tests: database, container-backed, and service-boundary tests
   # that need local infrastructure. Reuses the test-infrastructure compose (the
   # same MySQL 8.4 and Mailpit SMTP sink as local dev, with the fb_test_* grant
   # init script) and switches the gated tests on via FREEBOARD_TEST_DB and
-  # FREEBOARD_TEST_SMTP. Coverage is collected here because this is the broadest
-  # in-process run (every suite enabled).
+  # FREEBOARD_TEST_SMTP. Selected by `Category=Integration`.
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
@@ -69,22 +83,11 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      - name: Install coverage tool
-        run: dotnet tool install --global dotnet-coverage
-
-      - name: Run integration tests with coverage
+      - name: Run integration tests
         env:
           FREEBOARD_TEST_DB: "Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
           FREEBOARD_TEST_SMTP: "Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
-        run: dotnet-coverage collect "dotnet test --configuration Release --no-build --no-restore" -f cobertura -o coverage.xml
-
-      - name: Upload coverage report
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/upload-code-coverage@v1
-        with:
-          file: coverage.xml
-          language: "C#"
-          label: code-coverage/dotnet
+        run: dotnet test --configuration Release --no-build --no-restore --filter "Category=Integration"
 
       - name: Stop test services
         if: always()
@@ -126,8 +129,10 @@ jobs:
   # Slow or specialised tests: performance, migration-against-a-real-database,
   # compatibility, and large-fixture suites. None exist yet (migration *logic*
   # runs in Unit Tests; migration *execution* against MySQL runs in Integration
-  # Tests), so this is a passing stub. When such a suite is added, gate it behind
-  # a FREEBOARD_TEST_NFR variable and run it here.
+  # Tests), so this is a passing stub. When such a suite is added, tag it
+  # `[Trait("Category", TestCategories.Nfr)]` (gating any resource it needs with a
+  # RequiresEnvVar precondition) and replace the stub with:
+  #   dotnet test --configuration Release --filter "Category=NFR"
   nfr:
     name: NFR Tests
     runs-on: ubuntu-latest
