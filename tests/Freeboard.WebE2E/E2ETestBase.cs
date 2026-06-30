@@ -64,6 +64,26 @@ public abstract class E2ETestBase : IAsyncLifetime
     private protected Task<IBrowserContext> NewContextAsync()
         => Browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
 
+    /// <summary>
+    /// Waits until the browser has navigated to <paramref name="url"/> (query string ignored) by polling
+    /// the live document location, not Playwright's <c>WaitForURLAsync</c>. Under scheduler delay a fast
+    /// navigation can fire its <c>load</c> event before a <c>WaitForURLAsync</c> wait attaches; that wait
+    /// then blocks on an event that already fired and hangs until timeout. Polling <c>location.href</c> is
+    /// immune to the missed event.
+    /// </summary>
+    private protected static Task WaitForUrlAsync(IPage page, string url, float timeoutMs = 15000)
+        => page.WaitForFunctionAsync(
+            "u => location.href.split('?')[0] === u", url, new() { Timeout = timeoutMs });
+
+    /// <summary>
+    /// Like <see cref="WaitForUrlAsync"/>, but settles when the live location merely contains
+    /// <paramref name="fragment"/>. Used where the destination is identified by a path substring rather
+    /// than an exact URL.
+    /// </summary>
+    private protected static Task WaitForUrlContainingAsync(IPage page, string fragment, float timeoutMs = 15000)
+        => page.WaitForFunctionAsync(
+            "f => location.href.includes(f)", fragment, new() { Timeout = timeoutMs });
+
     /// <summary>Seeds a user with a password credential (no session) so a browser can log in.</summary>
     private protected void SeedUserWithPassword(
         string id, string password, bool forceReset = false, bool mfaEnabled = false)
