@@ -1,0 +1,96 @@
+@page "/admin/users"
+@model Freeboard.Pages.Admin.UsersModel
+@{
+    ViewData["Title"] = "Users";
+}
+<div class="admin-wide">
+    <h1>Users</h1>
+
+    @if (Model.Notice is not null)
+    {
+        <p class="error">@Model.Notice</p>
+    }
+    @if (Model.InvitedEmail is not null)
+    {
+        <p class="success" data-invite-confirmation>Invite sent to @Model.InvitedEmail, link expires in 7 days.</p>
+    }
+    @if (Model.InviteFailedEmail is not null)
+    {
+        <p class="error">
+            @Model.InviteFailedEmail was created, but the invite could not be sent. Use the
+            reset-password action on that user to provide a credential. Re-creating the user will not work.
+        </p>
+    }
+
+    <h2>Create user</h2>
+    <partial name="_ErrorSummary" model="ModelState" />
+    <form method="post" asp-page-handler="Create">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="off" />
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" autocomplete="off" />
+        <label for="global_role">Role</label>
+        <select id="global_role" name="global_role">
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+        </select>
+        <fieldset>
+            <legend>Credential handoff</legend>
+            <label><input type="radio" name="handoff" value="temp" checked /> Temporary password</label>
+            @if (Model.EmailConfigured)
+            {
+                <label><input type="radio" name="handoff" value="invite" /> Email an invite link</label>
+            }
+            else
+            {
+                <label><input type="radio" name="handoff" value="invite" disabled /> Email an invite link</label>
+                <span>Email is not configured; new users get a temporary password.</span>
+            }
+        </fieldset>
+        <button type="submit">Create user</button>
+    </form>
+
+    <h2>Existing users</h2>
+    <table class="users">
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in Model.Users)
+            {
+                <tr>
+                    <td>@user.Email</td>
+                    <td>@user.Name</td>
+                    <td>@user.GlobalRole</td>
+                    <td>@(user.Enabled ? "yes" : "no")</td>
+                    <td>
+                        <form method="post" asp-page-handler="ResetPassword">
+                            <input type="hidden" name="id" value="@user.Id" />
+                            <button type="submit">Reset password</button>
+                        </form>
+                        @if (user.Enabled)
+                        {
+                            <form method="post" asp-page-handler="Disable">
+                                <input type="hidden" name="id" value="@user.Id" />
+                                <button type="submit">Disable</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <form method="post" asp-page-handler="Enable">
+                                <input type="hidden" name="id" value="@user.Id" />
+                                <button type="submit">Enable</button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

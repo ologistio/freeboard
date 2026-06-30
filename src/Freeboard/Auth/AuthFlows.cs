@@ -456,6 +456,162 @@ internal static class AuthFlows
         return new BootstrapResult.Created(admin, token);
     }
 
+    // ---- admin user management (create / reset-password credential handoff) ----
+
+    /// <summary>The credential handoff a create requests: a one-time temp password, or an emailed invite.</summary>
+    internal enum CreateUserHandoff
+    {
+        TemporaryPassword,
+        EmailInvite,
+    }
+
+    /// <summary>The expiry window for an emailed invite's set-password link: long enough to reach an
+    /// inbox and be acted on, unlike the 1h public reset lifetime.</summary>
+    private static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(7);
+
+    internal abstract record CreateUserResult
+    {
+        /// <summary>Temp-password path: the created user plus the one-time plaintext to display once.</summary>
+        internal sealed record Success(UserRow User, string TemporaryPassword) : CreateUserResult;
+
+        /// <summary>Invite path: the row was created and a set-password link was emailed; no plaintext.</summary>
+        internal sealed record Invited(UserRow User) : CreateUserResult;
+
+        /// <summary>Invite path: the row was created, but minting the token or sending the email threw.</summary>
+        internal sealed record InviteSendFailed(UserRow User) : CreateUserResult;
+
+        /// <summary>Field validation failed (missing email/name, unknown role).</summary>
+        internal sealed record Invalid(IDictionary<string, string[]> Errors) : CreateUserResult;
+
+        /// <summary>The email is already taken (pre-check or the unique-key catch).</summary>
+        internal sealed record DuplicateEmail : CreateUserResult;
+    }
+
+    internal static async Task<CreateUserResult> CreateUserAsync(
+        string? email,
+        string? name,
+        string? globalRole,
+        CreateUserHandoff handoff,
+        IUserStore users,
+        IPasswordCredentialStore credentials,
+        IPasswordHasher hasher,
+        IPasswordResetStore resets,
+        IServiceProvider sp,
+        CancellationToken ct)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            errors["email"] = ["An email is required."];
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            errors["name"] = ["A name is required."];
+        }
+
+        var role = globalRole ?? GlobalRoles.Member;
+        if (!GlobalRoles.IsValid(role))
+        {
+            errors["global_role"] = ["Unknown role."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return new CreateUserResult.Invalid(errors);
+        }
+
+        // Pre-check gives a clean error in the common case; the DB unique index is still the
+        // authoritative guard under a concurrent-create race (caught below).
+        if (await users.GetByEmailAsync(email!, ct).ConfigureAwait(false) is not null)
+        {
+            return new CreateUserResult.DuplicateEmail();
+        }
+
+        // The invite path needs a configured email transport. Its presence (AuthEmailService) is the
+        // single source of truth for "email is configured"; it is registered only when a sender is.
+        // The gate is enforced here, not just in the page markup, so a forged invite request with no
+        // email configured silently falls back to the temp-password path rather than failing.
+        var emailService = sp.GetService<AuthEmailService>();
+        var invite = handoff == CreateUserHandoff.EmailInvite && emailService is not null;
+
+        UserRow user;
+        try
+        {
+            user = await users.CreateAsync(new NewUser(email!, name!, role), ct).ConfigureAwait(false);
+        }
+        catch (MySqlConnector.MySqlException ex) when (ex.ErrorCode == MySqlConnector.MySqlErrorCode.DuplicateKeyEntry)
+        {
+            return new CreateUserResult.DuplicateEmail();
+        }
+
+        if (invite)
+        {
+            // The row is created first (with force_password_reset and NO password credential), then
+            // the invite is provisioned. Until the invite is accepted the account cannot log in.
+            await users.SetForcePasswordResetAsync(user.Id, true, ct).ConfigureAwait(false);
+            var invited = user with { ForcePasswordReset = true };
+
+            // Token mint + send are ONE invite-provisioning step: a throw from either leaves the row
+            // present (recoverable via reset-password) and surfaces as InviteSendFailed, not a 500.
+            // The invite deliberately does NOT honor Auth:PasswordResetEnabled: it is an authenticated
+            // admin action, independent of the public self-serve forgot-password toggle.
+            try
+            {
+                var minted = await resets.CreateAsync(user.Id, DateTime.UtcNow + InviteLifetime, ct).ConfigureAwait(false);
+                await emailService!.SendInviteAsync(user.Email, minted.Token, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return new CreateUserResult.InviteSendFailed(invited);
+            }
+
+            return new CreateUserResult.Invited(invited);
+        }
+
+        // Temp-password path: a random ONE-TIME temp password; store only its hash; force a reset.
+        var tempPassword = TempPassword.Generate();
+        await credentials.SetAsync(
+            user.Id, hasher.Hash(tempPassword), CurrentSecretVersion(sp), ct).ConfigureAwait(false);
+        await users.SetForcePasswordResetAsync(user.Id, true, ct).ConfigureAwait(false);
+
+        return new CreateUserResult.Success(user with { ForcePasswordReset = true }, tempPassword);
+    }
+
+    internal abstract record ResetUserPasswordResult
+    {
+        /// <summary>The one-time plaintext to display once; the user's sessions were revoked.</summary>
+        internal sealed record Success(string TemporaryPassword) : ResetUserPasswordResult;
+
+        /// <summary>The target id is unknown (a stale id deleted since the list was rendered).</summary>
+        internal sealed record UnknownUser : ResetUserPasswordResult;
+    }
+
+    internal static async Task<ResetUserPasswordResult> ResetUserPasswordAsync(
+        string id,
+        IUserStore users,
+        IPasswordCredentialStore credentials,
+        IPasswordHasher hasher,
+        IServiceProvider sp,
+        CancellationToken ct)
+    {
+        var user = await users.GetByIdAsync(id, ct).ConfigureAwait(false);
+        if (user is null)
+        {
+            return new ResetUserPasswordResult.UnknownUser();
+        }
+
+        // One transaction: set the new hash, bump the credential epoch, force a password reset,
+        // AND revoke ALL the user's sessions.
+        var tempPassword = TempPassword.Generate();
+        await credentials.UpdateHashAndRevokeSessionsAsync(
+            id, hasher.Hash(tempPassword), CurrentSecretVersion(sp),
+            keepSessionId: null, setForcePasswordReset: true, upgradeKeptSessionToFull: false, ct)
+            .ConfigureAwait(false);
+
+        return new ResetUserPasswordResult.Success(tempPassword);
+    }
+
     // ---- MFA login verify ----
 
     internal abstract record MfaVerifyResult

@@ -65,6 +65,13 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     public bool RegisterEmailSender { get; init; }
 
     /// <summary>
+    /// Overrides the <c>Auth:PasswordResetEnabled</c> setting. When null it defaults to
+    /// <see cref="RegisterEmailSender"/>. Set it explicitly to register email while keeping the
+    /// public reset toggle off, so a test can prove the invite path ignores that toggle.
+    /// </summary>
+    public bool? PasswordResetEnabled { get; init; }
+
+    /// <summary>
     /// When true, the registered sender throws on send. Used to prove forgot-password stays a
     /// uniform 200 when the reset email send fails (enumeration-safe on send failure).
     /// </summary>
@@ -97,7 +104,8 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
         AuthTestConfig.Apply(builder);
         builder.UseSetting("Freeboard:GitOps:ReadOnly", ReadOnly ? "true" : "false");
         builder.UseSetting("Auth:BootstrapSecret", BootstrapSecret);
-        builder.UseSetting("Auth:PasswordResetEnabled", RegisterEmailSender ? "true" : "false");
+        builder.UseSetting(
+            "Auth:PasswordResetEnabled", (PasswordResetEnabled ?? RegisterEmailSender) ? "true" : "false");
         builder.UseSetting("Auth:WebAuthn:RpId", "localhost");
         builder.UseSetting("Auth:WebAuthn:Origins:0", "https://localhost");
 

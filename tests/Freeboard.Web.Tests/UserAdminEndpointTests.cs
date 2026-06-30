@@ -42,7 +42,7 @@ public sealed class UserAdminEndpointTests
     }
 
     [Fact]
-    public async Task CreateDuplicateEmailIs422()
+    public async Task CreateDuplicateEmailIs422WithEmailError()
     {
         using var factory = new AuthWebFactory();
         using var client = AdminClient(factory);
@@ -53,6 +53,27 @@ public sealed class UserAdminEndpointTests
             $"{Prefix}/users", new { email = "dup@example.com", name = "B", global_role = "member" });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, dup.StatusCode);
+        var json = await dup.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(422, json.GetProperty("status").GetInt32());
+        var emailErrors = json.GetProperty("errors").GetProperty("email").EnumerateArray()
+            .Select(e => e.GetString()).ToList();
+        Assert.Contains("A user with this email already exists.", emailErrors);
+    }
+
+    [Fact]
+    public async Task CreateMissingEmailIs422WithEmailError()
+    {
+        using var factory = new AuthWebFactory();
+        using var client = AdminClient(factory);
+
+        var response = await client.PostAsJsonAsync(
+            $"{Prefix}/users", new { name = "NoEmail", global_role = "member" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(422, json.GetProperty("status").GetInt32());
+        Assert.True(json.GetProperty("errors").TryGetProperty("email", out var emailErrors));
+        Assert.NotEmpty(emailErrors.EnumerateArray());
     }
 
     [Fact]
