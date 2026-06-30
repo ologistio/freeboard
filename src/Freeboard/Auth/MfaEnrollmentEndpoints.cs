@@ -37,18 +37,17 @@ public static class MfaEnrollmentEndpoints
         HttpContext ctx, IWebAuthnCredentialStore webAuthn, ITotpStore totp, IRecoveryCodeStore recovery,
         CancellationToken ct)
     {
-        var userId = UserId(ctx);
-        if (userId is null)
+        var status = await AuthFlows.MfaStatusAsync(UserId(ctx), webAuthn, totp, recovery, ct).ConfigureAwait(false);
+        if (status is null)
         {
             return Unauthorized();
         }
 
-        var passkeys = await webAuthn.ListByUserAsync(userId, ct).ConfigureAwait(false);
         return Results.Ok(new
         {
-            totp = await totp.IsConfirmedAsync(userId, ct).ConfigureAwait(false),
-            passkeys = passkeys.Select(c => new { id = c.Id, nickname = c.Nickname, created_at = c.CreatedAt }),
-            recovery_codes_remaining = await recovery.CountRemainingAsync(userId, ct).ConfigureAwait(false),
+            totp = status.Totp,
+            passkeys = status.Passkeys.Select(c => new { id = c.Id, nickname = c.Nickname, created_at = c.CreatedAt }),
+            recovery_codes_remaining = status.RecoveryCodesRemaining,
         });
     }
 
@@ -56,20 +55,8 @@ public static class MfaEnrollmentEndpoints
 
     private static async Task<IResult> TotpEnrollAsync(HttpContext ctx, ITotpStore totp, IUserStore users, CancellationToken ct)
     {
-        var userId = UserId(ctx);
-        if (userId is null)
-        {
-            return Unauthorized();
-        }
-
-        var user = await users.GetByIdAsync(userId, ct).ConfigureAwait(false);
-        if (user is null)
-        {
-            return Unauthorized();
-        }
-
-        var enrollment = await totp.EnrollAsync(userId, user.Email, "Freeboard", ct).ConfigureAwait(false);
-        return Results.Ok(new { provisioning_uri = enrollment.ProvisioningUri });
+        var provisioningUri = await AuthFlows.TotpEnrollAsync(UserId(ctx), totp, users, ct).ConfigureAwait(false);
+        return provisioningUri is null ? Unauthorized() : Results.Ok(new { provisioning_uri = provisioningUri });
     }
 
     public sealed record TotpActivateRequest(string? Code);
@@ -77,41 +64,16 @@ public static class MfaEnrollmentEndpoints
     private static async Task<IResult> TotpActivateAsync(
         TotpActivateRequest body, HttpContext ctx, ITotpStore totp, IWebAuthnCredentialStore webAuthn,
         IRecoveryCodeStore recovery, IUserStore users, IOptions<WebAuthOptions> options, CancellationToken ct)
-    {
-        var userId = UserId(ctx);
-        if (userId is null)
-        {
-            return Unauthorized();
-        }
-
-        if (string.IsNullOrEmpty(body?.Code))
-        {
-            return ApiResponses.ValidationProblem("code", "A confirming code is required.");
-        }
-
-        var hadFactor = await HasStrongFactorAsync(webAuthn, totp, userId, ct).ConfigureAwait(false);
-        if (!await totp.ActivateAsync(userId, body.Code, ct).ConfigureAwait(false))
-        {
-            return ApiResponses.ValidationProblem("code", "The code is incorrect.");
-        }
-
-        var codes = await OnFactorActivatedAsync(users, recovery, userId, hadFactor, options.Value.RecoveryCodeCount, ct)
-            .ConfigureAwait(false);
-        return Results.Ok(codes is null ? new { activated = true } : new { activated = true, recovery_codes = codes });
-    }
+        => MapActivated(
+            await AuthFlows.TotpActivateAsync(
+                UserId(ctx), body?.Code, totp, webAuthn, recovery, users, options, ct).ConfigureAwait(false),
+            codes => codes is null ? new { activated = true } : new { activated = true, recovery_codes = codes });
 
     private static async Task<IResult> TotpDeleteAsync(
         HttpContext ctx, ITotpStore totp, IWebAuthnCredentialStore webAuthn, IUserStore users, CancellationToken ct)
     {
-        var userId = UserId(ctx);
-        if (userId is null)
-        {
-            return Unauthorized();
-        }
-
-        await totp.DeleteAsync(userId, ct).ConfigureAwait(false);
-        await RecomputeMfaEnabledAsync(users, webAuthn, totp, userId, ct).ConfigureAwait(false);
-        return Results.Ok(new { deleted = true });
+        var ok = await AuthFlows.TotpDeleteAsync(UserId(ctx), totp, webAuthn, users, ct).ConfigureAwait(false);
+        return ok ? Results.Ok(new { deleted = true }) : Unauthorized();
     }
 
     // ---- passkey ----
@@ -119,26 +81,16 @@ public static class MfaEnrollmentEndpoints
     private static async Task<IResult> PasskeyOptionsAsync(
         HttpContext ctx, WebAuthnCeremony webAuthn, WebAuthnEnrollmentStore store, IUserStore users, CancellationToken ct)
     {
-        var userId = UserId(ctx);
-        if (userId is null)
+        var result = await AuthFlows.PasskeyRegisterOptionsAsync(UserId(ctx), webAuthn, store, users, ct)
+            .ConfigureAwait(false);
+        return result switch
         {
-            return Unauthorized();
-        }
-
-        if (!webAuthn.IsConfigured)
-        {
-            return WebAuthnUnconfigured();
-        }
-
-        var user = await users.GetByIdAsync(userId, ct).ConfigureAwait(false);
-        if (user is null)
-        {
-            return Unauthorized();
-        }
-
-        var optionsJson = await webAuthn.BeginRegistrationAsync(userId, user.Email, ct).ConfigureAwait(false);
-        var correlation = store.Stash(userId, optionsJson);
-        return Results.Content($"{{\"correlation\":\"{correlation}\",\"options\":{optionsJson}}}", "application/json");
+            AuthFlows.PasskeyRegisterOptionsResult.Unauthorized => Unauthorized(),
+            AuthFlows.PasskeyRegisterOptionsResult.WebAuthnUnconfigured => WebAuthnUnconfigured(),
+            AuthFlows.PasskeyRegisterOptionsResult.Ok ok => Results.Content(
+                $"{{\"correlation\":\"{ok.Correlation}\",\"options\":{ok.OptionsJson}}}", "application/json"),
+            _ => Unauthorized(),
+        };
     }
 
     private static async Task<IResult> PasskeyRegisterAsync(
@@ -146,6 +98,8 @@ public static class MfaEnrollmentEndpoints
         ITotpStore totp, IRecoveryCodeStore recovery, IUserStore users, IOptions<WebAuthOptions> options,
         CancellationToken ct)
     {
+        // Keep the original ordering: reject unauthenticated/unconfigured BEFORE touching the body,
+        // so a malformed body cannot mask a 401/503. The shared flow re-checks both for the page path.
         var userId = UserId(ctx);
         if (userId is null)
         {
@@ -162,51 +116,25 @@ public static class MfaEnrollmentEndpoints
         var correlation = root.TryGetProperty("correlation", out var c) ? c.GetString() : null;
         var attestation = root.TryGetProperty("attestation", out var a) ? a.GetRawText() : null;
         var nickname = root.TryGetProperty("nickname", out var n) ? n.GetString() : null;
-        if (correlation is null || attestation is null)
-        {
-            return ApiResponses.ValidationProblem("attestation", "A correlation and attestation are required.");
-        }
 
-        var optionsJson = store.Take(userId, correlation);
-        if (optionsJson is null)
-        {
-            return ApiResponses.ValidationProblem("correlation", "The registration options expired. Restart enrollment.");
-        }
-
-        var hadFactor = await HasStrongFactorAsync(creds, totp, userId, ct).ConfigureAwait(false);
-        try
-        {
-            await webAuthn.RegisterAsync(userId, optionsJson, attestation, nickname, ct).ConfigureAwait(false);
-        }
-        catch (WebAuthnCeremonyException)
-        {
-            return ApiResponses.ValidationProblem("attestation", "Passkey registration failed.");
-        }
-
-        var codes = await OnFactorActivatedAsync(users, recovery, userId, hadFactor, options.Value.RecoveryCodeCount, ct)
-            .ConfigureAwait(false);
-        return Results.Ok(codes is null ? new { registered = true } : new { registered = true, recovery_codes = codes });
+        return MapActivated(
+            await AuthFlows.PasskeyRegisterAsync(
+                userId, correlation, attestation, nickname,
+                webAuthn, store, creds, totp, recovery, users, options, ct).ConfigureAwait(false),
+            codes => codes is null ? new { registered = true } : new { registered = true, recovery_codes = codes });
     }
 
     private static async Task<IResult> PasskeyDeleteAsync(
         string id, HttpContext ctx, IWebAuthnCredentialStore creds, ITotpStore totp, IUserStore users, CancellationToken ct)
     {
-        var userId = UserId(ctx);
-        if (userId is null)
+        var result = await AuthFlows.PasskeyDeleteAsync(UserId(ctx), id, creds, totp, users, ct).ConfigureAwait(false);
+        return result switch
         {
-            return Unauthorized();
-        }
-
-        // Only delete a credential the caller owns (IDOR-safe: 404 otherwise).
-        var owned = (await creds.ListByUserAsync(userId, ct).ConfigureAwait(false)).Any(x => x.Id == id);
-        if (!owned)
-        {
-            return Results.NotFound();
-        }
-
-        await creds.RemoveAsync(id, ct).ConfigureAwait(false);
-        await RecomputeMfaEnabledAsync(users, creds, totp, userId, ct).ConfigureAwait(false);
-        return Results.Ok(new { deleted = true });
+            AuthFlows.PasskeyDeleteResult.Unauthorized => Unauthorized(),
+            AuthFlows.PasskeyDeleteResult.NotFound => Results.NotFound(),
+            AuthFlows.PasskeyDeleteResult.Ok => Results.Ok(new { deleted = true }),
+            _ => Unauthorized(),
+        };
     }
 
     // ---- recovery ----
@@ -214,14 +142,8 @@ public static class MfaEnrollmentEndpoints
     private static async Task<IResult> RecoveryRegenerateAsync(
         HttpContext ctx, IRecoveryCodeStore recovery, IOptions<WebAuthOptions> options, CancellationToken ct)
     {
-        var userId = UserId(ctx);
-        if (userId is null)
-        {
-            return Unauthorized();
-        }
-
-        var codes = await recovery.RegenerateAsync(userId, options.Value.RecoveryCodeCount, ct).ConfigureAwait(false);
-        return Results.Ok(new { recovery_codes = codes });
+        var codes = await AuthFlows.RecoveryRegenerateAsync(UserId(ctx), recovery, options, ct).ConfigureAwait(false);
+        return codes is null ? Unauthorized() : Results.Ok(new { recovery_codes = codes });
     }
 
     // ---- helpers ----
@@ -233,31 +155,15 @@ public static class MfaEnrollmentEndpoints
     private static IResult WebAuthnUnconfigured() => Results.Json(
         new { error = "webauthn_unconfigured" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 
-    private static async Task<bool> HasStrongFactorAsync(
-        IWebAuthnCredentialStore webAuthn, ITotpStore totp, string userId, CancellationToken ct)
-        => (await webAuthn.ListByUserAsync(userId, ct).ConfigureAwait(false)).Count > 0
-            || await totp.IsConfirmedAsync(userId, ct).ConfigureAwait(false);
-
-    /// <summary>
-    /// On a factor activation: ensure mfa_enabled is true and, if this is the FIRST factor, generate
-    /// the recovery-code set once and return it. Returns null when not the first factor.
-    /// </summary>
-    private static async Task<IReadOnlyList<string>?> OnFactorActivatedAsync(
-        IUserStore users, IRecoveryCodeStore recovery, string userId, bool hadFactor, int count, CancellationToken ct)
-    {
-        await users.SetMfaEnabledAsync(userId, true, ct).ConfigureAwait(false);
-        if (hadFactor)
+    /// <summary>Maps a factor-activation outcome (shared by TOTP activate and passkey register) to its IResult.</summary>
+    private static IResult MapActivated(
+        AuthFlows.FactorActivationResult result, Func<IReadOnlyList<string>?, object> okBody)
+        => result switch
         {
-            return null;
-        }
-
-        return await recovery.RegenerateAsync(userId, count, ct).ConfigureAwait(false);
-    }
-
-    private static async Task RecomputeMfaEnabledAsync(
-        IUserStore users, IWebAuthnCredentialStore webAuthn, ITotpStore totp, string userId, CancellationToken ct)
-    {
-        var stillHas = await HasStrongFactorAsync(webAuthn, totp, userId, ct).ConfigureAwait(false);
-        await users.SetMfaEnabledAsync(userId, stillHas, ct).ConfigureAwait(false);
-    }
+            AuthFlows.FactorActivationResult.Unauthorized => Unauthorized(),
+            AuthFlows.FactorActivationResult.WebAuthnUnconfigured => WebAuthnUnconfigured(),
+            AuthFlows.FactorActivationResult.Invalid v => ApiResponses.ValidationProblem(v.Field, v.Message),
+            AuthFlows.FactorActivationResult.Activated a => Results.Ok(okBody(a.RecoveryCodes)),
+            _ => Unauthorized(),
+        };
 }
