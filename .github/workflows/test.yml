@@ -58,3 +58,38 @@ jobs:
       - name: Stop test services
         if: always()
         run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml down -v
+
+  # Runs in parallel with `test` (no `needs`). The browser E2E suite
+  # (tests/Freeboard.WebE2E) drives the auth screens in real Chromium over HTTPS
+  # Kestrel using the in-memory fakes, so it needs no MySQL/SMTP services - just a
+  # browser. The `test` job above still builds the E2E project, but skips it
+  # because FREEBOARD_TEST_E2E is unset there.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      # Install the Chromium build Playwright drives, plus its OS dependencies.
+      # The Microsoft.Playwright package generates this script under the E2E
+      # project's build output; pwsh is preinstalled on the runner.
+      - name: Install Playwright browser
+        run: pwsh tests/Freeboard.WebE2E/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+
+      # FREEBOARD_TEST_E2E switches on the otherwise-skipped browser suite. The
+      # fixture serves its own self-signed HTTPS origin, so no dev cert is needed.
+      - name: Run E2E tests
+        env:
+          FREEBOARD_TEST_E2E: "1"
+        run: dotnet test tests/Freeboard.WebE2E --configuration Release --no-build --no-restore
