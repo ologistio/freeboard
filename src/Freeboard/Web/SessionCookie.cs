@@ -36,6 +36,9 @@ public static class SessionCookie
     /// <summary>The TOTP-enrollment display nonce cookie name (path-scoped to the TOTP enroll page).</summary>
     public const string TotpEnrollName = "freeboard-totp-enroll";
 
+    /// <summary>The one-time temp-password display nonce cookie name (path-scoped to the display page).</summary>
+    public const string AdminTempPasswordName = "freeboard-admin-temp-password";
+
     /// <summary>Sets the session cookie to <paramref name="token"/>, expiring with the session.</summary>
     public static void Set(HttpResponse response, string token, DateTimeOffset expiresAt)
         => response.Cookies.Append(Name, token, SessionOptions(expiresAt));

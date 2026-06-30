@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using Freeboard.Api;
 using Freeboard.Persistence.Auth;
-using MySqlConnector;
 
 namespace Freeboard.Auth;
 
@@ -36,62 +35,30 @@ public static class UserAdminEndpoints
         IUserStore users,
         IPasswordCredentialStore credentials,
         IPasswordHasher hasher,
+        IPasswordResetStore resets,
         IServiceProvider sp,
         CancellationToken ct)
     {
         // A missing JSON body binds as null; treat it as an empty request so the field-level
-        // validation below produces the same 422 instead of dereferencing null.
+        // validation produces the same 422 instead of dereferencing null.
         body ??= new CreateUserRequest(null, null, null);
 
-        var errors = new Dictionary<string, string[]>();
-        if (string.IsNullOrWhiteSpace(body.Email))
-        {
-            errors["email"] = ["An email is required."];
-        }
+        // The JSON API always requests the temp-password handoff, so its contract is unchanged: the
+        // invite arms (Invited / InviteSendFailed) are never returned here.
+        var result = await AuthFlows.CreateUserAsync(
+            body.Email, body.Name, body.GlobalRole, AuthFlows.CreateUserHandoff.TemporaryPassword,
+            users, credentials, hasher, resets, sp, ct).ConfigureAwait(false);
 
-        if (string.IsNullOrWhiteSpace(body.Name))
+        return result switch
         {
-            errors["name"] = ["A name is required."];
-        }
-
-        var role = body.GlobalRole ?? GlobalRoles.Member;
-        if (!GlobalRoles.IsValid(role))
-        {
-            errors["global_role"] = ["Unknown role."];
-        }
-
-        if (errors.Count > 0)
-        {
-            return ApiResponses.ValidationProblem(errors);
-        }
-
-        // Pre-check gives a clean 422 in the common case; the DB unique index is still the
-        // authoritative guard under a concurrent-create race (caught below).
-        if (await users.GetByEmailAsync(body.Email!, ct).ConfigureAwait(false) is not null)
-        {
-            return ApiResponses.ValidationProblem("email", "A user with this email already exists.");
-        }
-
-        UserRow user;
-        try
-        {
-            user = await users.CreateAsync(new NewUser(body.Email!, body.Name!, role), ct).ConfigureAwait(false);
-        }
-        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
-        {
-            return ApiResponses.ValidationProblem("email", "A user with this email already exists.");
-        }
-
-        // A random ONE-TIME temp password; store only its hash; force a reset on first login.
-        var tempPassword = TempPassword.Generate();
-        await credentials.SetAsync(
-            user.Id, hasher.Hash(tempPassword), CurrentSecretVersion(sp), ct).ConfigureAwait(false);
-        await users.SetForcePasswordResetAsync(user.Id, true, ct).ConfigureAwait(false);
-
-        var created = user with { ForcePasswordReset = true };
-        return Results.Json(
-            new { user = ApiResponses.UserObject(created), temporary_password = tempPassword },
-            statusCode: StatusCodes.Status201Created);
+            AuthFlows.CreateUserResult.Success success => Results.Json(
+                new { user = ApiResponses.UserObject(success.User), temporary_password = success.TemporaryPassword },
+                statusCode: StatusCodes.Status201Created),
+            AuthFlows.CreateUserResult.Invalid invalid => ApiResponses.ValidationProblem(invalid.Errors),
+            AuthFlows.CreateUserResult.DuplicateEmail => ApiResponses.ValidationProblem(
+                "email", "A user with this email already exists."),
+            _ => Results.StatusCode(StatusCodes.Status500InternalServerError),
+        };
     }
 
     private static async Task<IResult> ListUsersAsync(IUserStore users, CancellationToken ct)
@@ -141,23 +108,14 @@ public static class UserAdminEndpoints
         IServiceProvider sp,
         CancellationToken ct)
     {
-        var user = await users.GetByIdAsync(id, ct).ConfigureAwait(false);
-        if (user is null)
-        {
-            return Results.NotFound();
-        }
-
-        // One transaction: set the new hash, bump the credential epoch, force a password reset,
-        // AND revoke ALL the user's sessions.
-        var tempPassword = TempPassword.Generate();
-        await credentials.UpdateHashAndRevokeSessionsAsync(
-            id, hasher.Hash(tempPassword), CurrentSecretVersion(sp),
-            keepSessionId: null, setForcePasswordReset: true, upgradeKeptSessionToFull: false, ct)
+        var result = await AuthFlows.ResetUserPasswordAsync(id, users, credentials, hasher, sp, ct)
             .ConfigureAwait(false);
 
-        return Results.Ok(new { temporary_password = tempPassword });
+        return result switch
+        {
+            AuthFlows.ResetUserPasswordResult.Success success
+                => Results.Ok(new { temporary_password = success.TemporaryPassword }),
+            _ => Results.NotFound(),
+        };
     }
-
-    private static int CurrentSecretVersion(IServiceProvider sp)
-        => sp.GetRequiredService<AuthCryptoOptions>().CurrentPasswordSecretVersion;
 }

@@ -59,3 +59,20 @@ body {
     margin: 0.5rem 0;
     padding-left: 1.25rem;
 }
+
+/* The user list needs more room than the narrow form-centric main.auth slot. */
+.admin-wide {
+    max-width: 60rem;
+}
+
+.users {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.users th,
+.users td {
+    text-align: left;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid #ccc;
+}

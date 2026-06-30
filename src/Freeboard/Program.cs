@@ -99,6 +99,8 @@ builder.Services.AddSingleton<Freeboard.Web.PendingMfaStore>();
 builder.Services.AddSingleton<Freeboard.Web.RecoveryCodeDisplayStore>();
 // Holds the staged TOTP provisioning URI server-side so an activation retry reuses the same secret.
 builder.Services.AddSingleton<Freeboard.Web.TotpEnrollmentDisplayStore>();
+// Holds a one-time temp password server-side so the admin display page can show it once.
+builder.Services.AddSingleton<Freeboard.Web.TempPasswordDisplayStore>();
 // WebAuthnCeremony depends on the scoped IFido2, so it (and the services that consume it) are
 // scoped. The auth stores are singletons but resolve fine from a scoped service.
 builder.Services.AddScoped<WebAuthnCeremony>();
@@ -164,6 +166,10 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.ConfigureFilter(
         new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute());
     options.Conventions.AuthorizeFolder("/Account", Freeboard.Web.PageChallengeScheme.PolicyName);
+    // Authenticate the /admin folder the same way (unauthenticated -> /login). The admin-ROLE gate is
+    // enforced in-page (a bare 403), NOT here: a Forbid under the page scheme redirects to
+    // /account/sudo, which would misrepresent an admin-role denial as a missing step-up.
+    options.Conventions.AuthorizeFolder("/Admin", Freeboard.Web.PageChallengeScheme.PolicyName);
 
     // Page routes a force-reset (limited) session must reach to complete the reset funnel. The guard
     // permits a request whose endpoint carries this marker, so the limited session is not 403'd on
@@ -183,6 +189,7 @@ builder.Services.AddRazorPages(options =>
                  "/Login/Mfa/Passkey", "/Account/Mfa/Passkey", "/Account/Mfa/PasskeyRemove",
                  "/Account/Mfa/Totp", "/Account/Mfa/TotpRemove", "/Account/Mfa/Recovery", "/Account/Sudo",
                  "/Account/SessionsRevoke", "/Setup",
+                 "/Admin/Users",
              })
     {
         options.Conventions.AddPageMetadata(page, new Freeboard.Api.AuthEndpoint());
