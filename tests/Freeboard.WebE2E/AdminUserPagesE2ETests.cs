@@ -35,7 +35,7 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         await page.FillAsync("#email", "rootadmin@example.com");
         await page.FillAsync("#password", "admin password value");
         await page.ClickAsync("button[type=submit]");
-        await page.WaitForURLAsync($"{App.BaseUrl}/account");
+        await WaitForUrlAsync(page, $"{App.BaseUrl}/account");
 
         // Create a user via the temp-password handoff.
         await page.GotoAsync($"{App.BaseUrl}/admin/users");
@@ -45,7 +45,7 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         await page.ClickAsync("button:has-text('Create user')");
 
         // The one-time display page shows the temp password once.
-        await page.WaitForURLAsync($"{App.BaseUrl}/admin/usercredential");
+        await WaitForUrlAsync(page, $"{App.BaseUrl}/admin/usercredential");
         var tempPassword = (await page.InnerTextAsync(".temp-password")).Trim();
         Assert.False(string.IsNullOrEmpty(tempPassword));
 
@@ -65,10 +65,10 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         await fresh.FillAsync("#email", "newhire@example.com");
         await fresh.FillAsync("#password", tempPassword);
         await fresh.ClickAsync("button[type=submit]");
-        await fresh.WaitForURLAsync($"{App.BaseUrl}/account/complete-reset");
+        await WaitForUrlAsync(fresh, $"{App.BaseUrl}/account/complete-reset");
         await fresh.FillAsync("#new_password", "new hire chosen password");
         await fresh.ClickAsync("button[type=submit]");
-        await fresh.WaitForURLAsync($"{App.BaseUrl}/account");
+        await WaitForUrlAsync(fresh, $"{App.BaseUrl}/account");
     }
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
@@ -87,7 +87,7 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         await page.FillAsync("#email", "rootadmin2@example.com");
         await page.FillAsync("#password", "admin password value");
         await page.ClickAsync("button[type=submit]");
-        await page.WaitForURLAsync($"{App.BaseUrl}/account");
+        await WaitForUrlAsync(page, $"{App.BaseUrl}/account");
 
         await page.GotoAsync($"{App.BaseUrl}/admin/users");
         await page.FillAsync("#email", "invitee@example.com");
@@ -109,7 +109,7 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         // Open the invite link, set a password, and log in as the new user.
         var fresh = await context.NewPageAsync();
         await fresh.GotoAsync($"{App.BaseUrl}/reset-password?token={Uri.EscapeDataString(token)}");
-        await fresh.WaitForURLAsync($"{App.BaseUrl}/reset-password");
+        await WaitForUrlAsync(fresh, $"{App.BaseUrl}/reset-password");
         await fresh.FillAsync("#new_password", "invitee chosen password");
         await fresh.ClickAsync("button[type=submit]");
         await fresh.WaitForSelectorAsync(".success");
@@ -118,6 +118,6 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         await fresh.FillAsync("#email", "invitee@example.com");
         await fresh.FillAsync("#password", "invitee chosen password");
         await fresh.ClickAsync("button[type=submit]");
-        await fresh.WaitForURLAsync($"{App.BaseUrl}/account");
+        await WaitForUrlAsync(fresh, $"{App.BaseUrl}/account");
     }
 }

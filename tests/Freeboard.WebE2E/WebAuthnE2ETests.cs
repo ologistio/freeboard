@@ -37,8 +37,7 @@ public sealed class WebAuthnE2ETests : E2ETestBase
         // strong factor, so the redirect lands on the one-time recovery-codes display. Waiting for that
         // distinct page (not a substring of the current /account/mfa/passkey URL) proves the POST
         // completed before asserting the credential was stored.
-        await page.WaitForURLAsync(u =>
-            u.Contains("/account/mfa/recovery-codes", StringComparison.Ordinal), new() { Timeout = 15000 });
+        await WaitForUrlContainingAsync(page, "/account/mfa/recovery-codes");
         var registered = await App.WebAuthn.ListByUserAsync("pkreg");
         Assert.NotEmpty(registered);
     }
@@ -63,8 +62,7 @@ public sealed class WebAuthnE2ETests : E2ETestBase
         await page.ClickAsync("[data-passkey-go]");
         // First strong factor -> the one-time recovery-codes display; this distinct URL proves the
         // registration POST completed (it is not a substring of the current /account/mfa/passkey URL).
-        await page.WaitForURLAsync(
-            u => u.Contains("/account/mfa/recovery-codes", StringComparison.Ordinal), new() { Timeout = 15000 });
+        await WaitForUrlContainingAsync(page, "/account/mfa/recovery-codes");
 
         // Drop the registration session so the next sign-in is a fresh, unauthenticated login.
         await context.ClearCookiesAsync();
@@ -75,12 +73,12 @@ public sealed class WebAuthnE2ETests : E2ETestBase
         await page.FillAsync("#email", "pklogin@example.com");
         await page.FillAsync("#password", password);
         await page.ClickAsync("button[type=submit]");
-        await page.WaitForURLAsync($"{App.BaseUrl}/login/mfa/passkey", new() { Timeout = 15000 });
+        await WaitForUrlAsync(page, $"{App.BaseUrl}/login/mfa/passkey");
 
         // Complete the passkey assertion via the virtual authenticator; success mints the full session
         // and lands on /account.
         await page.ClickAsync("[data-passkey-go]");
-        await page.WaitForURLAsync($"{App.BaseUrl}/account", new() { Timeout = 15000 });
+        await WaitForUrlAsync(page, $"{App.BaseUrl}/account");
         Assert.Contains("pklogin@example.com", await page.ContentAsync(), StringComparison.Ordinal);
         Assert.NotNull(authenticator);
     }
@@ -100,8 +98,7 @@ public sealed class WebAuthnE2ETests : E2ETestBase
         await page.ClickAsync("[data-passkey-go]");
         // First strong factor -> recovery-codes display; this distinct URL proves the registration POST
         // completed (it is not a substring of the current /account/mfa/passkey URL).
-        await page.WaitForURLAsync(
-            u => u.Contains("/account/mfa/recovery-codes", StringComparison.Ordinal), new() { Timeout = 15000 });
+        await WaitForUrlContainingAsync(page, "/account/mfa/recovery-codes");
 
         // Make this session's sudo STALE so a sudo-gated action must step up again. A 10-minute-old
         // stamp is older than the default 5-minute sudo TTL.
@@ -112,15 +109,14 @@ public sealed class WebAuthnE2ETests : E2ETestBase
         // A sudo-gated action with stale sudo is funnelled to the step-up page (it does not perform
         // the action).
         await page.GotoAsync($"{App.BaseUrl}/account/mfa/passkey");
-        await page.WaitForURLAsync(u => u.Contains("/account/sudo", StringComparison.Ordinal), new() { Timeout = 15000 });
+        await WaitForUrlContainingAsync(page, "/account/sudo");
 
         // Complete the passkey step-up. On success the shim follows the server's JSON { redirect }
         // back to the gated action and the step-up page is gone; a FAILED verify re-renders at
         // /account/sudo (whose returnUrl query still contains the target substring), so wait for the
         // exact register page and require we are no longer on /account/sudo.
         await page.ClickAsync("[data-passkey-assert] [data-passkey-go]");
-        await page.WaitForURLAsync(
-            $"{App.BaseUrl}/account/mfa/passkey", new() { Timeout = 15000 });
+        await WaitForUrlAsync(page, $"{App.BaseUrl}/account/mfa/passkey");
 
         // Assert sudo actually advanced: the session's sudo_at is now newer than the stale stamp.
         var freshSudoAt = (await App.Sessions.GetByIdAsync(sessionId))!.SudoAt;
