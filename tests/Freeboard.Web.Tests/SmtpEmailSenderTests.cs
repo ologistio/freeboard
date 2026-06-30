@@ -3,6 +3,7 @@ using System.Text.Json;
 using Freeboard.Auth;
 using Freeboard.Email;
 using Microsoft.Extensions.Logging.Abstractions;
+using Freeboard.TestInfrastructure;
 
 namespace Freeboard.Web.Tests;
 
@@ -14,11 +15,12 @@ namespace Freeboard.Web.Tests;
 /// value: <c>Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025</c> - the SMTP host:port to send
 /// through and the Mailpit HTTP API base for the messages API.
 /// </summary>
+[Trait("Category", TestCategories.Integration)]
 public sealed class SmtpEmailSenderTests
 {
     private const string EnvVar = "FREEBOARD_TEST_SMTP";
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = "FREEBOARD_TEST_SMTP")]
     public async Task SendsBothAuthMailKindsToMailpit()
     {
         var config = Environment.GetEnvironmentVariable(EnvVar);

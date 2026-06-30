@@ -2,6 +2,7 @@ using Freeboard.Persistence.Auth;
 using Freeboard.Web.Tests;
 using Microsoft.Playwright;
 using Xunit;
+using Freeboard.TestInfrastructure;
 
 namespace Freeboard.WebE2E;
 
@@ -17,11 +18,12 @@ namespace Freeboard.WebE2E;
 /// navigation can complete before a URL-load wait attaches and then hang waiting for a load event
 /// that already fired; waiting on the destination's heading polls the DOM and is race-proof.
 /// </summary>
+[Trait("Category", TestCategories.E2E)]
 public sealed class MfaLoginE2ETests : E2ETestBase
 {
     private const string Password = "mfa login password value";
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task TotpLogin_CompletesAndLandsOnAccount()
     {
         Gate();
@@ -45,7 +47,7 @@ public sealed class MfaLoginE2ETests : E2ETestBase
         await AssertFullSessionAsync(page, user);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task MagicLinkLogin_CompletesAndLandsOnAccount()
     {
         Gate();
@@ -79,7 +81,7 @@ public sealed class MfaLoginE2ETests : E2ETestBase
         await AssertFullSessionAsync(page, user);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task RecoveryCodeLogin_CompletesAndLandsOnAccount()
     {
         Gate();

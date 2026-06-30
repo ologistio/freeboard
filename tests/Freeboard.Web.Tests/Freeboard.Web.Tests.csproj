@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Freeboard\Freeboard.csproj" />
+    <ProjectReference Include="..\Freeboard.TestInfrastructure\Freeboard.TestInfrastructure.csproj" />
   </ItemGroup>
 
 </Project>

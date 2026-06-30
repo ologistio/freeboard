@@ -9,6 +9,7 @@ namespace Freeboard.Persistence.Tests;
 // Guid aaguid, TINYINT(1) NULL -> bool? backup flags, VARBINARY -> byte[]) and RecoveryCode
 // Consume (ValueTuple read). The driver-reported CLR types do not match WebAuthnCredentialRow's
 // constructor, so Dapper cannot bind it directly; WebAuthnCredentialRowDto bridges them.
+[Trait("Category", TestCategories.Integration)]
 public sealed class WebAuthnAndRecoveryCodeReadPathTests
 {
     private static async Task<MySqlTestDatabase> RequireDbAsync()
@@ -38,7 +39,7 @@ public sealed class WebAuthnAndRecoveryCodeReadPathTests
         return u.Id;
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task WebAuthnReadPathMaterializesBigIntUnsignedAndNullableBoolFlags()
     {
         await using var db = await RequireDbAsync();
@@ -82,7 +83,7 @@ public sealed class WebAuthnAndRecoveryCodeReadPathTests
         Assert.Equal(added2.Id, byId2.Id);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task RecoveryCodeConsumeReadPathMaterializes()
     {
         await using var db = await RequireDbAsync();

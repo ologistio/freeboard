@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Playwright;
 using Xunit;
+using Freeboard.TestInfrastructure;
 
 namespace Freeboard.WebE2E;
 
@@ -15,9 +16,10 @@ namespace Freeboard.WebE2E;
 /// app's RP id and origin are pinned to the exact Kestrel origin (see <c>E2EAppFixture</c>) so
 /// Fido2's origin check passes.
 /// </summary>
+[Trait("Category", TestCategories.E2E)]
 public sealed class WebAuthnE2ETests : E2ETestBase
 {
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task PasskeyRegister_AddsACredential()
     {
         Gate();
@@ -41,7 +43,7 @@ public sealed class WebAuthnE2ETests : E2ETestBase
         Assert.NotEmpty(registered);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task PasskeyLoginChallenge_CompletesWithRegisteredCredential()
     {
         Gate();
@@ -83,7 +85,7 @@ public sealed class WebAuthnE2ETests : E2ETestBase
         Assert.NotNull(authenticator);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task PasskeySudoStepUp_RaisesSudo()
     {
         Gate();

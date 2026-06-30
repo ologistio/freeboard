@@ -1,6 +1,7 @@
 using Freeboard.Web.Tests;
 using Microsoft.Playwright;
 using Xunit;
+using Freeboard.TestInfrastructure;
 
 namespace Freeboard.WebE2E;
 
@@ -8,9 +9,10 @@ namespace Freeboard.WebE2E;
 /// Browser E2E for the non-WebAuthn auth flows: password login, forgot/reset round-trip, forced
 /// reset, and session revoke. All gated: a plain <c>dotnet test</c> with no browser skips them.
 /// </summary>
+[Trait("Category", TestCategories.E2E)]
 public sealed class PasswordFlowsE2ETests : E2ETestBase
 {
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task PasswordLogin_LandsOnAccount()
     {
         Gate();
@@ -28,7 +30,7 @@ public sealed class PasswordFlowsE2ETests : E2ETestBase
         Assert.Contains("alice@example.com", await page.ContentAsync(), StringComparison.Ordinal);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task ForgotPassword_ResetRoundTrip_LetsUserLogInWithNewPassword()
     {
         Gate();
@@ -65,7 +67,7 @@ public sealed class PasswordFlowsE2ETests : E2ETestBase
         await page.WaitForURLAsync($"{App.BaseUrl}/account");
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task ForcedReset_CompletesAndUpgradesSessionToFull()
     {
         Gate();
@@ -93,7 +95,7 @@ public sealed class PasswordFlowsE2ETests : E2ETestBase
         await page.WaitForURLAsync($"{App.BaseUrl}/account/password/change");
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task RevokeAllSessions_LogsOutOfProtectedPages()
     {
         Gate();
