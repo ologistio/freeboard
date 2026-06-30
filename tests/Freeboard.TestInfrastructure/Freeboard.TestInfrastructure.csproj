@@ -12,10 +12,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- A test-support library, not a test project: it carries shared fixtures and the
+         RequiresEnvVar/category helpers, so it references xunit but contains no tests.
+         Keep `dotnet test` from trying to run it as a test assembly. -->
+    <IsTestProject>false</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="MySqlConnector" Version="2.6.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
   </ItemGroup>
 
   <ItemGroup>

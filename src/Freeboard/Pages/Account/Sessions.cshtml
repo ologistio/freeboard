@@ -1,0 +1,40 @@
+@page "/account/sessions"
+@model Freeboard.Pages.Account.SessionsModel
+@{
+    ViewData["Title"] = "Active sessions";
+}
+<h1>Active sessions</h1>
+@if (Model.Sessions.Count == 0)
+{
+    <p>No active sessions.</p>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Session</th><th>Signed in</th><th>Last seen</th><th>Expires</th><th></th></tr>
+        </thead>
+        <tbody>
+        @foreach (var s in Model.Sessions)
+        {
+            <tr>
+                <td>@s.Id @(s.IsCurrent ? "(this session)" : string.Empty)</td>
+                <td>@s.CreatedAt.ToString("u")</td>
+                <td>@(s.LastSeenAt?.ToString("u") ?? "-")</td>
+                <td>@s.ExpiresAt.ToString("u")</td>
+                <td>
+                    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true">
+                        <input type="hidden" name="sessionId" value="@s.Id" />
+                        <button type="submit">Revoke</button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true">
+        <input type="hidden" name="all" value="true" />
+        <button type="submit">Sign out everywhere</button>
+    </form>
+}
+<p><a href="/account">Back to account</a></p>

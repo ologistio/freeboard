@@ -1,0 +1,56 @@
+@page "/account/mfa"
+@model Freeboard.Pages.Account.Mfa.IndexModel
+@{
+    ViewData["Title"] = "Security settings";
+}
+<h1>Security settings</h1>
+
+<section>
+    <h2>Authenticator app (TOTP)</h2>
+    @if (Model.TotpEnrolled)
+    {
+        <p>An authenticator app is set up.</p>
+        <form method="post" action="/account/mfa/totp/remove" asp-antiforgery="true">
+            <button type="submit">Remove authenticator</button>
+        </form>
+    }
+    else
+    {
+        <p>No authenticator app is set up.</p>
+        <p><a href="/account/mfa/totp">Set up an authenticator app</a></p>
+    }
+</section>
+
+<section>
+    <h2>Passkeys</h2>
+    @if (Model.Passkeys.Count > 0)
+    {
+        <ul class="passkey-list">
+            @foreach (var passkey in Model.Passkeys)
+            {
+                <li>
+                    <span>@(string.IsNullOrEmpty(passkey.Nickname) ? "Passkey" : passkey.Nickname)</span>
+                    <form method="post" action="/account/mfa/passkey/remove" asp-antiforgery="true">
+                        <input type="hidden" name="id" value="@passkey.Id" />
+                        <button type="submit">Remove</button>
+                    </form>
+                </li>
+            }
+        </ul>
+    }
+    else
+    {
+        <p>No passkeys are registered.</p>
+    }
+    <p><a href="/account/mfa/passkey">Add a passkey</a></p>
+</section>
+
+<section>
+    <h2>Recovery codes</h2>
+    <p>@Model.RecoveryCodesRemaining recovery code(s) remaining.</p>
+    <form method="post" action="/account/mfa/recovery" asp-antiforgery="true">
+        <button type="submit">Generate new recovery codes</button>
+    </form>
+</section>
+
+<p><a href="/account">Back to account</a></p>

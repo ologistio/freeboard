@@ -1,0 +1,29 @@
+@page "/setup"
+@model Freeboard.Pages.SetupModel
+@{
+    ViewData["Title"] = "First-admin setup";
+}
+<h1>First-admin setup</h1>
+@if (Model.AlreadyInitialized)
+{
+    <p>This Freeboard instance is already set up. <a href="/login">Sign in</a>.</p>
+}
+else
+{
+    <partial name="_ErrorSummary" model="ModelState" />
+    <form method="post">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" autocomplete="name" />
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="username" />
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" />
+
+        <label for="bootstrap_secret">Bootstrap secret</label>
+        <input type="password" id="bootstrap_secret" name="bootstrap_secret" autocomplete="off" />
+
+        <button type="submit">Create admin</button>
+    </form>
+}

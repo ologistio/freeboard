@@ -16,6 +16,7 @@ namespace Freeboard.Persistence.Tests;
 /// SKIPS cleanly (not fails) when the env var is absent. Each gets a fresh throwaway
 /// database.
 /// </summary>
+[Trait("Category", TestCategories.Integration)]
 public sealed class MySqlIntegrationTests
 {
     private static async Task<MySqlTestDatabase> RequireDbAsync()
@@ -50,7 +51,7 @@ public sealed class MySqlIntegrationTests
     private static Scope Scp(string id, string[] controls, string title = "T", string apiVersion = "v1") =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, Controls = [.. controls] };
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task MigrateEmptySchemaCreatesAllTablesWithBinaryCollation()
     {
         await using var db = await RequireDbAsync();
@@ -83,7 +84,7 @@ public sealed class MySqlIntegrationTests
         Assert.True(fkCount >= 2);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task GetStateOnEmptyDbReportsAllPendingAndCreatesNoTables()
     {
         await using var db = await RequireDbAsync();
@@ -103,7 +104,7 @@ public sealed class MySqlIntegrationTests
         Assert.True((await runner.GetStateAsync()).IsCurrent);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task FailedMigrationLeavesVersionUnrecordedAndIsReAttempted()
     {
         await using var db = await RequireDbAsync();
@@ -125,7 +126,7 @@ public sealed class MySqlIntegrationTests
         await Assert.ThrowsAsync<MigrationException>(() => runner.ApplyPendingAsync());
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task RecordedButMissingMigrationFailsLoudly()
     {
         await using var db = await RequireDbAsync();
@@ -140,7 +141,7 @@ public sealed class MySqlIntegrationTests
         Assert.Contains("missing", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ChecksumMismatchOfAppliedMigrationFailsLoudly()
     {
         await using var db = await RequireDbAsync();
@@ -155,7 +156,7 @@ public sealed class MySqlIntegrationTests
         Assert.Contains("checksum", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncRoundTripsCountsAndCrossRefs()
     {
         await using var db = await RequireDbAsync();
@@ -179,7 +180,7 @@ public sealed class MySqlIntegrationTests
         Assert.Equal(["ctrl-a"], scope.Controls);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ResyncUpdatesByIdAndRemovesDroppedIds()
     {
         await using var db = await RequireDbAsync();
@@ -201,7 +202,7 @@ public sealed class MySqlIntegrationTests
         Assert.Equal("New title", only.Title);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ResyncPreservesCreatedAtAndAdvancesUpdatedAt()
     {
         await using var db = await RequireDbAsync();
@@ -225,7 +226,7 @@ public sealed class MySqlIntegrationTests
         Assert.True(updated2 >= updated1);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ResyncUpdatesStoredApiVersion()
     {
         await using var db = await RequireDbAsync();
@@ -242,7 +243,7 @@ public sealed class MySqlIntegrationTests
         Assert.Equal("freeboard.io/v1beta1", apiVersion);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task FkSafeDropOfReferencedStandardSucceeds()
     {
         await using var db = await RequireDbAsync();
@@ -266,7 +267,7 @@ public sealed class MySqlIntegrationTests
         Assert.Equal(["std-a"], Assert.Single(await store.GetControlsAsync()).MapsTo);
     }
 
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task CaseDistinctIdsRemainDistinctRows()
     {
         await using var db = await RequireDbAsync();
@@ -287,7 +288,7 @@ public sealed class MySqlIntegrationTests
     // lockout still holds. That is the actual rollover-survival case. A sub-millisecond window would
     // be non-deterministic against a real DB: the two attempts could straddle the window and the
     // bucket roll over before it locks.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task RateLimitLockSurvivesWindowRollover()
     {
         await using var db = await RequireDbAsync();
@@ -313,7 +314,7 @@ public sealed class MySqlIntegrationTests
     }
 
     // Two concurrent first attempts on a fresh bucket must not both land count 1.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task RateLimitConcurrentFirstAttemptsSerialize()
     {
         await using var db = await RequireDbAsync();
@@ -335,7 +336,7 @@ public sealed class MySqlIntegrationTests
     }
 
     // The sign-counter update is rejected atomically in SQL on a positive regression.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task WebAuthnSignCountRegressionRejectedBySqlGuard()
     {
         await using var db = await RequireDbAsync();
@@ -362,7 +363,7 @@ public sealed class MySqlIntegrationTests
 
     // The combined password-update + session-revocation is one transaction. Verifies the
     // hash is updated, force_password_reset is flipped, and only non-kept sessions are revoked.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task UpdateHashAndRevokeSessionsIsAtomic()
     {
         await using var db = await RequireDbAsync();
@@ -411,7 +412,7 @@ public sealed class MySqlIntegrationTests
 
     // The mfa_login_challenges.credential_version column round-trips, and the
     // atomic magic-link verify-and-consume is single-use and bound to the challenge user.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task MfaChallengeCredentialVersionAndMagicLinkVerifyAndConsume()
     {
         await using var db = await RequireDbAsync();
@@ -461,7 +462,7 @@ public sealed class MySqlIntegrationTests
     // Concurrent sudo magic-link sends with NO pre-existing challenge must converge on ONE row
     // (the (user_id, sudo_dedupe_key) unique key + INSERT ... ON DUPLICATE KEY UPDATE), so the
     // per-challenge re-send cap holds instead of being multiplied by the race.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SudoMagicLinkFindOrCreateIsAtomicUnderConcurrency()
     {
         await using var db = await RequireDbAsync();
@@ -521,7 +522,7 @@ public sealed class MySqlIntegrationTests
     // Option D: each sudo magic-link send stores its own token, so a later send does NOT clobber an
     // earlier emitted token. Either emitted token verifies; consuming the challenge via one makes the
     // step-up single-use. The re-send cap counts active tokens.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SudoMagicLinkSendsAreEachIndependentlyVerifiable()
     {
         await using var db = await RequireDbAsync();
@@ -579,7 +580,7 @@ public sealed class MySqlIntegrationTests
 
     // Reset-token single-use: the conditional UPDATE ... WHERE used_at IS NULL means a reset
     // token consumes exactly once; a replay returns null even though the token is well-formed.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ResetTokenIsSingleUse()
     {
         await using var db = await RequireDbAsync();
@@ -601,7 +602,7 @@ public sealed class MySqlIntegrationTests
     // TOTP encrypted at rest + replay: the stored secret_ciphertext is not the plaintext
     // (AES-256-GCM at rest), a valid code verifies, and a re-verify of the SAME code in the SAME
     // step is rejected by the atomic last_time_step advance.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task TotpSecretEncryptedAtRestAndReplayRejected()
     {
         await using var db = await RequireDbAsync();
@@ -638,7 +639,7 @@ public sealed class MySqlIntegrationTests
     // live and confirmed until the new one is activated, so an abandoned rotation cannot lock the
     // user out. Activation must prove the NEW secret; on success it is promoted to live and the
     // pending slot is cleared.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task TotpRotationPreservesConfirmedSecretUntilNewOneActivated()
     {
         await using var db = await RequireDbAsync();
@@ -693,7 +694,7 @@ public sealed class MySqlIntegrationTests
     // Concurrent single-admin bootstrap: N concurrent TryBootstrapAdminAsync calls
     // against one fresh DB create EXACTLY ONE admin. The bootstrap_marker sentinel PK collision
     // makes the losers return null, and the users table ends with exactly one row.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ConcurrentBootstrapCreatesExactlyOneAdmin()
     {
         await using var db = await RequireDbAsync();
@@ -717,7 +718,7 @@ public sealed class MySqlIntegrationTests
     // MFA challenge 5-attempt auto-consume: RegisterFailedAttemptAsync auto-consumes the row
     // on the 5th failure (consumed_at set in the same conditional UPDATE), after which the
     // challenge can no longer be found by token or consumed.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task MfaChallengeAutoConsumesOnFifthFailedAttempt()
     {
         await using var db = await RequireDbAsync();

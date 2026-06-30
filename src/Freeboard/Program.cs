@@ -4,6 +4,7 @@ using Freeboard.Auth;
 using Freeboard.Compliance;
 using Freeboard.GitOps;
 using Freeboard.Persistence;
+using Freeboard.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -92,6 +93,12 @@ builder.Services.AddFido2(o =>
 });
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<WebAuthnEnrollmentStore>();
+// Holds the login mfa_token server-side, keyed by a nonce, so it never reaches the browser.
+builder.Services.AddSingleton<Freeboard.Web.PendingMfaStore>();
+// Holds freshly generated recovery codes server-side so the one-time display page can show them once.
+builder.Services.AddSingleton<Freeboard.Web.RecoveryCodeDisplayStore>();
+// Holds the staged TOTP provisioning URI server-side so an activation retry reuses the same secret.
+builder.Services.AddSingleton<Freeboard.Web.TotpEnrollmentDisplayStore>();
 // WebAuthnCeremony depends on the scoped IFido2, so it (and the services that consume it) are
 // scoped. The auth stores are singletons but resolve fine from a scoped service.
 builder.Services.AddScoped<WebAuthnCeremony>();
@@ -111,7 +118,12 @@ if (emailOptions.Transport != Freeboard.Email.EmailTransport.None)
 }
 
 builder.Services.AddAuthentication(AuthClaims.Scheme)
-    .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AuthClaims.Scheme, _ => { });
+    .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AuthClaims.Scheme, _ => { })
+    // Page-scoped scheme: forwards credential validation to FreeboardBearer and only converts the
+    // page-route authorization challenge/forbid into 302 redirects. Selected by the named page policy
+    // bound to the /account folder, never as the process-wide default, so the API 401/403 is unchanged.
+    .AddScheme<AuthenticationSchemeOptions, Freeboard.Web.PageChallengeScheme>(
+        Freeboard.Web.PageChallengeScheme.SchemeName, _ => { });
 
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(RequireSudoModeRequirement.PolicyName, policy =>
@@ -125,7 +137,57 @@ builder.Services.AddAuthorizationBuilder()
         policy.AddAuthenticationSchemes(AuthClaims.Scheme);
         policy.RequireAuthenticatedUser();
         policy.RequireClaim(AuthClaims.Role, GlobalRoles.Admin);
+    })
+    // The named page policy: an authenticated user via the page challenge scheme. A failed challenge
+    // on a page route 302s to /login (the scheme), not a bare 401. Bound to /account below.
+    .AddPolicy(Freeboard.Web.PageChallengeScheme.PolicyName, policy =>
+    {
+        policy.AddAuthenticationSchemes(Freeboard.Web.PageChallengeScheme.SchemeName);
+        policy.RequireAuthenticatedUser();
     });
+
+// Razor Pages host for the auth screens. Antiforgery is validated globally for every page POST
+// (AutoValidateAntiforgeryTokenAttribute as a page convention). The named page policy is scoped to
+// the /account folder only - NOT a process-wide DefaultPolicy/FallbackPolicy, which would route the
+// API and "/" challenge through the page scheme and turn their bare 401 into a redirect.
+// The HeaderName lets the passkey JS shim send the antiforgery token in a request header (its POST is
+// a fetch, not a <form>, so the hidden field is absent); form POSTs keep using the hidden field.
+builder.Services.AddAntiforgery(o => o.HeaderName = "RequestVerificationToken");
+
+// Request logging is off by default (no fields); the interceptor enables only a redacted path line
+// on the emailed-link landing GETs so the single-use token never reaches the request log.
+builder.Services.AddHttpLogging(o => o.LoggingFields = Microsoft.AspNetCore.HttpLogging.HttpLoggingFields.None);
+builder.Services.AddHttpLoggingInterceptor<Freeboard.Web.LandingTokenRedactor>();
+
+builder.Services.AddRazorPages(options =>
+{
+    options.Conventions.ConfigureFilter(
+        new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute());
+    options.Conventions.AuthorizeFolder("/Account", Freeboard.Web.PageChallengeScheme.PolicyName);
+
+    // Page routes a force-reset (limited) session must reach to complete the reset funnel. The guard
+    // permits a request whose endpoint carries this marker, so the limited session is not 403'd on
+    // these pages (it still cannot reach any other page route).
+    foreach (var page in new[] { "/Account/CompleteReset", "/Account/Index", "/Logout" })
+    {
+        options.Conventions.AddPageMetadata(page, new Freeboard.Api.LimitedSessionAllowed());
+    }
+
+    // Mutating auth page POSTs carry the AuthEndpoint marker so GitOps read-only mode exempts them
+    // from the 409, exactly as it exempts the API auth endpoints. Non-auth page POSTs still 409.
+    foreach (var page in new[]
+             {
+                 "/Login", "/Logout", "/ForgotPassword", "/ResetPassword",
+                 "/Account/Password/Change", "/Account/CompleteReset",
+                 "/Login/Mfa/Totp", "/Login/Mfa/Recovery", "/Login/Mfa/MagicLink", "/Auth/MagicLink",
+                 "/Login/Mfa/Passkey", "/Account/Mfa/Passkey", "/Account/Mfa/PasskeyRemove",
+                 "/Account/Mfa/Totp", "/Account/Mfa/TotpRemove", "/Account/Mfa/Recovery", "/Account/Sudo",
+                 "/Account/SessionsRevoke", "/Setup",
+             })
+    {
+        options.Conventions.AddPageMetadata(page, new Freeboard.Api.AuthEndpoint());
+    }
+});
 
 var app = builder.Build();
 
@@ -163,11 +225,21 @@ if (trustForwardedHeaders)
     app.UseForwardedHeaders();
 }
 
+// UseStaticFiles serves wwwroot (auth.css, passkey.js). Before routing so static assets short-circuit.
+app.UseStaticFiles();
+
+// Redacts the single-use token from the request log on the emailed-link landing GETs.
+app.UseHttpLogging();
+
 // UseRouting BEFORE the read-only middleware so context.GetEndpoint() is populated and
 // the middleware can read the AuthEndpoint marker. Endpoint mapping stays after it.
 app.UseRouting();
 
 app.UseMiddleware<GitOpsReadOnlyMiddleware>();
+
+// Bridge the page session cookie to the bearer header before authentication. It only inspects the
+// path (skips the API prefix), so its position relative to the read-only middleware does not matter.
+app.UseMiddleware<Freeboard.Web.SessionCookieMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -192,6 +264,8 @@ app.MapUserAdminEndpoints();
 app.MapMfaLoginEndpoints();
 app.MapMfaEnrollmentEndpoints();
 app.MapSudoEndpoints();
+
+app.MapRazorPages();
 
 app.Run();
 

@@ -1,0 +1,13 @@
+@page "/account/complete-reset"
+@model Freeboard.Pages.Account.CompleteResetModel
+@{
+    ViewData["Title"] = "Set a new password";
+}
+<h1>Set a new password</h1>
+<p>You must set a new password before continuing.</p>
+<partial name="_ErrorSummary" model="ModelState" />
+<form method="post">
+    <label for="new_password">New password</label>
+    <input type="password" id="new_password" name="new_password" autocomplete="new-password" />
+    <button type="submit">Set password</button>
+</form>

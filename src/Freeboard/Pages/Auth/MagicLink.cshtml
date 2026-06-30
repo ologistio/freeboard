@@ -1,0 +1,18 @@
+@page "/auth/magic-link"
+@model Freeboard.Pages.Auth.MagicLinkModel
+@{
+    ViewData["Title"] = "Continue sign-in";
+}
+<h1>Continue sign-in</h1>
+@if (!Model.CanComplete)
+{
+    <p class="error">This sign-in link could not be used here. <a href="/login">Start again</a> in the browser where you began signing in.</p>
+}
+else
+{
+    <partial name="_ErrorSummary" model="ModelState" />
+    <p>Confirm to finish signing in.</p>
+    <form method="post">
+        <button type="submit">Continue</button>
+    </form>
+}

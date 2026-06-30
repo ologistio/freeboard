@@ -1,0 +1,10 @@
+@model IReadOnlyList<string>
+@if (Model.Count > 0)
+{
+    <ul class="factor-list">
+        @foreach (var factor in Model)
+        {
+            <li>@factor</li>
+        }
+    </ul>
+}

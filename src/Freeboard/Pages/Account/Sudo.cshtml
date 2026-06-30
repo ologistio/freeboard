@@ -1,0 +1,54 @@
+@page "/account/sudo"
+@model Freeboard.Pages.Account.SudoModel
+@{
+    ViewData["Title"] = "Confirm it's you";
+}
+<h1>Confirm it's you</h1>
+<p>For your security, confirm your identity to continue.</p>
+<partial name="_ErrorSummary" model="ModelState" />
+
+@if (Model.OfferPassword)
+{
+    <form method="post">
+        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+        <input type="hidden" name="factor" value="password" />
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" />
+        <button type="submit">Confirm</button>
+    </form>
+}
+
+@if (Model.OfferTotp)
+{
+    <form method="post">
+        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+        <input type="hidden" name="factor" value="totp" />
+        <label for="code">Authenticator code</label>
+        <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" />
+        <button type="submit">Confirm with authenticator</button>
+    </form>
+}
+
+@if (Model.OfferRecovery)
+{
+    <form method="post">
+        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+        <input type="hidden" name="factor" value="recovery" />
+        <label for="recovery_code">Recovery code</label>
+        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" />
+        <button type="submit">Confirm with recovery code</button>
+    </form>
+}
+
+@if (Model.OfferPasskey && Model.PasskeyOptionsJson is not null)
+{
+    <div data-passkey-assert
+         data-action="/account/sudo@(string.IsNullOrEmpty(Model.ReturnUrl) ? "" : $"?returnUrl={Model.ReturnUrl}")"
+         data-antiforgery="@Model.AntiforgeryToken"
+         data-options="@Model.PasskeyOptionsJson"
+         data-correlation="@Model.PasskeyCorrelation">
+        <p>Confirm with your passkey.</p>
+        <button type="button" data-passkey-go>Use passkey</button>
+    </div>
+    <script src="~/js/passkey.js"></script>
+}

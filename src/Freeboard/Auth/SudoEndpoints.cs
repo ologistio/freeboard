@@ -1,7 +1,5 @@
-using System.Text.Json.Serialization;
 using Freeboard.Api;
 using Freeboard.Persistence.Auth;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace Freeboard.Auth;
@@ -25,15 +23,6 @@ public static class SudoEndpoints
         g.MapPost("/auth/sudo/magic-link/send", SudoMagicLinkSendAsync).RequireAuthorization().MarkAuthEndpoint();
     }
 
-    public sealed record SudoRequest(
-        string? Factor,
-        string? Password,
-        string? Code,
-        [property: JsonPropertyName("recovery_code")] string? RecoveryCode,
-        string? Correlation,
-        object? Assertion,
-        [property: JsonPropertyName("link_token")] string? LinkToken);
-
     private static async Task<IResult> SudoAsync(
         HttpContext ctx,
         IUserStore users,
@@ -48,16 +37,10 @@ public static class SudoEndpoints
         AuthRateLimiter rateLimiter,
         CancellationToken ct)
     {
-        // userId binds the magic-link verify/consume to the CURRENT bearer user.
+        // Reject an unauthenticated or stale-user request with the uniform 401 before doing any work.
         var userId = ctx.User.FindFirst(AuthClaims.UserId)?.Value;
         var sessionId = ctx.User.FindFirst(AuthClaims.SessionId)?.Value;
-        if (userId is null || sessionId is null)
-        {
-            return Unauthorized();
-        }
-
-        var user = await users.GetByIdAsync(userId, ct).ConfigureAwait(false);
-        if (user is null)
+        if (userId is null || sessionId is null || await users.GetByIdAsync(userId, ct).ConfigureAwait(false) is null)
         {
             return Unauthorized();
         }
@@ -65,55 +48,44 @@ public static class SudoEndpoints
         // Read the raw body once so the opaque passkey assertion can be passed through verbatim.
         using var doc = await System.Text.Json.JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ct).ConfigureAwait(false);
         var root = doc.RootElement;
-        var factor = Prop(root, "factor");
 
-        var limited = await rateLimiter.CheckAsync(user.EmailNormalized, ClientIp(ctx), ct).ConfigureAwait(false);
-        if (limited.Limited)
+        var result = await AuthFlows.SudoAsync(
+            userId,
+            sessionId,
+            ClientIp(ctx),
+            Prop(root, "factor"),
+            Prop(root, "password"),
+            Prop(root, "code"),
+            Prop(root, "recovery_code"),
+            Prop(root, "correlation"),
+            Payload(root, "assertion"),
+            Prop(root, "challenge_id"),
+            Prop(root, "link_token"),
+            users, credentials, hasher, totp, recovery, webAuthn, enrollment, challenges, sessions, rateLimiter, ct)
+            .ConfigureAwait(false);
+        return result switch
         {
-            return AuthRateLimiter.Throttled(limited);
-        }
-
-        var ok = factor switch
-        {
-            // Non-MFA users (or an explicit password step) re-confirm the password.
-            "password" or null when !user.MfaEnabled => await VerifyPasswordAsync(credentials, hasher, userId, Prop(root, "password"), ct).ConfigureAwait(false),
-            MfaFactors.Totp => await totp.VerifyAsync(userId, Prop(root, "code") ?? string.Empty, ct).ConfigureAwait(false),
-            MfaFactors.Recovery => await recovery.ConsumeAsync(userId, Prop(root, "recovery_code") ?? string.Empty, ct).ConfigureAwait(false),
-            MfaFactors.Passkey => await VerifyPasskeyAsync(webAuthn, enrollment, userId, Prop(root, "correlation"), Payload(root, "assertion"), ct).ConfigureAwait(false),
-            // Atomic single-use consume, bound to the current bearer user.
-            MfaFactors.MagicLink => await challenges.VerifyAndConsumeMagicLinkAsync(
-                Prop(root, "challenge_id") ?? string.Empty, userId, Prop(root, "link_token") ?? string.Empty, DateTime.UtcNow, ct).ConfigureAwait(false),
-            _ => false,
+            AuthFlows.SudoResult.RateLimited r => AuthRateLimiter.Throttled(r.Outcome),
+            AuthFlows.SudoResult.Ok => Results.Ok(new { sudo = true }),
+            _ => Unauthorized(),
         };
-
-        if (!ok)
-        {
-            return Unauthorized();
-        }
-
-        await sessions.SetSudoAtAsync(sessionId, DateTime.UtcNow, ct).ConfigureAwait(false);
-        await rateLimiter.ResetAccountAsync(user.EmailNormalized, ct).ConfigureAwait(false);
-        return Results.Ok(new { sudo = true });
     }
 
     /// <summary>Returns assertion options + a correlation token for a passkey sudo step.</summary>
     private static async Task<IResult> SudoPasskeyOptionsAsync(
         HttpContext ctx, WebAuthnCeremony webAuthn, WebAuthnEnrollmentStore store, CancellationToken ct)
     {
-        var userId = ctx.User.FindFirst(AuthClaims.UserId)?.Value;
-        if (userId is null)
+        var result = await AuthFlows.SudoPasskeyOptionsAsync(
+            ctx.User.FindFirst(AuthClaims.UserId)?.Value, webAuthn, store, ct).ConfigureAwait(false);
+        return result switch
         {
-            return Unauthorized();
-        }
-
-        if (!webAuthn.IsConfigured)
-        {
-            return Results.Json(new { error = "webauthn_unconfigured" }, statusCode: StatusCodes.Status503ServiceUnavailable);
-        }
-
-        var optionsJson = await webAuthn.BeginAssertionAsync(userId, ct).ConfigureAwait(false);
-        var correlation = store.Stash(userId, optionsJson);
-        return Results.Content($"{{\"correlation\":\"{correlation}\",\"options\":{optionsJson}}}", "application/json");
+            AuthFlows.SudoPasskeyOptionsResult.Unauthorized => Unauthorized(),
+            AuthFlows.SudoPasskeyOptionsResult.WebAuthnUnconfigured => Results.Json(
+                new { error = "webauthn_unconfigured" }, statusCode: StatusCodes.Status503ServiceUnavailable),
+            AuthFlows.SudoPasskeyOptionsResult.Ok ok => Results.Content(
+                $"{{\"correlation\":\"{ok.Correlation}\",\"options\":{ok.OptionsJson}}}", "application/json"),
+            _ => Unauthorized(),
+        };
     }
 
     /// <summary>
@@ -128,90 +100,22 @@ public static class SudoEndpoints
         MfaFactorService mfaFactors, ITokenHasher tokenHasher, AuthRateLimiter rateLimiter,
         IOptions<WebAuthOptions> options, IServiceProvider sp, CancellationToken ct)
     {
-        var userId = ctx.User.FindFirst(AuthClaims.UserId)?.Value;
-        if (userId is null)
+        var result = await AuthFlows.SudoMagicLinkSendAsync(
+            ctx.User.FindFirst(AuthClaims.UserId)?.Value, ClientIp(ctx),
+            users, challenges, credentials, mfaFactors, tokenHasher, rateLimiter, options, sp, ct)
+            .ConfigureAwait(false);
+        return result switch
         {
-            return Unauthorized();
-        }
-
-        var user = await users.GetByIdAsync(userId, ct).ConfigureAwait(false);
-        var sender = sp.GetService<AuthEmailService>();
-        if (user is null || sender is null)
-        {
-            return Results.Json(new { error = "magic_link_unavailable" }, statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        // Gate on the user's actual factor set. A passkey/TOTP user is NOT offered magic-link.
-        var available = await mfaFactors.AvailableAsync(user, ct).ConfigureAwait(false);
-        if (!available.Contains(MfaFactors.MagicLink))
-        {
-            return Results.Json(new { error = "magic_link_unavailable" }, statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        var limited = await rateLimiter.CheckAsync(user.EmailNormalized, ClientIp(ctx), ct).ConfigureAwait(false);
-        if (limited.Limited)
-        {
-            return AuthRateLimiter.Throttled(limited);
-        }
-
-        var now = DateTime.UtcNow;
-
-        // Find-or-create the single active sudo magic-link challenge AND record one send in one
-        // atomic store call. Concurrent first sends converge on ONE row (a (user_id, sudo_dedupe_key)
-        // unique key), so the per-challenge re-send cap cannot be multiplied by a race.
-        var credential = await credentials.GetAsync(userId, ct).ConfigureAwait(false);
-        var linkToken = tokenHasher.MintPrefixless();
-        var result = await challenges.FindOrCreateSudoMagicLinkAsync(
-            userId,
-            credential?.CredentialVersion ?? 1,
-            linkToken.Hash,
-            linkToken.KeyVersion,
-            now + options.Value.MfaChallengeLifetime,
-            now + options.Value.MagicLinkLifetime,
-            options.Value.MagicLinkMaxSends,
-            now,
-            ct).ConfigureAwait(false);
-        if (!result.Sent)
-        {
-            // The per-challenge re-send cap was reached.
-            return Results.Json(new { error = "send_cap_reached" }, statusCode: StatusCodes.Status429TooManyRequests);
-        }
-
-        await sender.SendMagicLinkAsync(user.Email, linkToken.Token, ct).ConfigureAwait(false);
-
-        // The caller submits { factor: magic_link, challenge_id, link_token } to /auth/sudo.
-        return Results.Ok(new { challenge_id = result.ChallengeId });
-    }
-
-    private static async Task<bool> VerifyPasswordAsync(
-        IPasswordCredentialStore credentials, IPasswordHasher hasher, string userId, string? password, CancellationToken ct)
-    {
-        var credential = await credentials.GetAsync(userId, ct).ConfigureAwait(false);
-        return credential is not null && hasher.Verify(password ?? string.Empty, credential.PasswordHash);
-    }
-
-    private static async Task<bool> VerifyPasskeyAsync(
-        WebAuthnCeremony webAuthn, WebAuthnEnrollmentStore store, string userId, string? correlation, string? assertionJson, CancellationToken ct)
-    {
-        if (correlation is null || assertionJson is null)
-        {
-            return false;
-        }
-
-        var optionsJson = store.Take(userId, correlation);
-        if (optionsJson is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            return await webAuthn.VerifyAssertionAsync(userId, optionsJson, assertionJson, ct).ConfigureAwait(false);
-        }
-        catch (WebAuthnCeremonyException)
-        {
-            return false;
-        }
+            AuthFlows.SudoMagicLinkSendResult.Unauthorized => Unauthorized(),
+            AuthFlows.SudoMagicLinkSendResult.Unavailable => Results.Json(
+                new { error = "magic_link_unavailable" }, statusCode: StatusCodes.Status400BadRequest),
+            AuthFlows.SudoMagicLinkSendResult.RateLimited r => AuthRateLimiter.Throttled(r.Outcome),
+            AuthFlows.SudoMagicLinkSendResult.SendCapReached => Results.Json(
+                new { error = "send_cap_reached" }, statusCode: StatusCodes.Status429TooManyRequests),
+            // The caller submits { factor: magic_link, challenge_id, link_token } to /auth/sudo.
+            AuthFlows.SudoMagicLinkSendResult.Sent s => Results.Ok(new { challenge_id = s.ChallengeId }),
+            _ => Unauthorized(),
+        };
     }
 
     private static string? Prop(System.Text.Json.JsonElement root, string name)

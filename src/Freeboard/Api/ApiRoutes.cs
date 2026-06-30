@@ -29,3 +29,12 @@ public static class AuthEndpointExtensions
         return builder;
     }
 }
+
+/// <summary>
+/// Endpoint metadata marker for the page routes a force-reset (limited) session is allowed to
+/// reach: the forced-reset completion page, logout, and the account landing. The force-reset guard
+/// reads this off the matched endpoint and permits the request in addition to its exact-path API
+/// allowlist, so a limited browser session can complete the reset funnel instead of being 403'd.
+/// Independent of <see cref="AuthEndpoint"/> (read by a different middleware); a route can carry both.
+/// </summary>
+public sealed class LimitedSessionAllowed;

@@ -73,6 +73,20 @@ Tests split into two tiers:
 - The SMTP auth-email integration test is gated on `FREEBOARD_TEST_SMTP`. When it
   is unset it **skips cleanly** (via `Xunit.SkippableFact`); when it is set it
   sends through a local Mailpit and asserts delivery via the Mailpit HTTP API.
+- The browser end-to-end tests (`tests/Freeboard.WebE2E`, Playwright) are gated on
+  `FREEBOARD_TEST_E2E` **and** a launchable Chromium. When the var is unset or no
+  browser is installed they **skip cleanly** (via `Xunit.SkippableFact`); set both
+  to run them. They boot the real app over an HTTPS Kestrel socket (so the Secure
+  `__Host-` session cookie sticks) with the same in-memory fakes, so E2E needs no
+  MySQL. WebAuthn ceremonies run through the CDP virtual authenticator (no hardware
+  key). To run them:
+
+  ```sh
+  dotnet build tests/Freeboard.WebE2E
+  pwsh tests/Freeboard.WebE2E/bin/Debug/net10.0/playwright.ps1 install --with-deps chromium
+  export FREEBOARD_TEST_E2E=1
+  dotnet test tests/Freeboard.WebE2E
+  ```
 
 ### Start the test services
 

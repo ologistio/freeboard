@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using Freeboard.Api;
 using Freeboard.Persistence.Auth;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Freeboard.Auth;
 
@@ -31,22 +30,19 @@ public static class MfaLoginEndpoints
     private static async Task<IResult> TotpAsync(
         TotpVerifyRequest body, HttpContext ctx, MfaChallengeService mfa, ITotpStore totp,
         IUserStore users, AuthRateLimiter rateLimiter, CancellationToken ct)
-        => await VerifyAsync(ctx, mfa, users, rateLimiter, body?.MfaToken, MfaFactors.Totp,
-            challenge => totp.VerifyAsync(challenge.UserId, body?.Code ?? string.Empty, ct), ct).ConfigureAwait(false);
+        => MapVerify(await AuthFlows.MfaVerifyAsync(
+            body?.MfaToken, MfaFactors.Totp, ClientIp(ctx),
+            challenge => totp.VerifyAsync(challenge.UserId, body?.Code ?? string.Empty, ct),
+            mfa, users, rateLimiter, ct).ConfigureAwait(false));
 
     public sealed record MfaTokenRequest([property: JsonPropertyName("mfa_token")] string? MfaToken);
 
     private static async Task<IResult> PasskeyOptionsAsync(
         MfaTokenRequest body, MfaChallengeService mfa, CancellationToken ct)
     {
-        var challenge = await mfa.ResolveAsync(body?.MfaToken ?? string.Empty, ct).ConfigureAwait(false);
-        if (challenge is null || challenge.WebAuthnOptions is null)
-        {
-            return GenericUnauthorized();
-        }
-
+        var optionsJson = await AuthFlows.MfaPasskeyOptionsAsync(body?.MfaToken, mfa, ct).ConfigureAwait(false);
         // Return the assertion options stashed on the challenge row at login (correlated).
-        return Results.Content(challenge.WebAuthnOptions, "application/json");
+        return optionsJson is null ? GenericUnauthorized() : Results.Content(optionsJson, "application/json");
     }
 
     public sealed record PasskeyVerifyRequest(
@@ -58,7 +54,8 @@ public static class MfaLoginEndpoints
     {
         // The assertion is opaque WebAuthn JSON; read the raw body so it is passed through verbatim.
         var (mfaToken, assertionJson) = await ReadTokenAndPayloadAsync(ctx, "assertion", ct).ConfigureAwait(false);
-        return await VerifyAsync(ctx, mfa, users, rateLimiter, mfaToken, MfaFactors.Passkey,
+        return MapVerify(await AuthFlows.MfaVerifyAsync(
+            mfaToken, MfaFactors.Passkey, ClientIp(ctx),
             async challenge =>
             {
                 if (challenge.WebAuthnOptions is null || assertionJson is null)
@@ -76,7 +73,8 @@ public static class MfaLoginEndpoints
                 {
                     return false; // mismatched origin/RP-id or invalid assertion -> failed factor.
                 }
-            }, ct).ConfigureAwait(false);
+            },
+            mfa, users, rateLimiter, ct).ConfigureAwait(false));
     }
 
     public sealed record RecoveryVerifyRequest(
@@ -86,51 +84,30 @@ public static class MfaLoginEndpoints
     private static async Task<IResult> RecoveryAsync(
         RecoveryVerifyRequest body, HttpContext ctx, MfaChallengeService mfa, IRecoveryCodeStore recovery,
         IUserStore users, AuthRateLimiter rateLimiter, CancellationToken ct)
-        => await VerifyAsync(ctx, mfa, users, rateLimiter, body?.MfaToken, MfaFactors.Recovery,
-            challenge => recovery.ConsumeAsync(challenge.UserId, body?.RecoveryCode ?? string.Empty, ct), ct)
-            .ConfigureAwait(false);
+        => MapVerify(await AuthFlows.MfaVerifyAsync(
+            body?.MfaToken, MfaFactors.Recovery, ClientIp(ctx),
+            challenge => recovery.ConsumeAsync(challenge.UserId, body?.RecoveryCode ?? string.Empty, ct),
+            mfa, users, rateLimiter, ct).ConfigureAwait(false));
 
     private static async Task<IResult> MagicLinkSendAsync(
         MfaTokenRequest body, HttpContext ctx, MfaChallengeService mfa, IMfaChallengeStore challenges,
         ITokenHasher tokenHasher, IUserStore users, AuthRateLimiter rateLimiter, IServiceProvider sp,
         CancellationToken ct)
     {
-        var challenge = await mfa.ResolveAsync(body?.MfaToken ?? string.Empty, ct).ConfigureAwait(false);
-        if (challenge is null)
-        {
-            return GenericUnauthorized();
-        }
-
-        var sender = sp.GetService<AuthEmailService>();
-        if (sender is null || !challenge.Factors.Split(',').Contains(MfaFactors.MagicLink))
-        {
-            return Results.Json(new { error = "magic_link_unavailable" }, statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        var user = await users.GetByIdAsync(challenge.UserId, ct).ConfigureAwait(false);
-        if (user is null)
-        {
-            return GenericUnauthorized();
-        }
-
-        var limited = await rateLimiter.CheckAsync(user.EmailNormalized, ClientIp(ctx), ct).ConfigureAwait(false);
-        if (limited.Limited)
-        {
-            return AuthRateLimiter.Throttled(limited);
-        }
-
-        // Mint a PREFIXLESS single-use token; store its hash + own key version on the row, capped.
-        var minted = tokenHasher.MintPrefixless();
-        var stored = await challenges.SetMagicLinkAsync(
-            challenge.Id, minted.Hash, minted.KeyVersion, DateTime.UtcNow + mfa.MagicLinkLifetime, mfa.MaxSends, ct)
+        var result = await AuthFlows.MagicLinkSendAsync(
+            body?.MfaToken, ClientIp(ctx), mfa, challenges, tokenHasher, users, rateLimiter, sp, ct)
             .ConfigureAwait(false);
-        if (!stored)
+        return result switch
         {
-            return Results.Json(new { error = "send_cap_reached" }, statusCode: StatusCodes.Status429TooManyRequests);
-        }
-
-        await sender.SendMagicLinkAsync(user.Email, minted.Token, ct).ConfigureAwait(false);
-        return Results.Ok(new { sent = true });
+            AuthFlows.MagicLinkSendResult.Unauthorized => GenericUnauthorized(),
+            AuthFlows.MagicLinkSendResult.Unavailable => Results.Json(
+                new { error = "magic_link_unavailable" }, statusCode: StatusCodes.Status400BadRequest),
+            AuthFlows.MagicLinkSendResult.RateLimited r => AuthRateLimiter.Throttled(r.Outcome),
+            AuthFlows.MagicLinkSendResult.SendCapReached => Results.Json(
+                new { error = "send_cap_reached" }, statusCode: StatusCodes.Status429TooManyRequests),
+            AuthFlows.MagicLinkSendResult.Sent => Results.Ok(new { sent = true }),
+            _ => GenericUnauthorized(),
+        };
     }
 
     public sealed record MagicLinkVerifyRequest(
@@ -140,62 +117,19 @@ public static class MfaLoginEndpoints
     private static async Task<IResult> MagicLinkVerifyAsync(
         MagicLinkVerifyRequest body, HttpContext ctx, MfaChallengeService mfa, IMfaChallengeStore challenges,
         IUserStore users, AuthRateLimiter rateLimiter, CancellationToken ct)
-        => await VerifyAsync(ctx, mfa, users, rateLimiter, body?.MfaToken, MfaFactors.MagicLink,
-            challenge => challenges.VerifyMagicLinkAsync(challenge.Id, body?.LinkToken ?? string.Empty, DateTime.UtcNow, ct), ct)
-            .ConfigureAwait(false);
+        => MapVerify(await AuthFlows.MfaVerifyAsync(
+            body?.MfaToken, MfaFactors.MagicLink, ClientIp(ctx),
+            challenge => challenges.VerifyMagicLinkAsync(challenge.Id, body?.LinkToken ?? string.Empty, DateTime.UtcNow, ct),
+            mfa, users, rateLimiter, ct).ConfigureAwait(false));
 
-    // ---- shared verify flow ----
+    // ---- result mapping ----
 
-    private static async Task<IResult> VerifyAsync(
-        HttpContext ctx,
-        MfaChallengeService mfa,
-        IUserStore users,
-        AuthRateLimiter rateLimiter,
-        string? mfaToken,
-        string factor,
-        Func<MfaChallengeRow, Task<bool>> verify,
-        CancellationToken ct)
+    private static IResult MapVerify(AuthFlows.MfaVerifyResult result) => result switch
     {
-        var challenge = await mfa.ResolveAsync(mfaToken ?? string.Empty, ct).ConfigureAwait(false);
-        if (challenge is null)
-        {
-            return GenericUnauthorized();
-        }
-
-        // The factor must be one this challenge offers.
-        if (!challenge.Factors.Split(',').Contains(factor))
-        {
-            return GenericUnauthorized();
-        }
-
-        var user = await users.GetByIdAsync(challenge.UserId, ct).ConfigureAwait(false);
-        if (user is null || !user.Enabled)
-        {
-            return GenericUnauthorized();
-        }
-
-        var limited = await rateLimiter.CheckAsync(user.EmailNormalized, ClientIp(ctx), ct).ConfigureAwait(false);
-        if (limited.Limited)
-        {
-            return AuthRateLimiter.Throttled(limited);
-        }
-
-        if (!await verify(challenge).ConfigureAwait(false))
-        {
-            // Atomically bump attempts; when the cap is reached the challenge auto-consumes.
-            await mfa.RegisterFailureAsync(challenge.Id, ct).ConfigureAwait(false);
-            return GenericUnauthorized();
-        }
-
-        var token = await mfa.CompleteAsync(challenge, ct).ConfigureAwait(false);
-        if (token is null)
-        {
-            return GenericUnauthorized(); // lost the consume race.
-        }
-
-        await rateLimiter.ResetAccountAsync(user.EmailNormalized, ct).ConfigureAwait(false);
-        return Results.Ok(new { user = ApiResponses.UserObject(user), token });
-    }
+        AuthFlows.MfaVerifyResult.RateLimited r => AuthRateLimiter.Throttled(r.Outcome),
+        AuthFlows.MfaVerifyResult.Success s => Results.Ok(new { user = ApiResponses.UserObject(s.User), token = s.Token }),
+        _ => GenericUnauthorized(),
+    };
 
     private static string? ClientIp(HttpContext ctx) => ctx.Connection.RemoteIpAddress?.ToString();
 

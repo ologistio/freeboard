@@ -10,8 +10,17 @@ permissions:
   contents: read
   code-quality: write
 
+# The four jobs below have no `needs`, so they run in parallel. The suite splits
+# its tiers by environment variable rather than by project (a single project can
+# hold both fast and infrastructure-backed tests, gated with Xunit.SkippableFact),
+# so each job selects its tier by which FREEBOARD_TEST_* gates it sets.
 jobs:
-  test:
+  # Fast deterministic tests: pure logic, no network, no database, no filesystem
+  # dependency beyond temporary directories. With no FREEBOARD_TEST_* set and no
+  # services running, the database, SMTP, and browser suites all skip, leaving
+  # only the fast tests.
+  unit:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -22,14 +31,6 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Reuse the test-infrastructure compose so CI runs the same services (MySQL
-      # and the Mailpit SMTP sink) as local dev: the same images, credentials, and
-      # the fb_test_* grant init script. The grants let the integration tests
-      # provision throwaway fb_test_* databases. --wait blocks until healthchecks
-      # pass. Started early so they warm up during restore and build.
-      - name: Start test services
-        run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d --wait
-
       - name: Restore
         run: dotnet restore
 
@@ -39,13 +40,12 @@ jobs:
       - name: Install coverage tool
         run: dotnet tool install --global dotnet-coverage
 
-      # FREEBOARD_TEST_DB and FREEBOARD_TEST_SMTP switch the integration tests on;
-      # without them they skip. Both target the compose services started above.
-      - name: Run tests with coverage
-        env:
-          FREEBOARD_TEST_DB: "Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
-          FREEBOARD_TEST_SMTP: "Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
-        run: dotnet-coverage collect "dotnet test --configuration Release --no-build --no-restore" -f cobertura -o coverage.xml
+      # No FREEBOARD_TEST_* and no services, plus a Category filter that excludes
+      # the other tiers, so only the fast deterministic tests run. Coverage is
+      # collected here: it is the broadest deterministic in-process run.
+      - name: Run unit tests with coverage
+        run: |
+          dotnet-coverage collect 'dotnet test --configuration Release --no-build --no-restore --filter "Category!=Integration&Category!=E2E&Category!=NFR"' -f cobertura -o coverage.xml
 
       - name: Upload coverage report
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -55,6 +55,87 @@ jobs:
           language: "C#"
           label: code-coverage/dotnet
 
+  # Integration tests: database, container-backed, and service-boundary tests
+  # that need local infrastructure. Reuses the test-infrastructure compose (the
+  # same MySQL 8.4 and Mailpit SMTP sink as local dev, with the fb_test_* grant
+  # init script) and switches the gated tests on via FREEBOARD_TEST_DB and
+  # FREEBOARD_TEST_SMTP. Selected by `Category=Integration`.
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # Started early so the services warm up during restore and build. --wait
+      # blocks until the healthchecks pass.
+      - name: Start test services
+        run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml up -d --wait
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run integration tests
+        env:
+          FREEBOARD_TEST_DB: "Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
+          FREEBOARD_TEST_SMTP: "Smtp=127.0.0.1:1025;Http=http://127.0.0.1:8025"
+        run: dotnet test --configuration Release --no-build --no-restore --filter "Category=Integration"
+
       - name: Stop test services
         if: always()
         run: docker compose -f tests/Freeboard.TestInfrastructure/docker-compose.yml down -v
+
+  # E2E tests: the auth screens driven in real Chromium over an HTTPS Kestrel
+  # origin, using the CDP virtual authenticator for the WebAuthn flows. The
+  # fixture serves its own self-signed origin and uses in-memory fakes, so this
+  # tier needs no database or SMTP services - just a browser.
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      # Install the Chromium build Playwright drives, plus its OS dependencies.
+      # The Microsoft.Playwright package generates this script under the E2E
+      # project's build output; pwsh is preinstalled on the runner.
+      - name: Install Playwright browser
+        run: pwsh tests/Freeboard.WebE2E/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+
+      - name: Run E2E tests
+        env:
+          FREEBOARD_TEST_E2E: "1"
+        run: dotnet test tests/Freeboard.WebE2E --configuration Release --no-build --no-restore
+
+  # Slow or specialised tests: performance, migration-against-a-real-database,
+  # compatibility, and large-fixture suites. None exist yet (migration *logic*
+  # runs in Unit Tests; migration *execution* against MySQL runs in Integration
+  # Tests), so this is a passing stub. When such a suite is added, tag it
+  # `[Trait("Category", TestCategories.Nfr)]` (gating any resource it needs with a
+  # RequiresEnvVar precondition) and replace the stub with:
+  #   dotnet test --configuration Release --filter "Category=NFR"
+  nfr:
+    name: NFR Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: No NFR tests defined yet
+        run: echo "No performance/migration/compatibility/large-fixture tests defined yet; nothing to run."

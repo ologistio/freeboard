@@ -13,6 +13,7 @@ namespace Freeboard.CLI.Tests;
 /// a fresh throwaway database. Serialized with the other persistence-cli tests because
 /// PersistenceFactory and Console are process-global.
 /// </summary>
+[Trait("Category", TestCategories.Integration)]
 [Collection("persistence-cli")]
 public sealed class SyncMySqlIntegrationTests : IDisposable
 {
@@ -62,7 +63,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
     }
 
     // IF-3 (a): sync a valid config WITHOUT --migrate on a truly empty DB -> exit 3 AND no tables.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncWithoutMigrateOnEmptyDbExitsThreeAndCreatesNoTables()
     {
         await using var db = await RequireDbAsync();
@@ -76,7 +77,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
     }
 
     // IF-3 (b): sync --migrate on an empty DB -> exit 0, schema_migrations + six tables, data imported.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncWithMigrateOnEmptyDbBootstrapsMigratesImportsExitsZero()
     {
         await using var db = await RequireDbAsync();
@@ -105,7 +106,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
     }
 
     // IF-1 (a): an applied migration whose checksum no longer matches -> sync exits 3, imports nothing.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncOnChecksumMismatchExitsThreeAndImportsNothing()
     {
         await using var db = await RequireDbAsync();
@@ -126,7 +127,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
     }
 
     // IF-1 (b): schema_migrations records a version with no embedded migration -> sync exits 3, imports nothing.
-    [SkippableFact]
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncOnRecordedButMissingMigrationExitsThreeAndImportsNothing()
     {
         await using var db = await RequireDbAsync();

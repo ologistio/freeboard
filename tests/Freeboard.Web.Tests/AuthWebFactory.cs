@@ -19,7 +19,7 @@ namespace Freeboard.Web.Tests;
 /// hash exactly as the handler expects. Exposes the fakes and a helper to create an
 /// authenticated client by seeding a user + session and minting its bearer token.
 /// </summary>
-internal sealed class AuthWebFactory : WebApplicationFactory<Program>
+internal class AuthWebFactory : WebApplicationFactory<Program>
 {
     public AuthWebFactory()
     {
@@ -83,6 +83,12 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool IncludeTestProbe { get; init; }
 
+    /// <summary>
+    /// When true, registers the test-only authenticated non-API route <c>GET /_page-probe</c> so the
+    /// cookie-to-bearer bridge can be exercised before the Razor Pages host exists. Test-only.
+    /// </summary>
+    public bool IncludeTestPageProbe { get; init; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Development so the WebAuthn "required outside Development" gate is satisfied without real
@@ -105,6 +111,11 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
             if (IncludeTestProbe)
             {
                 services.AddSingleton<EndpointDataSource>(new TestProbeEndpointDataSource());
+            }
+
+            if (IncludeTestPageProbe)
+            {
+                services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestAuthenticatedPageRoute>();
             }
 
             Replace<ISessionStore>(services, Sessions);
@@ -154,6 +165,20 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
     public HttpClient CreateAuthenticatedClient(
         UserRow user, SessionAuthState authState = SessionAuthState.Full, string password = "password")
     {
+        var token = SeedSession(user, authState, password);
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    /// <summary>
+    /// Seeds a user (with a credential) and a session, then returns the session's opaque bearer
+    /// token. Use this to drive the cookie bridge: the same token is set as the session cookie value.
+    /// </summary>
+    public string SeedSession(
+        UserRow user, SessionAuthState authState = SessionAuthState.Full, string password = "password",
+        DateTime? expiresAt = null)
+    {
         Users.Add(user);
         Credentials.SetAsync(user.Id, Hasher.Hash(password), 1).GetAwaiter().GetResult();
         var credentialVersion = Credentials.GetAsync(user.Id).GetAwaiter().GetResult()!.CredentialVersion;
@@ -162,13 +187,32 @@ internal sealed class AuthWebFactory : WebApplicationFactory<Program>
         var minted = hasher.MintPrefixed();
         Sessions.Add(
             new SessionRow($"sess-{user.Id}", user.Id, minted.KeyVersion, authState, credentialVersion, null,
-                DateTime.UtcNow, DateTime.UtcNow.AddHours(1), null),
+                DateTime.UtcNow, expiresAt ?? DateTime.UtcNow.AddHours(1), null),
             minted.Hash);
-
-        var client = CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", minted.Token);
-        return client;
+        return minted.Token;
     }
+
+    /// <summary>
+    /// Seeds a user + a Full session whose <c>sudo_at</c> is fresh (now), and returns its bearer
+    /// token. Used to reach a sudo-gated page directly via the session cookie.
+    /// </summary>
+    public string SeedSessionWithSudo(UserRow user, string password = "password")
+    {
+        Users.Add(user);
+        Credentials.SetAsync(user.Id, Hasher.Hash(password), 1).GetAwaiter().GetResult();
+        var credentialVersion = Credentials.GetAsync(user.Id).GetAwaiter().GetResult()!.CredentialVersion;
+
+        var hasher = Services.GetRequiredService<ITokenHasher>();
+        var minted = hasher.MintPrefixed();
+        Sessions.Add(
+            new SessionRow($"sudo-{user.Id}", user.Id, minted.KeyVersion, SessionAuthState.Full, credentialVersion,
+                DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow.AddHours(1), null),
+            minted.Hash);
+        return minted.Token;
+    }
+
+    /// <summary>The id of the session <see cref="SeedSession"/> creates for a user.</summary>
+    public static string SessionIdFor(UserRow user) => $"sess-{user.Id}";
 
     public static UserRow MakeUser(
         string id, string role = "member", bool enabled = true, bool forcePasswordReset = false, bool mfaEnabled = false)

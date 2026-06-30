@@ -1,0 +1,19 @@
+@page "/login/mfa/totp"
+@model Freeboard.Pages.Login.Mfa.TotpModel
+@{
+    ViewData["Title"] = "Authenticator code";
+}
+<h1>Authenticator code</h1>
+@if (!Model.HasPendingChallenge)
+{
+    <p class="error">Your sign-in could not be continued. <a href="/login">Start again</a>.</p>
+}
+else
+{
+    <partial name="_ErrorSummary" model="ModelState" />
+    <form method="post">
+        <label for="code">Enter the 6-digit code from your authenticator app</label>
+        <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" />
+        <button type="submit">Verify</button>
+    </form>
+}
