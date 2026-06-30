@@ -88,16 +88,11 @@ internal static partial class AuthFormTestHelpers
             return false;
         }
 
-        foreach (var nameValue in setCookies.Select(raw => raw.Split(';', 2)[0]))
-        {
-            if (nameValue.StartsWith($"{name}=", StringComparison.Ordinal)
-                && nameValue.Length == name.Length + 1)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        // A cleared cookie is the bare "name=" with no value before the first attribute.
+        return setCookies
+            .Select(raw => raw.Split(';', 2)[0])
+            .Any(nameValue => nameValue.StartsWith($"{name}=", StringComparison.Ordinal)
+                && nameValue.Length == name.Length + 1);
     }
 
     private static void ApplyCookies(HttpRequestMessage request, IReadOnlyList<KeyValuePair<string, string>> cookies)
