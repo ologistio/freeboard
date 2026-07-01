@@ -20,8 +20,9 @@ public sealed class RouteMoveReadOnlyTests
     [Fact]
     public async Task MovedReadEndpointsAnswerUnderNewPrefix()
     {
-        using var factory = new ComplianceWebFactory(Store());
-        using var client = factory.CreateClient();
+        using var factory = new AuthWebFactory { Compliance = Store() };
+        // The compliance reads require an authenticated user; gitops/status stays anonymous.
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("route1"));
 
         foreach (var path in new[]
         {
@@ -73,8 +74,8 @@ public sealed class RouteMoveReadOnlyTests
     [Fact]
     public async Task ReadOnlyDoesNotAffectGets()
     {
-        using var factory = new ComplianceWebFactory(Store(), readOnly: true);
-        using var client = factory.CreateClient();
+        using var factory = new AuthWebFactory { Compliance = Store(), ReadOnly = true };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("route2"));
 
         var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/standards");
         Assert.Equal(1, json.GetArrayLength());

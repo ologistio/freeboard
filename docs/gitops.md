@@ -1,9 +1,10 @@
 # GitOps config management
 
 Freeboard manages compliance state as declarative YAML in git, FleetDM-style. The
-git files are the source of truth: standards, the controls under them, and the
-scopes those controls apply to. A CLI validates and previews the config, and the
-web app can run read-only so changes flow through git rather than the UI.
+git files are the source of truth: standards, the controls under them, the
+organisations being assessed, and the scopes that map an organisation to a
+standard. A CLI validates and previews the config, and the web app can run
+read-only so changes flow through git rather than the UI.
 
 It ships the config format, `validate`, and `apply --dry-run`, plus a web
 read-only mode. A MySQL persistence layer now backs the compliance domain:
@@ -15,15 +16,16 @@ reconciling apply, soft-delete on removal, and drift detection are not built yet
 
 Freeboard borrows Fleet's structure but renames the nouns for compliance:
 
-| Fleet    | Freeboard | Meaning                                              |
-| -------- | --------- | ---------------------------------------------------- |
-| labels   | scopes    | org units or asset groups that controls apply to     |
-| policies | checks    | executable conformance checks (deferred, not built)  |
-| (n/a)    | controls  | a requirement under a standard                       |
-| (n/a)    | standards | a compliance standard in scope                       |
+| Fleet    | Freeboard     | Meaning                                                  |
+| -------- | ------------- | -------------------------------------------------------- |
+| (n/a)    | organisations | the tree of entities being assessed (company/department) |
+| labels   | scopes        | maps an organisation to a standard with a disposition    |
+| policies | checks        | executable conformance checks (deferred, not built)      |
+| (n/a)    | controls      | a requirement under a standard                           |
+| (n/a)    | standards     | a compliance standard in scope                           |
 
-This increment ships `standards`, `controls`, and `scopes`. `checks` are named
-for the trajectory but are not built.
+This increment ships `standards`, `controls`, `organisations`, and `scopes`.
+`checks` are named for the trajectory but are not built.
 
 ## Format
 
@@ -31,7 +33,7 @@ A config directory holds one or more `.yaml` files. Each file is a stream of one
 or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.io/v1alpha1`.
-- `kind` - one of `Standard`, `Control`, or `Scope`.
+- `kind` - one of `Standard`, `Control`, `Organisation`, or `Scope`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -66,18 +68,47 @@ maps_to:
   - std-soc2
 ```
 
+### Organisation
+
+An organisation is a node in a tree. `type` is `Company` or `Department`.
+`parent` is another `Organisation` id (omit it for a root). The document
+discriminator `kind` names `Organisation`; the Company/Department distinction is
+authored under `type` so the two do not collide. It persists and reads back as
+the organisation's `kind`.
+
+```yaml
+apiVersion: freeboard.io/v1alpha1
+kind: Organisation
+id: ologist-products
+title: Ologist Products Ltd
+type: Company
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Organisation
+id: ologist-products-eng
+title: Engineering
+type: Department
+parent: ologist-products
+```
+
 ### Scope
 
-`controls` is a list of `Control` ids.
+A scope maps one `Organisation` to one `Standard` with a `disposition` (`In` or
+`Out`). At most one scope may exist per `(organisation, standard)` pair.
 
 ```yaml
 apiVersion: freeboard.io/v1alpha1
 kind: Scope
-id: scope-corp-laptops
-title: Corporate laptops
-controls:
-  - ctrl-mfa
+id: scope-products-ce
+title: Ologist Products - Cyber Essentials
+organisation: ologist-products
+standard: std-cyber-essentials
+disposition: In
 ```
+
+Dispositions are sparse: a node with no scope for a standard inherits its nearest
+ancestor's disposition. A node with no such ancestor is undetermined. The
+Statement of Applicability (below) resolves this per node.
 
 ## Validation
 
@@ -87,7 +118,12 @@ Validation collects every error in one pass (not just the first). It fails when:
 - a document has an unknown field;
 - an `id` is duplicated within its kind;
 - a `Control.maps_to` entry names a `Standard` id that does not exist;
-- a `Scope.controls` entry names a `Control` id that does not exist;
+- an `Organisation.parent` names an `Organisation` id that does not exist;
+- the organisations form a cycle through `parent`;
+- an `Organisation`'s kind is not `Company` or `Department`;
+- a `Scope.organisation` or `Scope.standard` names an id that does not exist;
+- a `Scope.disposition` is not `In` or `Out`;
+- two scopes name the same `(organisation, standard)` pair;
 - `apiVersion` is not exactly `freeboard.io/v1alpha1`.
 
 A missing or unknown `kind`, and malformed YAML, are reported as diagnostics by
@@ -110,17 +146,21 @@ freeboard gitops apply <dir> --dry-run
 
 ## Persistence
 
-The compliance domain (standards, controls, scopes) is persisted in MySQL. The
-data is the general compliance store; GitOps `sync` is one writer into it.
+The compliance domain (standards, controls, organisations, scopes) is persisted
+in MySQL. The data is the general compliance store; GitOps `sync` is one writer
+into it.
 
 ### Schema
 
-Six tables. Three domain tables (`standards`, `controls`, `scopes`), each keyed on
-`id` with `api_version`, `title`, `created_at`, and `updated_at`. Two relation
-tables (`control_standards` for `Control.maps_to`, `scope_controls` for
-`Scope.controls`) with composite primary keys and `ON DELETE CASCADE` foreign
-keys. One migration-tracking table (`schema_migrations`) bootstrapped by the
-migration runner.
+Six tables. Four domain tables (`standards`, `controls`, `organisations`,
+`scopes`), each keyed on `id` with `api_version`, `title`, `created_at`, and
+`updated_at`. `organisations` has a nullable self-referential `parent_id` foreign
+key and a `kind` column. `scopes` has `organisation_id` and `standard_id` foreign
+keys, a `disposition` column, and a unique key on `(organisation_id,
+standard_id)`. One relation table (`control_standards` for `Control.maps_to`) with
+a composite primary key and `ON DELETE CASCADE` foreign keys. One
+migration-tracking table (`schema_migrations`) bootstrapped by the migration
+runner.
 
 Every `id` and foreign-key column uses the binary collation `utf8mb4_bin`, so the
 database's identity rules match Core's case-sensitive, exact-byte `id` semantics
@@ -165,25 +205,50 @@ subsumed by real reconciling `apply` later.
 
 `gitops sync` replaces the persisted set: it upserts every resource in the config
 by `id` and HARD-REMOVES any persisted resource whose `id` is absent from the
-config. Narrowing the config deletes rows (foreign keys cascade to the relation
-tables). There is no soft-delete yet. Review the config before syncing.
+config. Narrowing the config deletes rows. There is no soft-delete yet. Review the
+config before syncing.
 
 ### Web read endpoints
 
 The web app serves the persisted domain read-only (GET only, not blocked by
-read-only mode):
+read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
 
-- `GET /api/standards` - persisted standards (`id`, `title`).
-- `GET /api/controls` - persisted controls (`id`, `title`, `maps_to`).
-- `GET /api/scopes` - persisted scopes (`id`, `title`, `controls`).
-- `GET /api/compliance/status` - a `persisted` object of per-kind counts.
+- `GET /api/v1/freeboard/standards` - persisted standards (`id`, `title`).
+- `GET /api/v1/freeboard/controls` - persisted controls (`id`, `title`, `maps_to`).
+- `GET /api/v1/freeboard/organisations` - persisted organisations (`id`, `title`,
+  `kind`, resolved `parent`, null for a root).
+- `GET /api/v1/freeboard/scopes` - persisted scopes (`id`, `title`,
+  `organisation`, `standard`, `disposition`).
+- `GET /api/v1/freeboard/statement-of-applicability/{standardId}` - the SoA
+  projection for a standard: every organisation node with its resolved
+  `disposition` and whether that value is `Explicit`, `Inherited`, or
+  `Undetermined`.
+- `GET /api/v1/freeboard/compliance/status` - a `persisted` object of per-kind
+  counts.
 
 Resources are ordered by `id`; relation arrays are ordered by id. When the store
 is unreachable, the read endpoints return HTTP 503 with an RFC 7807 problem body,
-and `/api/compliance/status` returns HTTP 200 with
-`{ "persisted": { "standards": null, "controls": null, "scopes": null } }`
-(`null` marks the count as unknown, not zero). `GET /api/gitops/status` is
-unchanged and does not depend on the store.
+and `/api/v1/freeboard/compliance/status` returns HTTP 200 with
+`{ "persisted": { "standards": null, "controls": null, "organisations": null, "scopes": null } }`
+(`null` marks the count as unknown, not zero). `GET /api/v1/freeboard/gitops/status`
+is unchanged and does not depend on the store.
+
+### App-managed writes
+
+When the instance is NOT in GitOps read-only mode, organisations and scope
+dispositions can be written through the API, enforcing the same invariants as
+import:
+
+- `PUT /api/v1/freeboard/organisations/{id}` - create or update an organisation.
+- `DELETE /api/v1/freeboard/organisations/{id}` - delete an organisation (fails if
+  it still has children or scopes).
+- `PUT /api/v1/freeboard/scopes/{id}` - set a scope disposition for an
+  `(organisation, standard)` pair.
+- `DELETE /api/v1/freeboard/scopes/{id}` - delete a scope disposition.
+
+An invalid write returns an RFC 7807 problem body and changes nothing. In GitOps
+read-only mode these endpoints are rejected with HTTP 409 by the read-only
+middleware, exactly as other mutating routes are.
 
 ### Connection string
 

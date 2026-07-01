@@ -6,11 +6,12 @@ standard.
 
 ## Layout
 
-| File             | Kind       | Purpose                                  |
-| ---------------- | ---------- | ---------------------------------------- |
-| `standards.yaml` | `Standard` | Compliance standards in scope            |
-| `controls.yaml`  | `Control`  | Requirements, each `maps_to` standard(s) |
-| `scopes.yaml`    | `Scope`    | Asset groups, each lists its `controls`  |
+| File                 | Kind           | Purpose                                               |
+| -------------------- | -------------- | ----------------------------------------------------- |
+| `standards.yaml`     | `Standard`     | Compliance standards in scope                         |
+| `controls.yaml`      | `Control`      | Requirements, each `maps_to` standard(s)              |
+| `organisations.yaml` | `Organisation` | The organisation tree, each with a `type` and parent  |
+| `scopes.yaml`        | `Scope`        | Maps an organisation to a standard with a disposition |
 
 Kinds may be mixed in any file; the split above is a convention, not a rule.
 Every document declares `apiVersion: freeboard.io/v1alpha1`. Every resource has a

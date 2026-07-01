@@ -12,9 +12,21 @@ public sealed class ImportPlanTests
         [
             new Control { Id = "ctrl-a", ApiVersion = "v1", Title = "Control A", MapsTo = ["std-a"] },
         ],
+        Organisations =
+        [
+            new Organisation { Id = "org-a", ApiVersion = "v1", Title = "Org A", OrgKind = "Company" },
+        ],
         Scopes =
         [
-            new Scope { Id = "scope-a", ApiVersion = "v1", Title = "Scope A", Controls = ["ctrl-a"] },
+            new Scope
+            {
+                Id = "scope-a",
+                ApiVersion = "v1",
+                Title = "Scope A",
+                Organisation = "org-a",
+                Standard = "std-a",
+                Disposition = "In",
+            },
         ],
     };
 
@@ -25,6 +37,7 @@ public sealed class ImportPlanTests
 
         Assert.Equal("std-a", Assert.Single(plan.Standards).Id);
         Assert.Equal("ctrl-a", Assert.Single(plan.Controls).Id);
+        Assert.Equal("org-a", Assert.Single(plan.Organisations).Id);
         Assert.Equal("scope-a", Assert.Single(plan.Scopes).Id);
     }
 
@@ -35,6 +48,44 @@ public sealed class ImportPlanTests
 
         Assert.Equal("Control A", row.Title);
         Assert.Equal("v1", row.ApiVersion);
+    }
+
+    [Fact]
+    public void ScopeRowCarriesOrganisationStandardAndDisposition()
+    {
+        var row = Assert.Single(ImportPlan.From(SampleConfig()).Scopes);
+
+        Assert.Equal("org-a", row.Organisation);
+        Assert.Equal("std-a", row.Standard);
+        Assert.Equal("In", row.Disposition);
+    }
+
+    [Fact]
+    public void OrganisationRowCarriesKindAndNullParentForRoot()
+    {
+        var row = Assert.Single(ImportPlan.From(SampleConfig()).Organisations);
+
+        Assert.Equal("Company", row.Kind);
+        Assert.Null(row.Parent);
+    }
+
+    [Fact]
+    public void OrganisationsOrderedParentBeforeChild()
+    {
+        var config = new GitOpsConfig
+        {
+            Organisations =
+            [
+                new Organisation { Id = "child", ApiVersion = "v1", Title = "Child", OrgKind = "Department", Parent = "root" },
+                new Organisation { Id = "root", ApiVersion = "v1", Title = "Root", OrgKind = "Company" },
+                new Organisation { Id = "grandchild", ApiVersion = "v1", Title = "GC", OrgKind = "Department", Parent = "child" },
+            ],
+        };
+
+        var ids = ImportPlan.From(config).OrganisationIds;
+
+        Assert.True(ids.ToList().IndexOf("root") < ids.ToList().IndexOf("child"));
+        Assert.True(ids.ToList().IndexOf("child") < ids.ToList().IndexOf("grandchild"));
     }
 
     [Fact]
@@ -54,15 +105,12 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void CrossRefRowsDeriveFromMapsToAndControls()
+    public void CrossRefRowsDeriveFromMapsTo()
     {
         var plan = ImportPlan.From(SampleConfig());
 
         var cs = Assert.Single(plan.ControlStandards);
         Assert.Equal(("ctrl-a", "std-a"), (cs.ControlId, cs.StandardId));
-
-        var sc = Assert.Single(plan.ScopeControls);
-        Assert.Equal(("scope-a", "ctrl-a"), (sc.ScopeId, sc.ControlId));
     }
 
     [Fact]
@@ -81,21 +129,14 @@ public sealed class ImportPlanTests
                     MapsTo = ["iso-27001", "iso-27001"],
                 },
             ],
-            Scopes =
-            [
-                new Scope { Id = "scope-a", ApiVersion = "v1", Title = "Scope A", Controls = ["ctrl-a", "ctrl-a"] },
-            ],
         };
 
         var plan = ImportPlan.From(config);
 
-        // Defensive Distinct collapses duplicates so the composite-PK join tables never
-        // receive a duplicate row.
+        // Defensive Distinct collapses duplicates so the composite-PK join table never
+        // receives a duplicate row.
         var cs = Assert.Single(plan.ControlStandards);
         Assert.Equal(("ctrl-a", "iso-27001"), (cs.ControlId, cs.StandardId));
-
-        var sc = Assert.Single(plan.ScopeControls);
-        Assert.Equal(("scope-a", "ctrl-a"), (sc.ScopeId, sc.ControlId));
     }
 
     [Fact]
@@ -105,6 +146,7 @@ public sealed class ImportPlanTests
 
         Assert.Equal(["std-a"], plan.StandardIds);
         Assert.Equal(["ctrl-a"], plan.ControlIds);
+        Assert.Equal(["org-a"], plan.OrganisationIds);
         Assert.Equal(["scope-a"], plan.ScopeIds);
     }
 }

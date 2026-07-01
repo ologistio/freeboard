@@ -13,18 +13,25 @@ namespace Freeboard.Core.GitOps;
 public static class ConfigLoader
 {
     // Schema keys per kind. apiVersion/kind are camelCase exceptions; domain fields are snake_case.
+    // The top-level `kind` is the document discriminator (Standard/Control/Organisation/Scope). An
+    // Organisation's Company/Department distinction is authored under `type` so it does not collide
+    // with the discriminator; it persists and reads back as the organisation's `kind`.
     private static readonly IReadOnlyDictionary<string, HashSet<string>> SchemaKeys =
         new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         {
             [GitOpsSchema.KindStandard] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title" },
             [GitOpsSchema.KindControl] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "maps_to" },
-            [GitOpsSchema.KindScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "controls" },
+            [GitOpsSchema.KindOrganisation] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "parent" },
+            [GitOpsSchema.KindScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "standard", "disposition" },
         };
 
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
         .WithAttributeOverride<Standard>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Control>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<Organisation>(o => o.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        // The Company/Department value is authored under `type`; it binds to the OrgKind property.
+        .WithAttributeOverride<Organisation>(o => o.OrgKind, new YamlMemberAttribute { Alias = "type", ApplyNamingConventions = false })
         .WithAttributeOverride<Scope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .IgnoreUnmatchedProperties()
         .Build();
@@ -129,7 +136,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindScope}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}.",
             });
             return;
         }
@@ -149,9 +156,11 @@ public static class ConfigLoader
                     // to empty so the validator emits a diagnostic instead of throwing.
                     config.Controls.Add(control with { MapsTo = control.MapsTo ?? [] });
                     break;
+                case GitOpsSchema.KindOrganisation:
+                    config.Organisations.Add(Deserialize<Organisation>(mapping));
+                    break;
                 case GitOpsSchema.KindScope:
-                    var scope = Deserialize<Scope>(mapping);
-                    config.Scopes.Add(scope with { Controls = scope.Controls ?? [] });
+                    config.Scopes.Add(Deserialize<Scope>(mapping));
                     break;
             }
         }

@@ -1,15 +1,18 @@
-# Sample scopes. Each lists the Control ids it includes.
+# Sample scopes. Each maps one organisation to one standard with a disposition
+# (In or Out). Dispositions are sparse: a node with no scope for a standard
+# inherits its nearest ancestor's disposition.
 apiVersion: freeboard.io/v1alpha1
 kind: Scope
-id: scope-corp-laptops
-title: Corporate laptops
-controls:
-  - ctrl-mfa
-  - ctrl-patching
+id: scope-products-ce
+title: Ologist Products - Cyber Essentials
+organisation: ologist-products
+standard: std-cyber-essentials
+disposition: In
 ---
 apiVersion: freeboard.io/v1alpha1
 kind: Scope
-id: scope-servers
-title: Production servers
-controls:
-  - ctrl-patching
+id: scope-products-soc2
+title: Ologist Products - SOC 2
+organisation: ologist-products
+standard: std-soc2
+disposition: Out

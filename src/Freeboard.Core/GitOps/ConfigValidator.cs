@@ -3,8 +3,10 @@ namespace Freeboard.Core.GitOps;
 /// <summary>
 /// Validates a loaded <see cref="GitOpsConfig"/>. Collects every error as a
 /// <see cref="Diagnostic"/>; never throws and never writes output. Owns: required
-/// fields, apiVersion value, unique id per kind, and reference resolution. Does
-/// NOT re-check kind (the loader owns kind-routing).
+/// fields, apiVersion value, unique id per kind, reference resolution, the organisation
+/// tree (acyclic, resolvable parents), and the scope mapping (resolvable references,
+/// disposition enum, unique organisation/standard pair). Does NOT re-check kind (the
+/// loader owns kind-routing).
 /// </summary>
 public static class ConfigValidator
 {
@@ -28,8 +30,9 @@ public static class ConfigValidator
         var diagnostics = new List<Diagnostic>();
 
         var standardIds = ValidateStandards(config, diagnostics);
-        var controlIds = ValidateControls(config, standardIds, diagnostics);
-        ValidateScopes(config, controlIds, diagnostics);
+        ValidateControls(config, standardIds, diagnostics);
+        var organisationIds = ValidateOrganisations(config, diagnostics);
+        ValidateScopes(config, organisationIds, standardIds, diagnostics);
 
         return diagnostics;
     }
@@ -59,12 +62,11 @@ public static class ConfigValidator
         return ids;
     }
 
-    private static HashSet<string> ValidateControls(
+    private static void ValidateControls(
         GitOpsConfig config,
         HashSet<string> standardIds,
         List<Diagnostic> diagnostics)
     {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var control in config.Controls)
@@ -92,56 +94,211 @@ public static class ConfigValidator
             CheckNoDuplicateRefs(
                 control.MapsTo, GitOpsSchema.KindControl, control.Id, "maps_to", "Standard", diagnostics);
 
-            if (!string.IsNullOrEmpty(control.Id))
+            if (!string.IsNullOrEmpty(control.Id) && !seen.Add(control.Id))
             {
-                if (!seen.Add(control.Id))
+                diagnostics.Add(Dup(GitOpsSchema.KindControl, control.Id));
+            }
+        }
+    }
+
+    private static HashSet<string> ValidateOrganisations(GitOpsConfig config, List<Diagnostic> diagnostics)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var organisation in config.Organisations)
+        {
+            CheckApiVersion(organisation.ApiVersion, GitOpsSchema.KindOrganisation, organisation.Id, diagnostics);
+            CheckRequired(organisation.Id, GitOpsSchema.KindOrganisation, "id", organisation.Title, diagnostics);
+            CheckRequired(organisation.Title, GitOpsSchema.KindOrganisation, "title", organisation.Id, diagnostics);
+            CheckRequired(organisation.OrgKind, GitOpsSchema.KindOrganisation, "type", organisation.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(organisation.OrgKind) && !TryParseKind(organisation.OrgKind, out _))
+            {
+                diagnostics.Add(new Diagnostic
                 {
-                    diagnostics.Add(Dup(GitOpsSchema.KindControl, control.Id));
+                    Message = $"{GitOpsSchema.KindOrganisation} '{Describe(organisation.Id)}' has unknown kind "
+                        + $"'{organisation.OrgKind}'. Expected '{nameof(OrganisationKind.Company)}' or "
+                        + $"'{nameof(OrganisationKind.Department)}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(organisation.Id))
+            {
+                if (!seen.Add(organisation.Id))
+                {
+                    diagnostics.Add(Dup(GitOpsSchema.KindOrganisation, organisation.Id));
                 }
 
-                ids.Add(control.Id);
+                ids.Add(organisation.Id);
             }
         }
 
+        ValidateOrganisationParents(config, ids, diagnostics);
         return ids;
+    }
+
+    private static void ValidateOrganisationParents(
+        GitOpsConfig config,
+        HashSet<string> organisationIds,
+        List<Diagnostic> diagnostics)
+    {
+        // Resolve dangling parents first: a parent naming an id no organisation defines.
+        foreach (var organisation in config.Organisations)
+        {
+            if (!string.IsNullOrEmpty(organisation.Parent) && !organisationIds.Contains(organisation.Parent))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindOrganisation} '{Describe(organisation.Id)}' has unknown parent "
+                        + $"'{organisation.Parent}'.",
+                });
+            }
+        }
+
+        // Cycle detection over the parent edges. Only follow edges to defined parents so a
+        // dangling-parent diagnostic is not double-reported as a cycle. An organisation that
+        // names itself is a self-cycle.
+        var parentOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var organisation in config.Organisations)
+        {
+            if (string.IsNullOrEmpty(organisation.Id) || parentOf.ContainsKey(organisation.Id))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(organisation.Parent) && organisationIds.Contains(organisation.Parent))
+            {
+                parentOf[organisation.Id] = organisation.Parent;
+            }
+        }
+
+        var reportedCycle = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var start in parentOf.Keys)
+        {
+            var walked = new HashSet<string>(StringComparer.Ordinal);
+            var node = start;
+            while (parentOf.TryGetValue(node, out var parent))
+            {
+                if (!walked.Add(node))
+                {
+                    break;
+                }
+
+                if (parent == start)
+                {
+                    // start participates in a cycle. Report once per cycle member set.
+                    if (reportedCycle.Add(start))
+                    {
+                        diagnostics.Add(new Diagnostic
+                        {
+                            Message = $"{GitOpsSchema.KindOrganisation} '{Describe(start)}' is part of a parent cycle.",
+                        });
+                    }
+
+                    break;
+                }
+
+                node = parent;
+            }
+        }
     }
 
     private static void ValidateScopes(
         GitOpsConfig config,
-        HashSet<string> controlIds,
+        HashSet<string> organisationIds,
+        HashSet<string> standardIds,
         List<Diagnostic> diagnostics)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var seenPairs = new HashSet<(string, string)>();
 
         foreach (var scope in config.Scopes)
         {
             CheckApiVersion(scope.ApiVersion, GitOpsSchema.KindScope, scope.Id, diagnostics);
             CheckRequired(scope.Id, GitOpsSchema.KindScope, "id", scope.Title, diagnostics);
             CheckRequired(scope.Title, GitOpsSchema.KindScope, "title", scope.Id, diagnostics);
+            CheckRequired(scope.Organisation, GitOpsSchema.KindScope, "organisation", scope.Id, diagnostics);
+            CheckRequired(scope.Standard, GitOpsSchema.KindScope, "standard", scope.Id, diagnostics);
+            CheckRequired(scope.Disposition, GitOpsSchema.KindScope, "disposition", scope.Id, diagnostics);
 
-            if (scope.Controls.Count == 0)
+            if (!string.IsNullOrEmpty(scope.Organisation) && !organisationIds.Contains(scope.Organisation))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' is missing required field 'controls'.",
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Organisation id "
+                        + $"'{scope.Organisation}'.",
                 });
             }
 
-            foreach (var controlId in scope.Controls.Where(controlId => !controlIds.Contains(controlId)))
+            if (!string.IsNullOrEmpty(scope.Standard) && !standardIds.Contains(scope.Standard))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Control id '{controlId}'.",
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Standard id "
+                        + $"'{scope.Standard}'.",
                 });
             }
 
-            CheckNoDuplicateRefs(
-                scope.Controls, GitOpsSchema.KindScope, scope.Id, "controls", "Control", diagnostics);
+            if (!string.IsNullOrEmpty(scope.Disposition) && !TryParseDisposition(scope.Disposition, out _))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' has unknown disposition "
+                        + $"'{scope.Disposition}'. Expected '{nameof(ScopeDisposition.In)}' or "
+                        + $"'{nameof(ScopeDisposition.Out)}'.",
+                });
+            }
 
-            if (!string.IsNullOrEmpty(scope.Id) && !seen.Add(scope.Id))
+            if (!string.IsNullOrEmpty(scope.Id) && !seenIds.Add(scope.Id))
             {
                 diagnostics.Add(Dup(GitOpsSchema.KindScope, scope.Id));
             }
+
+            if (!string.IsNullOrEmpty(scope.Organisation)
+                && !string.IsNullOrEmpty(scope.Standard)
+                && !seenPairs.Add((scope.Organisation, scope.Standard)))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindScope} maps organisation '{scope.Organisation}' to standard "
+                        + $"'{scope.Standard}' more than once.",
+                });
+            }
+        }
+    }
+
+    /// <summary>Parses an organisation kind case-sensitively (identity is exact-byte).</summary>
+    public static bool TryParseKind(string value, out OrganisationKind kind)
+    {
+        switch (value)
+        {
+            case nameof(OrganisationKind.Company):
+                kind = OrganisationKind.Company;
+                return true;
+            case nameof(OrganisationKind.Department):
+                kind = OrganisationKind.Department;
+                return true;
+            default:
+                kind = default;
+                return false;
+        }
+    }
+
+    /// <summary>Parses a scope disposition case-sensitively (identity is exact-byte).</summary>
+    public static bool TryParseDisposition(string value, out ScopeDisposition disposition)
+    {
+        switch (value)
+        {
+            case nameof(ScopeDisposition.In):
+                disposition = ScopeDisposition.In;
+                return true;
+            case nameof(ScopeDisposition.Out):
+                disposition = ScopeDisposition.Out;
+                return true;
+            default:
+                disposition = default;
+                return false;
         }
     }
 
@@ -175,10 +332,9 @@ public static class ConfigValidator
         string targetKind,
         List<Diagnostic> diagnostics)
     {
-        // Ordinal equality, consistent with id identity. The join tables have composite
-        // PKs, so a duplicate would fail import with a duplicate-key error; reject it
-        // here as an input error instead.
-        // One diagnostic per duplicated id.
+        // Ordinal equality, consistent with id identity. The join table has a composite
+        // PK, so a duplicate would fail import with a duplicate-key error; reject it here
+        // as an input error instead. One diagnostic per duplicated id.
         var duplicates = refs
             .GroupBy(reference => reference, StringComparer.Ordinal)
             .Where(group => group.Count() > 1)

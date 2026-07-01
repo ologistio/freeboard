@@ -22,13 +22,21 @@ public sealed class ConfigLoaderTests
                 maps_to:
                   - std-a
                 """),
+            ("orgs.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                """),
             ("scopes.yaml", """
                 apiVersion: freeboard.io/v1alpha1
                 kind: Scope
                 id: scope-a
                 title: Scope A
-                controls:
-                  - ctrl-a
+                organisation: org-a
+                standard: std-a
+                disposition: In
                 """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
@@ -36,6 +44,7 @@ public sealed class ConfigLoaderTests
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
         Assert.Single(result.Config.Standards);
         Assert.Single(result.Config.Controls);
+        Assert.Single(result.Config.Organisations);
         Assert.Single(result.Config.Scopes);
 
         var standard = result.Config.Standards[0];
@@ -43,7 +52,16 @@ public sealed class ConfigLoaderTests
         Assert.Equal("Standard A", standard.Title);
         Assert.NotEqual(standard.Id, standard.Title);
         Assert.Equal(["std-a"], result.Config.Controls[0].MapsTo);
-        Assert.Equal(["ctrl-a"], result.Config.Scopes[0].Controls);
+
+        var organisation = result.Config.Organisations[0];
+        Assert.Equal("org-a", organisation.Id);
+        Assert.Equal("Company", organisation.OrgKind);
+        Assert.Empty(organisation.Parent);
+
+        var scope = result.Config.Scopes[0];
+        Assert.Equal("org-a", scope.Organisation);
+        Assert.Equal("std-a", scope.Standard);
+        Assert.Equal("In", scope.Disposition);
     }
 
     [Fact]
@@ -145,6 +163,41 @@ public sealed class ConfigLoaderTests
         var result = ConfigLoader.Load(dir.Path);
 
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("Unknown field 'colour'"));
+    }
+
+    [Fact]
+    public void OrganisationKindAuthoredUnderType()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                """));
+
+        var result = ConfigLoader.Load(dir.Path);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal("Company", Assert.Single(result.Config.Organisations).OrgKind);
+    }
+
+    [Fact]
+    public void OrganisationOrgKindKeyIsRejectedAsUnknownField()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                org_kind: Company
+                """));
+
+        var result = ConfigLoader.Load(dir.Path);
+
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Unknown field 'org_kind'"));
     }
 
     [Fact]

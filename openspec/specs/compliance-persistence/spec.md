@@ -6,9 +6,9 @@ TBD - created by archiving change add-gitops-mysql-persistence. Update Purpose a
 ### Requirement: MySQL-backed store for the compliance domain
 
 The system SHALL provide a MySQL-backed store that persists the compliance domain
-(`Standard`, `Control`, `Scope`) and their cross-references. The store SHALL live
-in a dedicated MIT project (`Freeboard.Persistence`) that holds the MySQL client
-dependency, and SHALL NOT add any database or socket dependency to
+(`Standard`, `Control`, `Organisation`, `Scope`) and their cross-references. The
+store SHALL live in a dedicated MIT project (`Freeboard.Persistence`) that holds
+the MySQL client dependency, and SHALL NOT add any database or socket dependency to
 `Freeboard.Core`. The store is the general compliance data layer; GitOps `sync` is
 one writer into it (see the GitOps importer requirement) and is not part of the
 store's identity. Each resource SHALL be stored keyed on its immutable `id`;
@@ -19,8 +19,8 @@ insert, and an `updated_at` set on every write.
 #### Scenario: Domain persists keyed on id
 
 - **WHEN** a validated config is written to the store
-- **THEN** each `Standard`, `Control`, and `Scope` is stored as a row whose
-  primary key is its `id`, with `title`, `api_version`, `created_at`, and
+- **THEN** each `Standard`, `Control`, `Organisation`, and `Scope` is stored as a
+  row whose primary key is its `id`, with `title`, `api_version`, `created_at`, and
   `updated_at` columns
 
 #### Scenario: Store dependency stays out of Core
@@ -47,10 +47,13 @@ columns.
 
 ### Requirement: Cross-references persisted as relations
 
-The store SHALL persist `Control.maps_to` (Standard ids) and `Scope.controls`
-(Control ids) as relational rows with foreign keys to the referenced resource by
-`id`, not as denormalized text. Referential integrity SHALL be enforced by the
-database. Reads SHALL return the cross-references resolved by `id`.
+The store SHALL persist `Control.maps_to` (Standard ids) as relational rows with
+foreign keys to the referenced standard by `id`, not as denormalized text.
+`Organisation.parent` SHALL be persisted as a nullable self-referential foreign key
+on the organisation row. `Scope.organisation` and `Scope.standard` SHALL be
+persisted as foreign-key columns on the scope row referencing the organisation and
+standard by `id`. Referential integrity SHALL be enforced by the database. Reads
+SHALL return the references resolved by `id`.
 
 #### Scenario: maps_to stored as a relation
 
@@ -58,11 +61,18 @@ database. Reads SHALL return the cross-references resolved by `id`.
 - **THEN** two relation rows link the control id to each standard id, each with a
   foreign key to the standards table
 
-#### Scenario: controls stored as a relation
+#### Scenario: Organisation parent stored as a self-FK
 
-- **WHEN** a `Scope` listing Control ids is written
-- **THEN** relation rows link the scope id to each control id, each with a
-  foreign key to the controls table
+- **WHEN** an `Organisation` with a `parent` is written
+- **THEN** its row holds a `parent_id` foreign key referencing the organisations
+  table, and a root organisation stores a null `parent_id`
+
+#### Scenario: Scope stored with organisation and standard foreign keys
+
+- **WHEN** a `Scope` mapping an organisation to a standard with a disposition is
+  written
+- **THEN** its row holds `organisation_id` and `standard_id` foreign keys and a
+  `disposition` column
 
 ### Requirement: Identity and upsert key on id, never title
 
@@ -100,22 +110,23 @@ key on `title`.
 The system SHALL expose separate abstractions for reading the store and for
 importing config into it. `IComplianceStore` (the general read abstraction, in the
 `Freeboard.Persistence` namespace) SHALL provide read methods returning the
-persisted standards, controls, and scopes (with resolved cross-references) and
-per-kind counts. `IGitOpsImporter` (in the `Freeboard.Persistence.GitOps`
-namespace - GitOps is one writer into the general store) SHALL provide a method
-that replaces the persisted set from an already-validated `GitOpsConfig`.
-`IGitOpsImporter.ImportAsync` SHALL document that its caller guarantees the config
-has been validated; the importer SHALL NOT re-run Core validation. The web app's
-dependency-injection registration SHALL register only `IComplianceStore`, so the
-web app's service provider does not resolve `IGitOpsImporter` or
-`IMigrationRunner`. The MySQL implementations SHALL satisfy these abstractions.
-Consumers SHALL depend on the abstractions, not the concrete implementations.
+persisted standards, controls, organisations (with resolved `parent`), and scopes
+(with resolved `organisation`, `standard`, and `disposition`) and per-kind counts.
+`IGitOpsImporter` (in the `Freeboard.Persistence.GitOps` namespace - GitOps is one
+writer into the general store) SHALL provide a method that replaces the persisted
+set from an already-validated `GitOpsConfig`. `IGitOpsImporter.ImportAsync` SHALL
+document that its caller guarantees the config has been validated; the importer
+SHALL NOT re-run Core validation. The web app's dependency-injection registration
+SHALL register `IComplianceStore` for reads, so the web app's service provider does
+not resolve `IGitOpsImporter` or `IMigrationRunner`. The MySQL implementations SHALL
+satisfy these abstractions. Consumers SHALL depend on the abstractions, not the
+concrete implementations.
 
 #### Scenario: Read returns persisted domain
 
 - **WHEN** a caller invokes the `IComplianceStore` read methods after an import
-- **THEN** it receives the persisted standards, controls, and scopes with their
-  `id`, `title`, and resolved cross-references
+- **THEN** it receives the persisted standards, controls, organisations, and scopes
+  with their `id`, `title`, and resolved references
 
 #### Scenario: Import replaces the persisted set
 
@@ -125,29 +136,36 @@ Consumers SHALL depend on the abstractions, not the concrete implementations.
 
 #### Scenario: Web registration resolves only the reader
 
-- **WHEN** the web app's service provider is built from its DI registration
+- **WHEN** the web app's service provider is built from its read-path DI registration
 - **THEN** it resolves `IComplianceStore` and does NOT resolve `IGitOpsImporter`
-  or `IMigrationRunner`, so the web app cannot write or migrate the store
+  or `IMigrationRunner`
 
 ### Requirement: Import order is FK-safe and replaces the whole persisted set
 
 The importer SHALL run in a fixed order within one DML transaction: upsert all
-domain rows (standards, controls, scopes) by `id`; then replace all cross-ref
-join rows for the imported set (delete the existing join rows and insert the rows
-derived from the new config, a whole-set replacement rather than a per-parent
-diff); then delete domain rows whose `id` is absent from the config in FK-safe
-order (scopes, then controls, then standards). Because a validated config has no
-dangling cross-references (a `Freeboard.Core` invariant), no surviving join row
-references a domain row scheduled for deletion, so foreign-key constraints hold at
-commit.
+domain rows by `id` in FK-safe order (standards; controls; organisations
+parent-before-child; then scopes, whose rows reference organisations and
+standards); then replace all `maps_to` cross-ref join rows for the imported set
+(delete the existing join rows and insert the rows derived from the new config, a
+whole-set replacement rather than a per-parent diff); then delete domain rows whose
+`id` is absent from the config in FK-safe order (scopes; then organisations
+child-before-parent; then controls; then standards). Because a validated config is
+acyclic and has no dangling references (a `Freeboard.Core` invariant), a stable
+order exists and foreign-key constraints hold at commit.
 
 #### Scenario: Dropping a referenced standard in the same sync succeeds
 
 - **WHEN** a sync removes a Standard that, in the prior persisted state, was
-  referenced by a Control via `maps_to`, and the new config also updates or
-  removes that Control so the reference is gone
+  referenced by a Control via `maps_to` or by a Scope, and the new config also
+  removes those references
 - **THEN** the import succeeds without a foreign-key violation, because the
-  cross-ref rows are replaced before the standard row is deleted
+  referencing rows are replaced or removed before the standard row is deleted
+
+#### Scenario: Parent organisation ordering holds
+
+- **WHEN** a sync imports a company and its department in one config
+- **THEN** the parent company row is upserted before the department that references
+  it, and on removal the department is deleted before the parent
 
 ### Requirement: Migration runner applies pending migrations and reports state
 
@@ -263,10 +281,11 @@ DDL on its own.
 
 - **WHEN** migrations are applied to a completely empty database that has no
   tables at all (not even `schema_migrations`)
-- **THEN** the runner bootstraps the migrations table, applies the migrations,
-  and the three entity tables, the two relation tables, and the
-  `schema_migrations` table (six tables total) exist with their primary
-  keys, foreign keys, indexes, and binary-collation identifier columns
+- **THEN** the runner bootstraps the migrations table, applies the migrations, and
+  the four entity tables (standards, controls, organisations, scopes), the
+  `control` `maps_to` relation table, and the `schema_migrations` table exist with
+  their primary keys, foreign keys (including the organisation self-FK and the
+  scope organisation/standard FKs), indexes, and binary-collation identifier columns
 
 #### Scenario: Migrations apply in numeric-ordinal order
 
@@ -339,4 +358,23 @@ GitOps YAML config and SHALL NOT be committed to the repository.
 - **WHEN** the store is configured
 - **THEN** the connection string comes from environment, user-secrets, or a
   config provider, and never from the GitOps YAML config or a committed file
+
+### Requirement: Scope disposition is unique per organisation per standard
+
+The scopes table SHALL enforce a unique key on `(organisation_id, standard_id)` so
+at most one disposition exists per organisation node per standard. A `disposition`
+column SHALL store the enum value (`In` or `Out`). The same organisation MAY hold
+independent dispositions for different standards.
+
+#### Scenario: Duplicate mapping violates the unique key
+
+- **WHEN** a second scope row for an existing `(organisation_id, standard_id)` pair
+  is written directly to the store
+- **THEN** the database rejects it on the unique key
+
+#### Scenario: Same organisation across standards is allowed
+
+- **WHEN** an organisation has a scope for standard A and another for standard B
+- **THEN** both rows persist, because the unique key is on the pair, not the
+  organisation alone
 
