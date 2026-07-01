@@ -11,8 +11,22 @@ maps_to:
   - std-a
 ---
 apiVersion: freeboard.io/v1alpha1
+kind: Organisation
+id: org-a
+title: Org A
+type: Company
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Organisation
+id: org-eng
+title: Engineering
+type: Department
+parent: org-a
+---
+apiVersion: freeboard.io/v1alpha1
 kind: Scope
 id: scope-a
 title: Scope A
-controls:
-  - ctrl-a
+organisation: org-a
+standard: std-a
+disposition: In

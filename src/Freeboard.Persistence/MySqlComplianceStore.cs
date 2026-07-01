@@ -51,36 +51,23 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .ToList();
     }
 
+    public async Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, kind AS Kind, parent_id AS Parent FROM organisations ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.ToList();
+    }
+
     public async Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        // One consistent snapshot so the scopes and their controls rows cannot straddle
-        // a concurrent gitops sync commit and pair old scopes with new cross-refs.
-        await using var transaction = await connection
-            .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
-
-        var scopes = (await connection.QueryAsync<(string Id, string Title)>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title FROM scopes ORDER BY id;",
-            transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
-
-        var links = await connection.QueryAsync<(string ScopeId, string ControlId)>(new CommandDefinition(
-            "SELECT scope_id AS ScopeId, control_id AS ControlId FROM scope_controls ORDER BY scope_id, control_id;",
-            transaction: transaction,
+        var rows = await connection.QueryAsync<ScopeRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, standard_id AS Standard, "
+            + "disposition AS Disposition FROM scopes ORDER BY id;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-
-        var byScope = links
-            .GroupBy(l => l.ScopeId, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Select(l => l.ControlId).ToList(), StringComparer.Ordinal);
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-        return scopes
-            .Select(s => new ScopeRow(
-                s.Id,
-                s.Title,
-                byScope.TryGetValue(s.Id, out var ids) ? ids : []))
-            .ToList();
+        return rows.ToList();
     }
 
     public async Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default)
@@ -91,12 +78,13 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Scopes)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Organisations, int Scopes)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
+            + "(SELECT COUNT(*) FROM organisations) AS Organisations, "
             + "(SELECT COUNT(*) FROM scopes) AS Scopes;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return new ComplianceCounts(counts.Standards, counts.Controls, counts.Scopes);
+        return new ComplianceCounts(counts.Standards, counts.Controls, counts.Organisations, counts.Scopes);
     }
 }

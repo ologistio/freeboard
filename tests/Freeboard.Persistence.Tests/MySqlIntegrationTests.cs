@@ -35,11 +35,13 @@ public sealed class MySqlIntegrationTests
     private static GitOpsConfig Config(
         IEnumerable<Standard> standards,
         IEnumerable<Control> controls,
-        IEnumerable<Scope> scopes) => new()
+        IEnumerable<Organisation>? organisations = null,
+        IEnumerable<Scope>? scopes = null) => new()
         {
             Standards = standards.ToList(),
             Controls = controls.ToList(),
-            Scopes = scopes.ToList(),
+            Organisations = organisations?.ToList() ?? [],
+            Scopes = scopes?.ToList() ?? [],
         };
 
     private static Standard Std(string id, string title = "T", string apiVersion = "v1") =>
@@ -48,8 +50,20 @@ public sealed class MySqlIntegrationTests
     private static Control Ctrl(string id, string[] mapsTo, string title = "T", string apiVersion = "v1") =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, MapsTo = [.. mapsTo] };
 
-    private static Scope Scp(string id, string[] controls, string title = "T", string apiVersion = "v1") =>
-        new() { Id = id, Title = title, ApiVersion = apiVersion, Controls = [.. controls] };
+    private static Organisation Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
+        new() { Id = id, Title = title, ApiVersion = apiVersion, OrgKind = kind, Parent = parent ?? string.Empty };
+
+    private static Scope Scp(
+        string id, string organisation, string standard, string disposition = "In", string title = "T", string apiVersion = "v1") =>
+        new()
+        {
+            Id = id,
+            Title = title,
+            ApiVersion = apiVersion,
+            Organisation = organisation,
+            Standard = standard,
+            Disposition = disposition,
+        };
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task MigrateEmptySchemaCreatesAllTablesWithBinaryCollation()
@@ -66,10 +80,13 @@ public sealed class MySqlIntegrationTests
             "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();"))
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var t in new[] { "standards", "controls", "scopes", "control_standards", "scope_controls", "schema_migrations" })
+        foreach (var t in new[] { "standards", "controls", "organisations", "scopes", "control_standards", "schema_migrations" })
         {
             Assert.Contains(t, tables);
         }
+
+        // The old scope->controls relation is dropped by the organisation migration.
+        Assert.DoesNotContain("scope_controls", tables);
 
         // id columns are binary-collated.
         var collation = await conn.ExecuteScalarAsync<string>(
@@ -77,11 +94,32 @@ public sealed class MySqlIntegrationTests
             + "WHERE table_schema = DATABASE() AND table_name = 'standards' AND column_name = 'id';");
         Assert.Equal("utf8mb4_bin", collation);
 
-        // FK present on a join table.
+        // FK present on the maps_to join table.
         var fkCount = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.table_constraints "
             + "WHERE table_schema = DATABASE() AND table_name = 'control_standards' AND constraint_type = 'FOREIGN KEY';");
         Assert.True(fkCount >= 2);
+
+        // Organisation self-FK on parent_id.
+        var orgSelfFk = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.key_column_usage "
+            + "WHERE table_schema = DATABASE() AND table_name = 'organisations' "
+            + "AND column_name = 'parent_id' AND referenced_table_name = 'organisations';");
+        Assert.Equal(1, orgSelfFk);
+
+        // Scope organisation/standard FKs.
+        var scopeFks = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.key_column_usage "
+            + "WHERE table_schema = DATABASE() AND table_name = 'scopes' "
+            + "AND referenced_table_name IN ('organisations', 'standards');");
+        Assert.Equal(2, scopeFks);
+
+        // Unique key on (organisation_id, standard_id).
+        var uniqueKeyCols = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.statistics "
+            + "WHERE table_schema = DATABASE() AND table_name = 'scopes' "
+            + "AND index_name = 'uq_scopes_organisation_standard' AND non_unique = 0;");
+        Assert.Equal(2, uniqueKeyCols);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -168,16 +206,104 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a"), Std("std-b")],
             [Ctrl("ctrl-a", ["std-a", "std-b"])],
-            [Scp("scope-a", ["ctrl-a"])]));
+            [Org("org-a"), Org("org-eng", "Department", "org-a")],
+            [Scp("scope-a", "org-a", "std-a")]));
 
         var counts = await store.GetCountsAsync();
-        Assert.Equal(new ComplianceCounts(2, 1, 1), counts);
+        Assert.Equal(new ComplianceCounts(2, 1, 2, 1), counts);
 
         var control = Assert.Single(await store.GetControlsAsync());
         Assert.Equal(["std-a", "std-b"], control.MapsTo);
 
+        var organisations = await store.GetOrganisationsAsync();
+        Assert.Equal(["org-a", "org-eng"], organisations.Select(o => o.Id).ToArray());
+        var child = organisations.Single(o => o.Id == "org-eng");
+        Assert.Equal("Department", child.Kind);
+        Assert.Equal("org-a", child.Parent);
+        Assert.Null(organisations.Single(o => o.Id == "org-a").Parent);
+
         var scope = Assert.Single(await store.GetScopesAsync());
-        Assert.Equal(["ctrl-a"], scope.Controls);
+        Assert.Equal("org-a", scope.Organisation);
+        Assert.Equal("std-a", scope.Standard);
+        Assert.Equal("In", scope.Disposition);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task DuplicateScopeMappingViolatesUniqueKey()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")], [Scp("scope-a", "org-a", "std-a")]));
+
+        // A second row for the same (organisation, standard) pair, written directly, is rejected.
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        await Assert.ThrowsAsync<MySqlException>(() => conn.ExecuteAsync(
+            "INSERT INTO scopes (id, api_version, title, organisation_id, standard_id, disposition, created_at, updated_at) "
+            + "VALUES ('scope-b', 'v1', 'T', 'org-a', 'std-a', 'Out', NOW(6), NOW(6));"));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task SameOrganisationAcrossStandardsIsAllowed()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a"), Std("std-b")],
+            [],
+            [Org("org-a")],
+            [Scp("scope-a", "org-a", "std-a"), Scp("scope-b", "org-a", "std-b", "Out")]));
+
+        Assert.Equal(2, (await store.GetScopesAsync()).Count);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRenamedScopeKeepingSamePairSurvives()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")],
+            [Scp("scope-old", "org-a", "std-a", "Out")]));
+
+        // Rename the scope id while keeping the same (organisation, standard) pair. The unique key
+        // means the new id must replace the old row without dropping the pair's disposition.
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")],
+            [Scp("scope-new", "org-a", "std-a", "Out")]));
+
+        var scope = Assert.Single(await store.GetScopesAsync());
+        Assert.Equal("scope-new", scope.Id);
+        Assert.Equal("org-a", scope.Organisation);
+        Assert.Equal("std-a", scope.Standard);
+        Assert.Equal("Out", scope.Disposition);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRemovesDroppedOrganisationChildBeforeParent()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [], [], [Org("root"), Org("child", "Department", "root")], []));
+
+        // Drop both. The child references the parent via the self-FK, so the importer must delete
+        // the child before the parent (ON DELETE RESTRICT would otherwise block it).
+        await importer.ImportAsync(Config([], [], [], []));
+
+        Assert.Empty(await store.GetOrganisationsAsync());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -265,6 +391,32 @@ public sealed class MySqlIntegrationTests
 
         Assert.Single(await store.GetStandardsAsync());
         Assert.Equal(["std-a"], Assert.Single(await store.GetControlsAsync()).MapsTo);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task FkSafeDropOfStandardReferencedByScopeSucceeds()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        // Old state: scope-a maps org-a to std-b (a scopes.standard_id FK to standards).
+        await importer.ImportAsync(Config(
+            [Std("std-a"), Std("std-b")],
+            [],
+            [Org("org-a")],
+            [Scp("scope-a", "org-a", "std-b")]));
+
+        // New config drops std-b and the scope that referenced it. The importer must delete the
+        // scope before the standard so the standard drop does not violate the FK.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [],
+            [Org("org-a")]));
+
+        Assert.Single(await store.GetStandardsAsync());
+        Assert.Empty(await store.GetScopesAsync());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

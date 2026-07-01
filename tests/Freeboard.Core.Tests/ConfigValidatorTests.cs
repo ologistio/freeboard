@@ -86,22 +86,237 @@ public sealed class ConfigValidatorTests
     }
 
     [Fact]
-    public void DanglingControlsReferenceFails()
+    public void DanglingScopeOrganisationReferenceFails()
     {
         using var dir = TempConfig.Create(
+            ("std.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Standard
+                id: std-a
+                title: A
+                """),
             ("scope.yaml", """
                 apiVersion: freeboard.io/v1alpha1
                 kind: Scope
                 id: scope-a
                 title: Scope A
-                controls:
-                  - ctrl-missing
+                organisation: org-missing
+                standard: std-a
+                disposition: In
                 """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Control id 'ctrl-missing'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Organisation id 'org-missing'"));
+    }
+
+    [Fact]
+    public void DanglingScopeStandardReferenceFails()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                """),
+            ("scope.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Scope
+                id: scope-a
+                title: Scope A
+                organisation: org-a
+                standard: std-missing
+                disposition: In
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Standard id 'std-missing'"));
+    }
+
+    [Fact]
+    public void UnknownOrganisationKindFails()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Guild
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("unknown kind 'Guild'"));
+    }
+
+    [Fact]
+    public void UnknownDispositionFails()
+    {
+        using var dir = TempConfig.Create(
+            ("std.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Standard
+                id: std-a
+                title: A
+                """),
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                """),
+            ("scope.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Scope
+                id: scope-a
+                title: Scope A
+                organisation: org-a
+                standard: std-a
+                disposition: Maybe
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("unknown disposition 'Maybe'"));
+    }
+
+    [Fact]
+    public void DanglingOrganisationParentFails()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Department
+                parent: org-missing
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("unknown parent 'org-missing'"));
+    }
+
+    [Fact]
+    public void OrganisationSelfParentIsCycle()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                parent: org-a
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("cycle"));
+    }
+
+    [Fact]
+    public void OrganisationTwoNodeCycleFails()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                parent: org-b
+                ---
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-b
+                title: Org B
+                type: Department
+                parent: org-a
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("cycle"));
+    }
+
+    [Fact]
+    public void CompanyWithDepartmentChildLoadsAsTree()
+    {
+        using var dir = TempConfig.Create(
+            ("org.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: ologist-products
+                title: Ologist Products Ltd
+                type: Company
+                ---
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: ologist-products-eng
+                title: Engineering
+                type: Department
+                parent: ologist-products
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        var child = result.Config.Organisations.Single(o => o.Id == "ologist-products-eng");
+        Assert.Equal("ologist-products", child.Parent);
+    }
+
+    [Fact]
+    public void DuplicateScopeMappingFails()
+    {
+        using var dir = TempConfig.Create(
+            ("base.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Standard
+                id: std-a
+                title: A
+                ---
+                apiVersion: freeboard.io/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                """),
+            ("scopes.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Scope
+                id: scope-a
+                title: Scope A
+                organisation: org-a
+                standard: std-a
+                disposition: In
+                ---
+                apiVersion: freeboard.io/v1alpha1
+                kind: Scope
+                id: scope-b
+                title: Scope B
+                organisation: org-a
+                standard: std-a
+                disposition: Out
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("std-a") && d.Message.Contains("more than once"));
     }
 
     [Fact]
@@ -134,44 +349,7 @@ public sealed class ConfigValidatorTests
     }
 
     [Fact]
-    public void DuplicateScopeControlIdFails()
-    {
-        using var dir = TempConfig.Create(
-            ("ctrl.yaml", """
-                apiVersion: freeboard.io/v1alpha1
-                kind: Control
-                id: ctrl-a
-                title: Control A
-                maps_to:
-                  - std-a
-                """),
-            ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
-                kind: Standard
-                id: std-a
-                title: A
-                """),
-            ("scope.yaml", """
-                apiVersion: freeboard.io/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                controls:
-                  - ctrl-a
-                  - ctrl-a
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(
-            result.Diagnostics,
-            d => d.Message.Contains("scope-a") && d.Message.Contains("controls")
-                && d.Message.Contains("duplicate") && d.Message.Contains("ctrl-a"));
-    }
-
-    [Fact]
-    public void OmittedScopeControlsFails()
+    public void OmittedScopeReferencesFail()
     {
         using var dir = TempConfig.Create(
             ("scope.yaml", """
@@ -184,25 +362,9 @@ public sealed class ConfigValidatorTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("controls"));
-    }
-
-    [Fact]
-    public void EmptyScopeControlsFails()
-    {
-        using var dir = TempConfig.Create(
-            ("scope.yaml", """
-                apiVersion: freeboard.io/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                controls: []
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("controls"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("organisation"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("standard"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("disposition"));
     }
 
     [Fact]
@@ -221,24 +383,6 @@ public sealed class ConfigValidatorTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("ctrl-a") && d.Message.Contains("maps_to"));
-    }
-
-    [Fact]
-    public void ExplicitNullControlsYieldsDiagnosticWithoutThrowing()
-    {
-        using var dir = TempConfig.Create(
-            ("scope.yaml", """
-                apiVersion: freeboard.io/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                controls:
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("controls"));
     }
 
     [Fact]

@@ -115,7 +115,7 @@ public sealed class GitOpsCommands
 
         Console.WriteLine(
             $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Controls.Count} control(s), "
-            + $"{result.Config.Scopes.Count} scope(s).");
+            + $"{result.Config.Organisations.Count} organisation(s), {result.Config.Scopes.Count} scope(s).");
         return 0;
     }
 
@@ -130,7 +130,8 @@ public sealed class GitOpsCommands
     private static void PrintSummary(GitOpsConfig config)
     {
         Console.WriteLine(
-            $"OK: {config.Standards.Count} standard(s), {config.Controls.Count} control(s), {config.Scopes.Count} scope(s).");
+            $"OK: {config.Standards.Count} standard(s), {config.Controls.Count} control(s), "
+            + $"{config.Organisations.Count} organisation(s), {config.Scopes.Count} scope(s).");
     }
 
     private static void PrintPlannedState(GitOpsConfig config)
@@ -147,10 +148,18 @@ public sealed class GitOpsCommands
             Console.WriteLine($"  - {control.Id}: {control.Title} -> [{string.Join(", ", control.MapsTo)}]");
         }
 
+        Console.WriteLine($"Organisations ({config.Organisations.Count}):");
+        foreach (var organisation in config.Organisations)
+        {
+            var parent = string.IsNullOrEmpty(organisation.Parent) ? "(root)" : organisation.Parent;
+            Console.WriteLine($"  - {organisation.Id}: {organisation.Title} [{organisation.OrgKind}] parent={parent}");
+        }
+
         Console.WriteLine($"Scopes ({config.Scopes.Count}):");
         foreach (var scope in config.Scopes)
         {
-            Console.WriteLine($"  - {scope.Id}: {scope.Title} -> [{string.Join(", ", scope.Controls)}]");
+            Console.WriteLine(
+                $"  - {scope.Id}: {scope.Title} -> {scope.Organisation} / {scope.Standard} = {scope.Disposition}");
         }
     }
 }

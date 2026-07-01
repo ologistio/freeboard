@@ -25,6 +25,12 @@ var freeboardConnectionString = builder.Configuration.GetConnectionString("Freeb
 // request time, not a startup crash.
 builder.Services.AddComplianceStore(freeboardConnectionString);
 
+// App-managed write store. The write endpoints are always mapped so the read-only middleware
+// can 409 them in GitOps mode (they are not auth-exempt); off read-only mode they persist.
+// Registering the store is harmless in read-only mode - the middleware rejects the requests
+// before any handler resolves it.
+builder.Services.AddComplianceWriteStore(freeboardConnectionString);
+
 // Full auth stack: stores, hasher, token hasher, secret protector, ULID factory, password
 // reset store. Crypto material is bound from the "Auth" config section and validated eagerly
 // (a misconfigured deployment fails at startup). The connection factory is shared with
@@ -170,6 +176,9 @@ builder.Services.AddRazorPages(options =>
     // enforced in-page (a bare 403), NOT here: a Forbid under the page scheme redirects to
     // /account/sudo, which would misrepresent an admin-role denial as a missing step-up.
     options.Conventions.AuthorizeFolder("/Admin", Freeboard.Web.PageChallengeScheme.PolicyName);
+    // The compliance read view requires an authenticated user (not the admin role); an
+    // unauthenticated browser is redirected to /login by the page scheme.
+    options.Conventions.AuthorizeFolder("/Compliance", Freeboard.Web.PageChallengeScheme.PolicyName);
 
     // Page routes a force-reset (limited) session must reach to complete the reset funnel. The guard
     // permits a request whose endpoint carries this marker, so the limited session is not 403'd on
@@ -257,6 +266,7 @@ app.UseMiddleware<LimitedSessionGuardMiddleware>();
 app.MapGet("/", () => "Hello World!");
 
 app.MapComplianceEndpoints();
+app.MapComplianceWriteEndpoints();
 
 app.MapGet(ApiRoutes.ApiRoutePrefix + "/gitops/status", (IOptions<GitOpsOptions> options) =>
 {

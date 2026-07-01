@@ -53,6 +53,9 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
 
     public FakeWebAuthnCredentialStore WebAuthn { get; } = new();
 
+    /// <summary>The compliance read store the app serves. Seed it to drive the read pages/endpoints.</summary>
+    public FakeComplianceStore Compliance { get; init; } = new();
+
     /// <summary>
     /// Captures every log entry the app emits at information level and above, so a test can assert a
     /// credential (e.g. a reset token) never reaches the logs. Each entry records both the rendered
@@ -114,7 +117,7 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IComplianceStore>();
-            services.AddSingleton<IComplianceStore>(new FakeComplianceStore());
+            services.AddSingleton<IComplianceStore>(Compliance);
 
             if (IncludeTestProbe)
             {

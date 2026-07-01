@@ -27,6 +27,17 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory and <see cref="IComplianceWriteStore"/> for
+    /// app-managed writes. The web app calls this only when NOT in GitOps read-only mode.
+    /// </summary>
+    public static IServiceCollection AddComplianceWriteStore(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<IComplianceWriteStore, MySqlComplianceWriteStore>();
+        return services;
+    }
+
     /// <summary>Registers the connection factory and <see cref="IGitOpsImporter"/>.</summary>
     public static IServiceCollection AddGitOpsImport(this IServiceCollection services, string connectionString)
     {
