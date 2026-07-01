@@ -92,13 +92,28 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         var expectedPath = path.Split('?')[0];
         Assert.Equal(expectedPath, new Uri(page.Url).AbsolutePath);
 
+        // TEMP: inject a genuine WCAG 1.1.1 violation (an <img> with no alt text) to preview the axe
+        // failure output. Revert this block.
+        if (path == "/login")
+        {
+            await page.EvaluateAsync(
+                "() => { const i = document.createElement('img'); i.src = '/favicon.ico'; document.body.appendChild(i); }");
+        }
+
         var result = await page.RunAxe(WcagAaOptions);
 
         Assert.True(
             result.Violations.Length == 0,
-            $"{expectedPath} has axe WCAG A/AA violations:\n"
-                + string.Join("\n", result.Violations.Select(v => $"  - {v.Id} ({v.Impact}): {v.Help}")));
+            $"{expectedPath}: {result.Violations.Length} axe WCAG A/AA violation(s)\n"
+                + string.Join("\n", result.Violations.Select(DescribeViolation)));
     }
+
+    /// <summary>Renders one axe violation as the rule, its impact and help, the docs URL, and each
+    /// failing node's CSS selector and HTML - enough for a developer or agent to locate and fix it.</summary>
+    private static string DescribeViolation(AxeResultItem v)
+        => $"  [{v.Impact}] {v.Id}: {v.Help}\n"
+            + $"    help: {v.HelpUrl}\n"
+            + string.Join("\n", v.Nodes.Select(n => $"    at {n.Target}\n      {n.Html}"));
 
     /// <summary>
     /// Seeds the session the page needs and returns its cookie token, or null when the page is reached

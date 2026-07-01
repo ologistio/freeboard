@@ -2,7 +2,8 @@
     color-scheme: light dark;
     --fg: #1a1a1a;
     --bg: #fafafa;
-    --accent: #2a5db0;
+    /* White button text on this blue is 8:1, clearing WCAG AAA (1.4.6, 7:1). */
+    --accent: #215091;
     --error: #b00020;
 }
 
@@ -75,4 +76,19 @@ body {
     text-align: left;
     padding: 0.25rem 0.5rem;
     border-bottom: 1px solid #ccc;
+}
+
+/* Accessible name for elements that carry no visible text (e.g. an actions-column
+   header): off-screen for sighted users, announced by assistive technology. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
 }
