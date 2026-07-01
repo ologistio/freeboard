@@ -22,6 +22,12 @@ CREATE TABLE IF NOT EXISTS organisations (
 -- The old scope->controls relation is removed; scopes now map an organisation to a standard.
 DROP TABLE IF EXISTS scope_controls;
 
+-- Clear any legacy scope rows before adding the NOT NULL organisation/standard columns and
+-- their FKs. Old rows have no valid organisation/standard to satisfy those constraints, so the
+-- ALTER would fail on any instance that had synced scopes. Forward-only, pre-1.0: old scopes are
+-- not migrated (see header). scope_controls (the only FK referencing scopes) is already dropped.
+DELETE FROM scopes;
+
 ALTER TABLE scopes
     ADD COLUMN organisation_id VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     ADD COLUMN standard_id VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,

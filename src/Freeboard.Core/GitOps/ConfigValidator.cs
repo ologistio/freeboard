@@ -144,16 +144,15 @@ public static class ConfigValidator
         List<Diagnostic> diagnostics)
     {
         // Resolve dangling parents first: a parent naming an id no organisation defines.
-        foreach (var organisation in config.Organisations)
+        var danglingParents = config.Organisations.Where(organisation =>
+            !string.IsNullOrEmpty(organisation.Parent) && !organisationIds.Contains(organisation.Parent));
+        foreach (var organisation in danglingParents)
         {
-            if (!string.IsNullOrEmpty(organisation.Parent) && !organisationIds.Contains(organisation.Parent))
+            diagnostics.Add(new Diagnostic
             {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindOrganisation} '{Describe(organisation.Id)}' has unknown parent "
-                        + $"'{organisation.Parent}'.",
-                });
-            }
+                Message = $"{GitOpsSchema.KindOrganisation} '{Describe(organisation.Id)}' has unknown parent "
+                    + $"'{organisation.Parent}'.",
+            });
         }
 
         // Cycle detection over the parent edges. Only follow edges to defined parents so a

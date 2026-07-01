@@ -264,6 +264,31 @@ public sealed class MySqlIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRenamedScopeKeepingSamePairSurvives()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")],
+            [Scp("scope-old", "org-a", "std-a", "Out")]));
+
+        // Rename the scope id while keeping the same (organisation, standard) pair. The unique key
+        // means the new id must replace the old row without dropping the pair's disposition.
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")],
+            [Scp("scope-new", "org-a", "std-a", "Out")]));
+
+        var scope = Assert.Single(await store.GetScopesAsync());
+        Assert.Equal("scope-new", scope.Id);
+        Assert.Equal("org-a", scope.Organisation);
+        Assert.Equal("std-a", scope.Standard);
+        Assert.Equal("Out", scope.Disposition);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ResyncRemovesDroppedOrganisationChildBeforeParent()
     {
         await using var db = await RequireDbAsync();

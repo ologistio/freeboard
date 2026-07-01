@@ -6,11 +6,10 @@ namespace Freeboard.Persistence.GitOps;
 
 /// <summary>
 /// Imports a validated <see cref="GitOpsConfig"/> into MySQL in one DML transaction.
-/// FK-safe order: upsert domain rows by id (standards; controls; organisations
-/// parent-before-child; then scopes, which reference organisations and standards);
-/// replace all control->standard join rows; then hard-remove domain rows whose id is
-/// absent (scopes; organisations child-before-parent; controls; standards). Matches on
-/// id only.
+/// FK-safe order: upsert standards, controls, organisations (parent-before-child); prune
+/// absent scopes then upsert the new scope set (which references organisations and
+/// standards); replace all control->standard join rows; then hard-remove absent domain
+/// rows (organisations child-before-parent; controls; standards). Matches on id only.
 /// </summary>
 public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) : IGitOpsImporter
 {
@@ -22,19 +21,24 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        // 1. Upsert domain rows by id, FK-safe (standards, controls, organisations, scopes).
+        // 1. Upsert domain rows by id, FK-safe (standards, controls, organisations).
         await UpsertAsync(connection, transaction, "standards", plan.Standards, now, cancellationToken).ConfigureAwait(false);
         await UpsertAsync(connection, transaction, "controls", plan.Controls, now, cancellationToken).ConfigureAwait(false);
         await UpsertOrganisationsAsync(connection, transaction, plan.Organisations, now, cancellationToken).ConfigureAwait(false);
+
+        // 2. Prune absent scopes before upserting the new set. A scope whose id is renamed while
+        //    keeping its (organisation, standard) pair collides on the unique key: the upsert would
+        //    update the old-id row in place, then the absent-id cleanup below would delete that old
+        //    id, dropping the pair entirely. Deleting first frees the pair so the new id inserts.
+        await DeleteAbsentAsync(connection, transaction, "scopes", plan.ScopeIds, cancellationToken).ConfigureAwait(false);
         await UpsertScopesAsync(connection, transaction, plan.Scopes, now, cancellationToken).ConfigureAwait(false);
 
-        // 2. Replace all control->standard join rows for the imported set (whole-set delete+insert).
+        // 3. Replace all control->standard join rows for the imported set (whole-set delete+insert).
         await ReplaceControlStandardsAsync(connection, transaction, plan, cancellationToken).ConfigureAwait(false);
 
-        // 3. Hard-remove domain rows whose id is absent, FK-safe order (scopes; organisations
+        // 4. Hard-remove remaining domain rows whose id is absent, FK-safe order (organisations
         //    child-before-parent; controls; standards). OrganisationIds is parent-before-child,
         //    so reversing it deletes children first.
-        await DeleteAbsentAsync(connection, transaction, "scopes", plan.ScopeIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentOrganisationsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "controls", plan.ControlIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "standards", plan.StandardIds, cancellationToken).ConfigureAwait(false);
