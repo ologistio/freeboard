@@ -1,4 +1,4 @@
 # add-web-accessibility-checks
 
-Accessibility checks for the public auth pages: an always-on static
-baseline (NFR tier) and an in-browser axe-core WCAG audit (E2E tier).
+In-browser axe-core WCAG A/AA accessibility audit across every rendered web
+view, in the gated E2E test tier.

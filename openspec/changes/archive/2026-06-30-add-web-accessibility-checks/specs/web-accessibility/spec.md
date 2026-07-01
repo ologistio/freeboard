@@ -1,58 +1,43 @@
 ## ADDED Requirements
 
-### Requirement: Public auth pages meet a static accessibility baseline on every run
+### Requirement: Rendered web views have no automated WCAG A/AA violations
 
-The web app's public auth pages SHALL meet a static accessibility baseline that
-is verified on every test run without a browser - sign-in (`/login`),
-forgot-password (`/forgot-password`), and reset-password (`/reset-password`).
-Each page SHALL declare a non-empty document language, a non-empty page
-title, exactly one top-level heading, and a responsive viewport, and SHALL give
-every user-operable form control a programmatic label (a `<label for>` matching
-the control id, an `aria-label`, an `aria-labelledby`, or a wrapping `<label>`).
-Hidden, submit, button, reset, and image inputs are exempt from the label
-requirement because the user does not enter a value into them.
-
-This baseline SHALL be enforced in the non-functional (`NFR`) test tier and SHALL
-run in-process against the server-rendered HTML, so it executes in a plain
-`dotnet test` with no browser and no external services, and a regression fails
-fast on every run.
-
-#### Scenario: A page meets the baseline
-
-- **WHEN** a public auth page is served and its rendered HTML is inspected
-- **THEN** the `<html>` element has a non-empty `lang`, the page has a non-empty
-  `<title>`, there is exactly one `<h1>`, a `meta[name=viewport]` is present, and
-  every user-operable form control has a programmatic label
-
-#### Scenario: A dropped form label fails the baseline
-
-- **WHEN** a public auth page renders a user-operable form control with no
-  associated label
-- **THEN** the baseline check for that page fails and identifies the unlabelled
-  control
-
-#### Scenario: The baseline runs without a browser
-
-- **WHEN** the test suite runs with no browser and no external services
-- **THEN** the static accessibility baseline still executes and reports its
-  result, rather than skipping
-
-### Requirement: Public auth pages have no automated WCAG A/AA violations
-
-Each public auth page SHALL pass an automated axe-core audit against the live
+Every rendered web view SHALL pass an automated axe-core audit against the live
 browser DOM for the WCAG 2.0 and 2.1 level A and AA success criteria, with zero
-violations. This audit covers the rules a static HTML check cannot, such as
-colour contrast, ARIA wiring, and focus order.
+violations. The audited views are the public auth pages (sign-in,
+forgot-password, reset-password, first-admin setup, and the login MFA challenge
+pages), the authenticated account and MFA pages, the sudo-gated enrolment pages,
+and the admin pages.
+
+Each view SHALL be audited in the session state that renders its real UI: an
+anonymous request for the public pages, a valid reset-token cookie for the
+reset-password form, a full session for the account pages, a force-reset-limited
+session for the completion page, a fresh-sudo session for the sudo-gated
+enrolment pages, and an admin-role session for the admin pages. The audit SHALL
+confirm it reached the intended view and did not follow a redirect (for example
+to the login page), so a mis-seeded state fails the check rather than silently
+auditing the wrong page.
+
+Views that render no standalone UI are out of scope: the GET-redirect POST
+endpoints (sign-out, session-revoke, the MFA remove and recovery-regenerate
+handlers) and the magic-link consumer, which only redirect.
 
 The audit SHALL run in the browser (`E2E`) test tier and SHALL be gated on a
 launchable browser: when no browser is available the audit SKIPS cleanly rather
 than failing, consistent with the rest of the browser suite.
 
-#### Scenario: A page has no A/AA violations
+#### Scenario: A view has no A/AA violations
 
-- **WHEN** a public auth page is loaded in a real browser and audited with
-  axe-core for WCAG 2.0/2.1 level A and AA
+- **WHEN** a rendered view is loaded in a real browser in the session state that
+  renders its real UI and audited with axe-core for WCAG 2.0/2.1 level A and AA
 - **THEN** the audit reports zero violations
+
+#### Scenario: A mis-seeded state fails instead of auditing the wrong page
+
+- **WHEN** the session state for a view is wrong and the request is redirected
+  away (for example to the login page)
+- **THEN** the check fails because the landed URL does not match the intended
+  view, rather than passing against the redirected page
 
 #### Scenario: The audit skips cleanly without a browser
 
