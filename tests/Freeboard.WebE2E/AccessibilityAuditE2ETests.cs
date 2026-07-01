@@ -10,9 +10,9 @@ namespace Freeboard.WebE2E;
 /// Accessibility audit for every rendered web view - public auth pages, the authenticated account and
 /// MFA pages, the sudo-gated enrolment pages, and the admin pages. Each page is loaded in Chromium in
 /// the session state that renders its real UI (seeded the same way the other E2E tests seed sessions)
-/// and audited with axe-core for the WCAG 2.0/2.1 level A and AA success criteria, asserting zero
-/// violations. Gated like the rest of the suite: with no browser / no <c>FREEBOARD_TEST_E2E</c> these
-/// skip cleanly.
+/// and audited with axe-core against every accessibility standard it supports - WCAG 2.0/2.1/2.2 at
+/// all levels including AAA, Section 508, and EN 301 549 - asserting zero violations. Gated like the
+/// rest of the suite: with no browser / no <c>FREEBOARD_TEST_E2E</c> these skip cleanly.
 ///
 /// Pages that render no standalone view are out of scope: the GET-redirect POST endpoints
 /// (<c>/logout</c>, <c>/account/sessions/revoke</c>, the MFA <c>*/remove</c> and recovery-regenerate
@@ -21,13 +21,24 @@ namespace Freeboard.WebE2E;
 [Trait("Category", TestCategories.E2E)]
 public sealed class AccessibilityAuditE2ETests : E2ETestBase
 {
-    // axe rule tags for WCAG 2.0 and 2.1, level A and AA - the conformance target most teams hold to.
-    private static readonly AxeRunOptions WcagAaOptions = new()
+    // Every accessibility standard the axe engine supports: WCAG 2.0/2.1/2.2 at all levels including
+    // AAA, plus Section 508, the EU EN 301 549 standard, and axe's best-practice rules. Only the
+    // experimental rules are left out - they are explicitly unstable and would make the suite fragile
+    // across axe versions. This is a deliberately maximal bar, matching a total commitment to access.
+    private static readonly AxeRunOptions AccessibilityStandards = new()
     {
         RunOnly = new RunOnlyOptions
         {
             Type = "tag",
-            Values = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"],
+            Values =
+            [
+                "wcag2a", "wcag2aa", "wcag2aaa",
+                "wcag21a", "wcag21aa",
+                "wcag22aa",
+                "section508",
+                "EN-301-549",
+                "best-practice",
+            ],
         },
     };
 
@@ -73,7 +84,7 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
 
     [RequiresEnvVarTheory(EnvVar = E2EGate.EnvVar)]
     [MemberData(nameof(Pages))]
-    public async Task Page_HasNoWcagAaViolations(string path, Access access)
+    public async Task Page_HasNoAccessibilityViolations(string path, Access access)
     {
         Gate();
 
@@ -92,19 +103,11 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         var expectedPath = path.Split('?')[0];
         Assert.Equal(expectedPath, new Uri(page.Url).AbsolutePath);
 
-        // TEMP: inject a genuine WCAG 1.1.1 violation (an <img> with no alt text) to preview the axe
-        // failure output. Revert this block.
-        if (path == "/login")
-        {
-            await page.EvaluateAsync(
-                "() => { const i = document.createElement('img'); i.src = '/favicon.ico'; document.body.appendChild(i); }");
-        }
-
-        var result = await page.RunAxe(WcagAaOptions);
+        var result = await page.RunAxe(AccessibilityStandards);
 
         Assert.True(
             result.Violations.Length == 0,
-            $"{expectedPath}: {result.Violations.Length} axe WCAG A/AA violation(s)\n"
+            $"{expectedPath}: {result.Violations.Length} accessibility violation(s)\n"
                 + string.Join("\n", result.Violations.Select(DescribeViolation)));
     }
 
