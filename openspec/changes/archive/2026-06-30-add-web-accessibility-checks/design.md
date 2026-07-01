@@ -26,8 +26,17 @@ in-memory fakes and seeds sessions to reach authenticated pages.
   magic-link consumer render no standalone UI, so they are excluded.
 - axe-core via `Deque.AxeCore.Playwright`. The package bundles the axe-core
   engine and injects it through Playwright, so the audit needs no network fetch
-  and no vendored JS blob. It is scoped to the `wcag2a`, `wcag2aa`, `wcag21a`,
-  `wcag21aa` rule tags and asserts zero violations.
+  and no vendored JS blob.
+- Maximal standard set. The audit runs every standard the engine supports -
+  `wcag2a/aa/aaa`, `wcag21a/aa`, `wcag22aa`, `section508`, `EN-301-549`, and
+  `best-practice` - and asserts zero violations. Only the `experimental` tag is
+  excluded: those rules are explicitly unstable and would break the suite on an
+  engine bump for no conformance gain. Enabling AAA surfaced two real gaps on the
+  existing pages (button contrast below 7:1, and an empty actions-column table
+  header); both are fixed in this change rather than lowering the bar.
+- Actionable failure output. The assertion prints, per violation, the rule,
+  impact, help text, docs URL, and each failing node's selector and HTML, so a
+  developer or agent can fix it from the test log alone.
 
 ## Risks / Trade-offs
 
