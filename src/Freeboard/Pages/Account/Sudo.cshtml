@@ -3,40 +3,40 @@
 @{
     ViewData["Title"] = "Confirm it's you";
 }
-<h1>Confirm it's you</h1>
-<p>For your security, confirm your identity to continue.</p>
+<h1 class="text-2xl font-bold">Confirm it's you</h1>
+<p class="my-3">For your security, confirm your identity to continue.</p>
 <partial name="_ErrorSummary" model="ModelState" />
 
 @if (Model.OfferPassword)
 {
-    <form method="post">
+    <form method="post" class="space-y-2">
         <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
         <input type="hidden" name="factor" value="password" />
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" autocomplete="current-password" />
-        <button type="submit">Confirm</button>
+        <label for="password" class="block font-semibold">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" class="block w-full border border-neutral-400 p-2" />
+        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Confirm</button>
     </form>
 }
 
 @if (Model.OfferTotp)
 {
-    <form method="post">
+    <form method="post" class="space-y-2">
         <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
         <input type="hidden" name="factor" value="totp" />
-        <label for="code">Authenticator code</label>
-        <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" />
-        <button type="submit">Confirm with authenticator</button>
+        <label for="code" class="block font-semibold">Authenticator code</label>
+        <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" class="block w-full border border-neutral-400 p-2" />
+        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Confirm with authenticator</button>
     </form>
 }
 
 @if (Model.OfferRecovery)
 {
-    <form method="post">
+    <form method="post" class="space-y-2">
         <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
         <input type="hidden" name="factor" value="recovery" />
-        <label for="recovery_code">Recovery code</label>
-        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" />
-        <button type="submit">Confirm with recovery code</button>
+        <label for="recovery_code" class="block font-semibold">Recovery code</label>
+        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" class="block w-full border border-neutral-400 p-2" />
+        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Confirm with recovery code</button>
     </form>
 }
 
@@ -47,8 +47,8 @@
          data-antiforgery="@Model.AntiforgeryToken"
          data-options="@Model.PasskeyOptionsJson"
          data-correlation="@Model.PasskeyCorrelation">
-        <p>Confirm with your passkey.</p>
-        <button type="button" data-passkey-go>Use passkey</button>
+        <p class="my-3">Confirm with your passkey.</p>
+        <button type="button" data-passkey-go class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Use passkey</button>
     </div>
     <script src="~/js/passkey.js"></script>
 }

@@ -3,14 +3,14 @@
 @{
     ViewData["Title"] = "Sign in";
 }
-<h1>Sign in</h1>
+<h1 class="text-2xl font-bold">Sign in</h1>
 <partial name="_ErrorSummary" model="ModelState" />
-<form method="post">
+<form method="post" class="space-y-2">
     <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-    <label for="email">Email</label>
-    <input type="email" id="email" name="email" autocomplete="username" />
-    <label for="password">Password</label>
-    <input type="password" id="password" name="password" autocomplete="current-password" />
-    <button type="submit">Sign in</button>
+    <label for="email" class="block font-semibold">Email</label>
+    <input type="email" id="email" name="email" autocomplete="username" class="block w-full border border-neutral-400 p-2" />
+    <label for="password" class="block font-semibold">Password</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" class="block w-full border border-neutral-400 p-2" />
+    <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Sign in</button>
 </form>
-<p><a href="/forgot-password">Forgot your password?</a></p>
+<p class="my-3"><a href="/forgot-password" class="text-[#215091] underline">Forgot your password?</a></p>

@@ -3,19 +3,19 @@
 @{
     ViewData["Title"] = "Email a sign-in link";
 }
-<h1>Email a sign-in link</h1>
+<h1 class="text-2xl font-bold">Email a sign-in link</h1>
 @if (Model.Sent)
 {
-    <p class="success">If your account can use a sign-in link, we have sent one. Check your email and open the link in this browser to continue.</p>
+    <p class="success my-3">If your account can use a sign-in link, we have sent one. Check your email and open the link in this browser to continue.</p>
 }
 else if (!Model.HasPendingChallenge)
 {
-    <p class="error">Your sign-in could not be continued. <a href="/login">Start again</a>.</p>
+    <p class="my-3 text-[#b00020]">Your sign-in could not be continued. <a href="/login" class="text-[#215091] underline">Start again</a>.</p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <form method="post">
-        <button type="submit">Email me a sign-in link</button>
+    <form method="post" class="space-y-2">
+        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Email me a sign-in link</button>
     </form>
 }

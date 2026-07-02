@@ -22,6 +22,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Front-end assets for the Freeboard web UI are built by bun during
+      # dotnet publish (see the BuildAssets MSBuild target).
+      - uses: oven-sh/setup-bun@v2
+
       - name: Resolve version
         id: version
         run: |
@@ -56,6 +60,10 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
+
+      # Front-end assets for the public site are built by bun during
+      # ssg generation (see the BuildAssets MSBuild target).
+      - uses: oven-sh/setup-bun@v2
 
       - name: Resolve version
         id: version

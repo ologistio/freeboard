@@ -3,23 +3,23 @@
 @{
     ViewData["Title"] = "Set up an authenticator app";
 }
-<h1>Set up an authenticator app</h1>
+<h1 class="text-2xl font-bold">Set up an authenticator app</h1>
 @if (Model.ProvisioningUri is null)
 {
-    <p>Set up an authenticator app to use a one-time code as a second factor.</p>
-    <form method="post" asp-page-handler="Begin">
-        <button type="submit">Set up authenticator app</button>
+    <p class="my-3">Set up an authenticator app to use a one-time code as a second factor.</p>
+    <form class="space-y-2" method="post" asp-page-handler="Begin">
+        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Set up authenticator app</button>
     </form>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <p>Add this to your authenticator app, then enter the 6-digit code it shows to confirm.</p>
-    <p class="provisioning-uri"><code>@Model.ProvisioningUri</code></p>
-    <form method="post">
-        <label for="code">Confirmation code</label>
-        <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" />
-        <button type="submit">Confirm</button>
+    <p class="my-3">Add this to your authenticator app, then enter the 6-digit code it shows to confirm.</p>
+    <p class="my-3 break-all"><code>@Model.ProvisioningUri</code></p>
+    <form class="space-y-2" method="post">
+        <label class="block font-semibold" for="code">Confirmation code</label>
+        <input class="block w-full border border-neutral-400 p-2" type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" />
+        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Confirm</button>
     </form>
 }
-<p><a href="/account/mfa">Back to security settings</a></p>
+<p class="my-3"><a class="text-[#215091] underline" href="/account/mfa">Back to security settings</a></p>

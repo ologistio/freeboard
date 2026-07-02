@@ -31,6 +31,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # The solution build includes the web projects, whose front-end assets are
+      # built by bun (see the BuildAssets MSBuild target).
+      - uses: oven-sh/setup-bun@v2
+
       - name: Restore
         run: dotnet restore
 
@@ -72,6 +76,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # The solution build includes the web projects, whose front-end assets are
+      # built by bun (see the BuildAssets MSBuild target).
+      - uses: oven-sh/setup-bun@v2
+
       # Started early so the services warm up during restore and build. --wait
       # blocks until the healthchecks pass.
       - name: Start test services
@@ -108,6 +116,10 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
+
+      # The solution build includes the web projects, whose front-end assets are
+      # built by bun (see the BuildAssets MSBuild target).
+      - uses: oven-sh/setup-bun@v2
 
       - name: Restore
         run: dotnet restore

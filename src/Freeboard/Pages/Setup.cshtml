@@ -3,27 +3,27 @@
 @{
     ViewData["Title"] = "First-admin setup";
 }
-<h1>First-admin setup</h1>
+<h1 class="text-2xl font-bold">First-admin setup</h1>
 @if (Model.AlreadyInitialized)
 {
-    <p>This Freeboard instance is already set up. <a href="/login">Sign in</a>.</p>
+    <p class="my-3">This Freeboard instance is already set up. <a href="/login" class="text-[#215091] underline">Sign in</a>.</p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <form method="post">
-        <label for="name">Name</label>
-        <input type="text" id="name" name="name" autocomplete="name" />
+    <form method="post" class="space-y-2">
+        <label for="name" class="block font-semibold">Name</label>
+        <input type="text" id="name" name="name" autocomplete="name" class="block w-full border border-neutral-400 p-2" />
 
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" autocomplete="username" />
+        <label for="email" class="block font-semibold">Email</label>
+        <input type="email" id="email" name="email" autocomplete="username" class="block w-full border border-neutral-400 p-2" />
 
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" autocomplete="new-password" />
+        <label for="password" class="block font-semibold">Password</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" class="block w-full border border-neutral-400 p-2" />
 
-        <label for="bootstrap_secret">Bootstrap secret</label>
-        <input type="password" id="bootstrap_secret" name="bootstrap_secret" autocomplete="off" />
+        <label for="bootstrap_secret" class="block font-semibold">Bootstrap secret</label>
+        <input type="password" id="bootstrap_secret" name="bootstrap_secret" autocomplete="off" class="block w-full border border-neutral-400 p-2" />
 
-        <button type="submit">Create admin</button>
+        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Create admin</button>
     </form>
 }

@@ -10,4 +10,20 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Front-end assets: Tailwind CSS + Alpine, built with bun into wwwroot. -->
+  <ItemGroup>
+    <AssetInputs Include="assets/**/*;package.json;bun.lock" />
+    <AssetInputs Include="Pages/**/*.cshtml" />
+  </ItemGroup>
+
+  <Target Name="InstallAssets" BeforeTargets="BuildAssets" Condition="!Exists('node_modules')">
+    <Exec Command="bun install" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="BuildAssets" BeforeTargets="BeforeBuild"
+          Inputs="@(AssetInputs)"
+          Outputs="wwwroot/css/app.css;wwwroot/js/app.js">
+    <Exec Command="bun run build" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
 </Project>
