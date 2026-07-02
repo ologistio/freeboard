@@ -1,0 +1,352 @@
+# Cyber Essentials Plus technical control requirements (scheme version 3.3).
+# Freeboard-authored paraphrases of the five technical control themes, each citing the
+# official NCSC/IASME source. Example content, not a certification claim.
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-firewalls-01
+title: Firewall on every in-scope device
+standard: std-cyber-essentials-plus
+theme: Firewalls
+statement: Protect every in-scope device with a correctly configured firewall, or a network device that provides firewall functionality.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-firewalls-02
+title: Change default firewall passwords
+standard: std-cyber-essentials-plus
+theme: Firewalls
+statement: Change default administrative passwords on firewalls to strong, unique passwords, or disable remote administrative access.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-firewalls-03
+title: Restrict the firewall admin interface from the internet
+standard: std-cyber-essentials-plus
+theme: Firewalls
+statement: Block access to the firewall administrative interface from the internet unless there is a documented business need; where access is allowed, protect it with multi-factor authentication or an IP allow list combined with managed password authentication.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-firewalls-04
+title: Block unauthenticated inbound connections
+standard: std-cyber-essentials-plus
+theme: Firewalls
+statement: Block unauthenticated inbound connections by default.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-firewalls-05
+title: Approve and document inbound firewall rules
+standard: std-cyber-essentials-plus
+theme: Firewalls
+statement: Ensure each inbound firewall rule is approved and documented by an authorised person and records the business need.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-firewalls-06
+title: Remove unneeded firewall rules
+standard: std-cyber-essentials-plus
+theme: Firewalls
+statement: Remove or disable firewall rules once they are no longer needed.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-firewalls-07
+title: Software firewall on untrusted networks
+standard: std-cyber-essentials-plus
+theme: Firewalls
+statement: Use a software firewall on devices used on untrusted networks such as public wifi.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-01
+title: Remove unnecessary user accounts
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: Remove or disable unnecessary user accounts, including guest accounts and administrative accounts that will not be used.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-02
+title: Change default account passwords
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: Change default or easily guessed account passwords before a device or service is used.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-03
+title: Remove unnecessary software
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: Remove or disable unnecessary software, including applications, system utilities, and network services.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-04
+title: Disable auto-run
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: Disable auto-run features that execute files without user authorisation.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-05
+title: Authenticate before access
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: Authenticate users before granting them access to organisational data or services.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-06
+title: Require a device-unlocking credential
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: Require a device-unlocking credential (biometric, password, or PIN) before a physically present user can reach a device's services.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-07
+title: Throttle or lock device-unlocking attempts
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: Protect device-unlocking authentication against brute force by throttling attempts or locking after no more than ten unsuccessful attempts.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-secure-configuration-08
+title: Enforce device-unlocking credential quality
+standard: std-cyber-essentials-plus
+theme: Secure Configuration
+statement: "Enforce device-unlocking credential quality: at least six characters for unlock-only credentials, or the full user-access password requirements when the credential is also used for authentication."
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-security-update-management-01
+title: Use licensed, supported software
+standard: std-cyber-essentials-plus
+theme: Security Update Management
+statement: Ensure all in-scope software is licensed and supported by the vendor.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-security-update-management-02
+title: Remove or isolate unsupported software
+standard: std-cyber-essentials-plus
+theme: Security Update Management
+statement: Remove unsupported software from in-scope devices, or move it out of scope by isolating it from all internet traffic.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-security-update-management-03
+title: Enable automatic updates
+standard: std-cyber-essentials-plus
+theme: Security Update Management
+statement: Enable automatic updates where the vendor provides them.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-security-update-management-04
+title: Patch high-risk vulnerabilities within 14 days
+standard: std-cyber-essentials-plus
+theme: Security Update Management
+statement: Apply updates for vendor-declared critical or high-risk vulnerabilities, or vulnerabilities with a CVSS v3 base score of 7 or above, within 14 days of release.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-security-update-management-05
+title: Patch within 14 days when severity is unstated
+standard: std-cyber-essentials-plus
+theme: Security Update Management
+statement: Apply updates within 14 days of release when the vendor gives no vulnerability severity detail.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-01
+title: Documented account creation process
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Operate a documented process to create and approve user accounts.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-02
+title: Unique credentials before access
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Authenticate users with unique credentials before granting access to applications or devices.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-03
+title: Remove accounts no longer required
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Remove or disable user accounts when they are no longer required, such as when a user leaves or after a defined period of inactivity.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-04
+title: Multi-factor authentication
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Implement multi-factor authentication where available, and always for authentication to cloud services.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-05
+title: Separate administrative accounts
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Use separate accounts for administrative activities only, keeping email, web browsing, and other standard-user activities off administrative accounts.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-06
+title: Remove unneeded special privileges
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Remove or disable special access privileges when they are no longer required, such as on a role change.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-07
+title: Protect passwords against brute force
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Protect passwords against brute-force guessing using at least one of multi-factor authentication, attempt throttling, or lockout after no more than ten unsuccessful attempts.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-08
+title: Manage password quality
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Manage password quality using at least one of multi-factor authentication, a minimum length of twelve characters, or a minimum length of eight characters with automatic blocking of common passwords through a deny list.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-09
+title: Support users choosing unique passwords
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Support users in choosing unique passwords by educating them against common passwords, promoting longer multi-word passwords, providing secure password storage, and not enforcing regular expiry or complexity rules.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-10
+title: Minimum password length under MFA
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: When multi-factor authentication uses a password as one factor, require that password to be at least eight characters with no maximum length limit.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-11
+title: Change compromised passwords promptly
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Operate an established process to change passwords promptly whenever a password or account is known or suspected to be compromised.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-malware-protection-01
+title: Active malware protection on every device
+standard: std-cyber-essentials-plus
+theme: Malware Protection
+statement: Ensure an active malware protection mechanism on every in-scope device, using at least one of anti-malware software or application allow-listing.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Malware Protection
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-malware-protection-02
+title: Keep anti-malware updated and blocking
+standard: std-cyber-essentials-plus
+theme: Malware Protection
+statement: Where anti-malware software is used, keep it updated in line with vendor recommendations and configure it to prevent malware and malicious code from running.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Malware Protection
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-malware-protection-03
+title: Block known malicious websites
+standard: std-cyber-essentials-plus
+theme: Malware Protection
+statement: Where anti-malware software is used, configure it to block connections to known malicious websites.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Malware Protection
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-malware-protection-04
+title: Maintain an application allow-list
+standard: std-cyber-essentials-plus
+theme: Malware Protection
+statement: Where application allow-listing is used, actively approve applications before deployment, maintain a current approved list, and prevent execution of unsigned or invalidly signed applications.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Malware Protection
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf

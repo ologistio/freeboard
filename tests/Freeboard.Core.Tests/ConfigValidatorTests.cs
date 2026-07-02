@@ -82,7 +82,7 @@ public sealed class ConfigValidatorTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Standard id 'std-missing'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Requirement id 'std-missing'"));
     }
 
     [Fact]
@@ -415,6 +415,19 @@ public sealed class ConfigValidatorTests
                 kind: Standard
                 id: std-a
                 title: Original
+                version: "1.0"
+                authority: Example Authority
+                """),
+            ("req.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Requirement
+                id: req-a
+                title: Requirement A
+                standard: std-a
+                theme: Theme A
+                statement: Do the thing.
+                citation_label: Source A
+                citation_url: https://example.com/a
                 """),
             ("ctrl.yaml", """
                 apiVersion: freeboard.io/v1alpha1
@@ -422,7 +435,7 @@ public sealed class ConfigValidatorTests
                 id: ctrl-a
                 title: Control A
                 maps_to:
-                  - std-a
+                  - req-a
                 """));
 
         using var withTitleTwo = TempConfig.Create(
@@ -431,6 +444,19 @@ public sealed class ConfigValidatorTests
                 kind: Standard
                 id: std-a
                 title: Renamed
+                version: "1.0"
+                authority: Example Authority
+                """),
+            ("req.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Requirement
+                id: req-a
+                title: Requirement A
+                standard: std-a
+                theme: Theme A
+                statement: Do the thing.
+                citation_label: Source A
+                citation_url: https://example.com/a
                 """),
             ("ctrl.yaml", """
                 apiVersion: freeboard.io/v1alpha1
@@ -438,13 +464,13 @@ public sealed class ConfigValidatorTests
                 id: ctrl-a
                 title: Control A
                 maps_to:
-                  - std-a
+                  - req-a
                 """));
 
         var resultOne = ConfigValidator.LoadAndValidate(withTitleOne.Path);
         var resultTwo = ConfigValidator.LoadAndValidate(withTitleTwo.Path);
 
-        // Both resolve: the Control's maps_to matches the Standard's id regardless of title.
+        // Both resolve: the Control's maps_to matches a Requirement id regardless of the Standard title.
         Assert.True(resultOne.IsValid);
         Assert.True(resultTwo.IsValid);
         Assert.Equal("std-a", resultTwo.Config.Standards[0].Id);

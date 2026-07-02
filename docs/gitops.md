@@ -1,10 +1,11 @@
 # GitOps config management
 
 Freeboard manages compliance state as declarative YAML in git, FleetDM-style. The
-git files are the source of truth: standards, the controls under them, the
-organisations being assessed, and the scopes that map an organisation to a
-standard. A CLI validates and previews the config, and the web app can run
-read-only so changes flow through git rather than the UI.
+git files are the source of truth: standards, the requirements each standard
+publishes, the controls that satisfy those requirements, the organisations being
+assessed, and the scopes that map an organisation to a standard. A CLI validates
+and previews the config, and the web app can run read-only so changes flow through
+git rather than the UI.
 
 It ships the config format, `validate`, and `apply --dry-run`, plus a web
 read-only mode. A MySQL persistence layer now backs the compliance domain:
@@ -16,16 +17,17 @@ reconciling apply, soft-delete on removal, and drift detection are not built yet
 
 Freeboard borrows Fleet's structure but renames the nouns for compliance:
 
-| Fleet    | Freeboard     | Meaning                                                  |
-| -------- | ------------- | -------------------------------------------------------- |
-| (n/a)    | organisations | the tree of entities being assessed (company/department) |
-| labels   | scopes        | maps an organisation to a standard with a disposition    |
-| policies | checks        | executable conformance checks (deferred, not built)      |
-| (n/a)    | controls      | a requirement under a standard                           |
-| (n/a)    | standards     | a compliance standard in scope                           |
+| Fleet    | Freeboard     | Meaning                                                   |
+| -------- | ------------- | --------------------------------------------------------- |
+| (n/a)    | organisations | the tree of entities being assessed (company/department)  |
+| labels   | scopes        | maps an organisation to a standard with a disposition     |
+| policies | checks        | executable conformance checks (deferred, not built)       |
+| (n/a)    | controls      | an implemented control mapped to one or more requirements |
+| (n/a)    | requirements  | a standard's published normative statements               |
+| (n/a)    | standards     | a compliance standard in scope                            |
 
-This increment ships `standards`, `controls`, `organisations`, and `scopes`.
-`checks` are named for the trajectory but are not built.
+This increment ships `standards`, `requirements`, `controls`, `organisations`, and
+`scopes`. `checks` are named for the trajectory but are not built.
 
 ## Format
 
@@ -33,7 +35,7 @@ A config directory holds one or more `.yaml` files. Each file is a stream of one
 or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.io/v1alpha1`.
-- `kind` - one of `Standard`, `Control`, `Organisation`, or `Scope`.
+- `kind` - one of `Standard`, `Requirement`, `Control`, `Organisation`, or `Scope`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -47,16 +49,47 @@ Every resource has:
 
 ### Standard
 
+`version` and `authority` are required and non-empty. `publisher` and `source_url`
+are optional; omit them (or leave them blank) when they do not apply. `source_url`,
+when present, must be an absolute `http`/`https` URL.
+
 ```yaml
 apiVersion: freeboard.io/v1alpha1
 kind: Standard
-id: std-cyber-essentials
-title: Cyber Essentials
+id: std-cyber-essentials-plus
+title: Cyber Essentials Plus
+version: "3.3"
+authority: National Cyber Security Centre
+publisher: IASME Consortium
+source_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+```
+
+### Requirement
+
+A requirement is a published normative statement belonging to exactly one
+`Standard` (named by the singular `standard` field). `theme` is a free-form label
+grouping a standard's requirements. `title` is a short display label; `statement`
+is the full normative text. `guidance` is optional. The citation is two fields:
+`citation_label` (a human label) and `citation_url` (an absolute `http`/`https`
+link to the published source).
+
+```yaml
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-ce-plus-user-access-control-04
+title: Multi-factor authentication
+standard: std-cyber-essentials-plus
+theme: User Access Control
+statement: Implement multi-factor authentication where available, and always for authentication to cloud services.
+citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
+citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ```
 
 ### Control
 
-`maps_to` is a list of `Standard` ids.
+`maps_to` is a non-empty list of `Requirement` ids: the specific requirements the
+control satisfies. A control's standard is derived from those requirements, so
+`maps_to` no longer names `Standard` ids.
 
 ```yaml
 apiVersion: freeboard.io/v1alpha1
@@ -64,8 +97,7 @@ kind: Control
 id: ctrl-mfa
 title: Multi-factor authentication enforced
 maps_to:
-  - std-cyber-essentials
-  - std-soc2
+  - req-ce-plus-user-access-control-04
 ```
 
 ### Organisation
@@ -117,7 +149,12 @@ Validation collects every error in one pass (not just the first). It fails when:
 - a required field is missing or empty;
 - a document has an unknown field;
 - an `id` is duplicated within its kind;
-- a `Control.maps_to` entry names a `Standard` id that does not exist;
+- a `Standard` omits `version` or `authority` (both are required and non-empty);
+- a `Standard.source_url` is present but not an absolute `http`/`https` URL;
+- a `Requirement.standard` names a `Standard` id that does not exist;
+- a `Requirement.citation_url` is not an absolute `http`/`https` URL;
+- a `Control.maps_to` entry names a `Requirement` id that does not exist;
+- a `Control.maps_to` lists the same `Requirement` id more than once;
 - an `Organisation.parent` names an `Organisation` id that does not exist;
 - the organisations form a cycle through `parent`;
 - an `Organisation`'s kind is not `Company` or `Department`;
@@ -146,21 +183,24 @@ freeboard gitops apply <dir> --dry-run
 
 ## Persistence
 
-The compliance domain (standards, controls, organisations, scopes) is persisted
+The compliance domain (standards, requirements, controls, organisations, scopes) is persisted
 in MySQL. The data is the general compliance store; GitOps `sync` is one writer
 into it.
 
 ### Schema
 
-Six tables. Four domain tables (`standards`, `controls`, `organisations`,
+Five domain tables (`standards`, `requirements`, `controls`, `organisations`,
 `scopes`), each keyed on `id` with `api_version`, `title`, `created_at`, and
-`updated_at`. `organisations` has a nullable self-referential `parent_id` foreign
-key and a `kind` column. `scopes` has `organisation_id` and `standard_id` foreign
-keys, a `disposition` column, and a unique key on `(organisation_id,
-standard_id)`. One relation table (`control_standards` for `Control.maps_to`) with
-a composite primary key and `ON DELETE CASCADE` foreign keys. One
-migration-tracking table (`schema_migrations`) bootstrapped by the migration
-runner.
+`updated_at`. `standards` also carries nullable `version`, `authority`,
+`publisher`, and `source_url` metadata columns. `requirements` has a `standard_id`
+foreign key (`ON DELETE RESTRICT`), a `theme`, a `statement`, nullable `guidance`,
+and `citation_label`/`citation_url`. `organisations` has a nullable
+self-referential `parent_id` foreign key and a `kind` column. `scopes` has
+`organisation_id` and `standard_id` foreign keys, a `disposition` column, and a
+unique key on `(organisation_id, standard_id)`. One relation table
+(`control_requirements` for `Control.maps_to`) with a composite primary key and
+`ON DELETE CASCADE` foreign keys. One migration-tracking table
+(`schema_migrations`) bootstrapped by the migration runner.
 
 Every `id` and foreign-key column uses the binary collation `utf8mb4_bin`, so the
 database's identity rules match Core's case-sensitive, exact-byte `id` semantics
@@ -213,8 +253,14 @@ config before syncing.
 The web app serves the persisted domain read-only (GET only, not blocked by
 read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
 
-- `GET /api/v1/freeboard/standards` - persisted standards (`id`, `title`).
-- `GET /api/v1/freeboard/controls` - persisted controls (`id`, `title`, `maps_to`).
+- `GET /api/v1/freeboard/standards` - persisted standards (`id`, `title`,
+  `version`, `authority`, `publisher`, `source_url`; the last four are null when
+  unset).
+- `GET /api/v1/freeboard/requirements` - persisted requirements (`id`, `title`,
+  `standard`, `theme`, `statement`, `guidance`, and a composed
+  `citation: { label, url }`).
+- `GET /api/v1/freeboard/controls` - persisted controls (`id`, `title`, `maps_to`;
+  `maps_to` carries `Requirement` ids).
 - `GET /api/v1/freeboard/organisations` - persisted organisations (`id`, `title`,
   `kind`, resolved `parent`, null for a root).
 - `GET /api/v1/freeboard/scopes` - persisted scopes (`id`, `title`,
@@ -229,7 +275,7 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
 Resources are ordered by `id`; relation arrays are ordered by id. When the store
 is unreachable, the read endpoints return HTTP 503 with an RFC 7807 problem body,
 and `/api/v1/freeboard/compliance/status` returns HTTP 200 with
-`{ "persisted": { "standards": null, "controls": null, "organisations": null, "scopes": null } }`
+`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null } }`
 (`null` marks the count as unknown, not zero). `GET /api/v1/freeboard/gitops/status`
 is unchanged and does not depend on the store.
 

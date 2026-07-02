@@ -36,16 +36,34 @@ public sealed class MySqlIntegrationTests
         IEnumerable<Standard> standards,
         IEnumerable<Control> controls,
         IEnumerable<Organisation>? organisations = null,
-        IEnumerable<Scope>? scopes = null) => new()
+        IEnumerable<Scope>? scopes = null,
+        IEnumerable<Requirement>? requirements = null) => new()
         {
             Standards = standards.ToList(),
+            Requirements = requirements?.ToList() ?? [],
             Controls = controls.ToList(),
             Organisations = organisations?.ToList() ?? [],
             Scopes = scopes?.ToList() ?? [],
         };
 
-    private static Standard Std(string id, string title = "T", string apiVersion = "v1") =>
-        new() { Id = id, Title = title, ApiVersion = apiVersion };
+    private static Standard Std(
+        string id, string title = "T", string apiVersion = "v1", string version = "1.0", string authority = "Example Authority") =>
+        new() { Id = id, Title = title, ApiVersion = apiVersion, Version = version, Authority = authority };
+
+    private static Requirement Req(
+        string id, string standard, string theme = "Theme", string apiVersion = "v1", string? guidance = null) =>
+        new()
+        {
+            Id = id,
+            Title = "T",
+            ApiVersion = apiVersion,
+            Standard = standard,
+            Theme = theme,
+            Statement = "Do the thing.",
+            Guidance = guidance ?? string.Empty,
+            CitationLabel = "Source",
+            CitationUrl = "https://example.com/" + id,
+        };
 
     private static Control Ctrl(string id, string[] mapsTo, string title = "T", string apiVersion = "v1") =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, MapsTo = [.. mapsTo] };
@@ -80,13 +98,19 @@ public sealed class MySqlIntegrationTests
             "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();"))
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var t in new[] { "standards", "controls", "organisations", "scopes", "control_standards", "schema_migrations" })
+        foreach (var t in new[]
+                 {
+                     "standards", "requirements", "controls", "organisations", "scopes",
+                     "control_requirements", "schema_migrations",
+                 })
         {
             Assert.Contains(t, tables);
         }
 
-        // The old scope->controls relation is dropped by the organisation migration.
+        // The old scope->controls relation is dropped by the organisation migration; the
+        // control->standard join is repointed to control_requirements by migration 008.
         Assert.DoesNotContain("scope_controls", tables);
+        Assert.DoesNotContain("control_standards", tables);
 
         // id columns are binary-collated.
         var collation = await conn.ExecuteScalarAsync<string>(
@@ -94,11 +118,53 @@ public sealed class MySqlIntegrationTests
             + "WHERE table_schema = DATABASE() AND table_name = 'standards' AND column_name = 'id';");
         Assert.Equal("utf8mb4_bin", collation);
 
-        // FK present on the maps_to join table.
+        // requirements id and standard_id, and the control_requirements join columns, are binary-collated.
+        foreach (var (table, column) in new[]
+                 {
+                     ("requirements", "id"), ("requirements", "standard_id"),
+                     ("control_requirements", "control_id"), ("control_requirements", "requirement_id"),
+                 })
+        {
+            var col = await conn.ExecuteScalarAsync<string>(
+                "SELECT collation_name FROM information_schema.columns "
+                + "WHERE table_schema = DATABASE() AND table_name = @Table AND column_name = @Column;",
+                new { Table = table, Column = column });
+            Assert.Equal("utf8mb4_bin", col);
+        }
+
+        // The four new nullable standards metadata columns exist.
+        foreach (var column in new[] { "version", "authority", "publisher", "source_url" })
+        {
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                + "WHERE table_schema = DATABASE() AND table_name = 'standards' AND column_name = @Column;",
+                new { Column = column });
+            Assert.Equal(1, exists);
+        }
+
+        // FK present on the maps_to join table (control and requirement FKs).
         var fkCount = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.table_constraints "
-            + "WHERE table_schema = DATABASE() AND table_name = 'control_standards' AND constraint_type = 'FOREIGN KEY';");
+            + "WHERE table_schema = DATABASE() AND table_name = 'control_requirements' AND constraint_type = 'FOREIGN KEY';");
         Assert.True(fkCount >= 2);
+
+        // control_requirements FKs reference controls and requirements.
+        var joinFkTargets = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.key_column_usage "
+            + "WHERE table_schema = DATABASE() AND table_name = 'control_requirements' "
+            + "AND referenced_table_name IN ('controls', 'requirements');");
+        Assert.Equal(2, joinFkTargets);
+
+        // requirements FK to standards plus the standard_id index.
+        var reqFk = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.key_column_usage "
+            + "WHERE table_schema = DATABASE() AND table_name = 'requirements' "
+            + "AND column_name = 'standard_id' AND referenced_table_name = 'standards';");
+        Assert.Equal(1, reqFk);
+        var reqIndex = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.statistics "
+            + "WHERE table_schema = DATABASE() AND table_name = 'requirements' AND index_name = 'ix_requirements_standard_id';");
+        Assert.True(reqIndex >= 1);
 
         // Organisation self-FK on parent_id.
         var orgSelfFk = await conn.ExecuteScalarAsync<long>(
@@ -204,16 +270,25 @@ public sealed class MySqlIntegrationTests
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
         await importer.ImportAsync(Config(
-            [Std("std-a"), Std("std-b")],
-            [Ctrl("ctrl-a", ["std-a", "std-b"])],
+            [Std("std-a", version: "3.3", authority: "NCSC"), Std("std-b")],
+            [Ctrl("ctrl-a", ["req-a", "req-b"])],
             [Org("org-a"), Org("org-eng", "Department", "org-a")],
-            [Scp("scope-a", "org-a", "std-a")]));
+            [Scp("scope-a", "org-a", "std-a")],
+            [Req("req-a", "std-a"), Req("req-b", "std-b")]));
 
         var counts = await store.GetCountsAsync();
-        Assert.Equal(new ComplianceCounts(2, 1, 2, 1), counts);
+        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1), counts);
+
+        var standard = (await store.GetStandardsAsync()).Single(s => s.Id == "std-a");
+        Assert.Equal("3.3", standard.Version);
+        Assert.Equal("NCSC", standard.Authority);
+
+        var requirements = await store.GetRequirementsAsync();
+        Assert.Equal(["req-a", "req-b"], requirements.Select(r => r.Id).ToArray());
+        Assert.Equal("std-a", requirements.Single(r => r.Id == "req-a").Standard);
 
         var control = Assert.Single(await store.GetControlsAsync());
-        Assert.Equal(["std-a", "std-b"], control.MapsTo);
+        Assert.Equal(["req-a", "req-b"], control.MapsTo);
 
         var organisations = await store.GetOrganisationsAsync();
         Assert.Equal(["org-a", "org-eng"], organisations.Select(o => o.Id).ToArray());
@@ -377,20 +452,22 @@ public sealed class MySqlIntegrationTests
         var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
-        // Old state: ctrl-a maps to std-a and std-b.
+        // Old state: ctrl-a maps to req-a (std-a) and req-b (std-b).
         await importer.ImportAsync(Config(
             [Std("std-a"), Std("std-b")],
-            [Ctrl("ctrl-a", ["std-a", "std-b"])],
-            []));
+            [Ctrl("ctrl-a", ["req-a", "req-b"])],
+            [],
+            requirements: [Req("req-a", "std-a"), Req("req-b", "std-b")]));
 
-        // New config drops std-b and re-maps ctrl-a to std-a only. Must not FK-violate.
+        // New config drops std-b (and its requirement) and re-maps ctrl-a to req-a only. Must not FK-violate.
         await importer.ImportAsync(Config(
             [Std("std-a")],
-            [Ctrl("ctrl-a", ["std-a"])],
-            []));
+            [Ctrl("ctrl-a", ["req-a"])],
+            [],
+            requirements: [Req("req-a", "std-a")]));
 
         Assert.Single(await store.GetStandardsAsync());
-        Assert.Equal(["std-a"], Assert.Single(await store.GetControlsAsync()).MapsTo);
+        Assert.Equal(["req-a"], Assert.Single(await store.GetControlsAsync()).MapsTo);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -417,6 +494,50 @@ public sealed class MySqlIntegrationTests
 
         Assert.Single(await store.GetStandardsAsync());
         Assert.Empty(await store.GetScopesAsync());
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task FkSafeDropOfStandardThatHadRequirementsSucceeds()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        // Old state: std-b owns req-b. requirements reference standards with ON DELETE RESTRICT.
+        await importer.ImportAsync(Config(
+            [Std("std-a"), Std("std-b")],
+            [],
+            [],
+            requirements: [Req("req-a", "std-a"), Req("req-b", "std-b")]));
+
+        // New config drops std-b and its requirement. The importer must delete the requirement before
+        // the standard so the RESTRICT FK is not hit.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [],
+            [],
+            requirements: [Req("req-a", "std-a")]));
+
+        Assert.Single(await store.GetStandardsAsync());
+        Assert.Equal(["req-a"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task CaseDistinctRequirementIdsRemainDistinctRows()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [],
+            [],
+            requirements: [Req("req-a", "std-a"), Req("REQ-A", "std-a")]));
+
+        Assert.Equal(2, (await store.GetRequirementsAsync()).Count);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

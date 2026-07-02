@@ -94,13 +94,15 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             .ToHashSet(StringComparer.Ordinal);
         foreach (var t in new[]
                  {
-                     "standards", "controls", "organisations", "scopes", "control_standards", "schema_migrations",
+                     "standards", "requirements", "controls", "organisations", "scopes",
+                     "control_requirements", "schema_migrations",
                  })
         {
             Assert.Contains(t, tables);
         }
 
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM standards;"));
+        Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM requirements;"));
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM controls;"));
         Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM organisations;"));
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));

@@ -11,6 +11,8 @@ public interface IComplianceStore
 {
     Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<RequirementRow>> GetRequirementsAsync(CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default);

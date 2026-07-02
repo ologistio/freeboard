@@ -16,6 +16,7 @@ public sealed class ComplianceEndpointTests
     private static readonly string[] ResourceReadPaths =
     [
         "/api/v1/freeboard/standards",
+        "/api/v1/freeboard/requirements",
         "/api/v1/freeboard/controls",
         "/api/v1/freeboard/organisations",
         "/api/v1/freeboard/scopes",
@@ -24,8 +25,17 @@ public sealed class ComplianceEndpointTests
 
     private static FakeComplianceStore PopulatedStore() => new()
     {
-        Standards = [new StandardRow("std-a", "Standard A"), new StandardRow("std-b", "Standard B")],
-        Controls = [new ControlRow("ctrl-a", "Control A", ["std-a", "std-b"])],
+        Standards =
+        [
+            new StandardRow("std-a", "Standard A", "1.0", "Example Authority", "Example Publisher", "https://example.com/std-a"),
+            new StandardRow("std-b", "Standard B", "2.0", "Other Authority", null, null),
+        ],
+        Requirements =
+        [
+            new RequirementRow("req-a", "Requirement A", "std-a", "Theme A", "Do the thing.", null, "Source A", "https://example.com/a"),
+            new RequirementRow("req-b", "Requirement B", "std-a", "Theme A", "Do the other thing.", "Some guidance.", "Source B", "https://example.com/b"),
+        ],
+        Controls = [new ControlRow("ctrl-a", "Control A", ["req-a", "req-b"])],
         Organisations =
         [
             new OrganisationRow("org-a", "Org A", "Company", null),
@@ -55,6 +65,52 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
+    public async Task StandardsEndpointIncludesMetadataFields()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/standards");
+
+        var stdA = json[0];
+        Assert.Equal("1.0", stdA.GetProperty("version").GetString());
+        Assert.Equal("Example Authority", stdA.GetProperty("authority").GetString());
+        Assert.Equal("Example Publisher", stdA.GetProperty("publisher").GetString());
+        Assert.Equal("https://example.com/std-a", stdA.GetProperty("source_url").GetString());
+
+        // Unset optional metadata serializes as null.
+        var stdB = json[1];
+        Assert.Equal(JsonValueKind.Null, stdB.GetProperty("publisher").ValueKind);
+        Assert.Equal(JsonValueKind.Null, stdB.GetProperty("source_url").ValueKind);
+    }
+
+    [Fact]
+    public async Task RequirementsEndpointReturnsFieldsAndComposedCitationOrderedById()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/requirements");
+
+        Assert.Equal(2, json.GetArrayLength());
+        var first = json[0];
+        Assert.Equal("req-a", first.GetProperty("id").GetString());
+        Assert.Equal("std-a", first.GetProperty("standard").GetString());
+        Assert.Equal("Theme A", first.GetProperty("theme").GetString());
+        Assert.Equal("Do the thing.", first.GetProperty("statement").GetString());
+        Assert.Equal(JsonValueKind.Null, first.GetProperty("guidance").ValueKind);
+
+        // citation_label/citation_url are composed into a nested citation object.
+        var citation = first.GetProperty("citation");
+        Assert.Equal("Source A", citation.GetProperty("label").GetString());
+        Assert.Equal("https://example.com/a", citation.GetProperty("url").GetString());
+
+        // Ordered by id: req-a then req-b; req-b carries its guidance.
+        Assert.Equal("req-b", json[1].GetProperty("id").GetString());
+        Assert.Equal("Some guidance.", json[1].GetProperty("guidance").GetString());
+    }
+
+    [Fact]
     public async Task ControlsEndpointReturnsResolvedMapsTo()
     {
         using var factory = Factory(PopulatedStore());
@@ -65,7 +121,7 @@ public sealed class ComplianceEndpointTests
         var control = json[0];
         Assert.Equal("ctrl-a", control.GetProperty("id").GetString());
         var mapsTo = control.GetProperty("maps_to").EnumerateArray().Select(e => e.GetString()).ToList();
-        Assert.Equal(["std-a", "std-b"], mapsTo);
+        Assert.Equal(["req-a", "req-b"], mapsTo);
     }
 
     [Fact]
@@ -154,6 +210,7 @@ public sealed class ComplianceEndpointTests
         var persisted = json.GetProperty("persisted");
         Assert.Equal(2, persisted.GetProperty("standards").GetInt32());
         Assert.Equal(1, persisted.GetProperty("controls").GetInt32());
+        Assert.Equal(2, persisted.GetProperty("requirements").GetInt32());
         Assert.Equal(2, persisted.GetProperty("organisations").GetInt32());
         Assert.Equal(1, persisted.GetProperty("scopes").GetInt32());
     }
@@ -170,6 +227,17 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
+    public async Task RequirementsReadServedInReadOnlyModeToAuthenticatedUser()
+    {
+        using var factory = Factory(PopulatedStore(), readOnly: true);
+        using var client = MemberClient(factory);
+
+        var response = await client.GetAsync("/api/v1/freeboard/requirements");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task UnreachableStoreReturns503ProblemForReads()
     {
         using var factory = Factory(new FakeComplianceStore { Unreachable = true });
@@ -178,6 +246,7 @@ public sealed class ComplianceEndpointTests
         foreach (var path in new[]
                  {
                      "/api/v1/freeboard/standards",
+                     "/api/v1/freeboard/requirements",
                      "/api/v1/freeboard/controls",
                      "/api/v1/freeboard/organisations",
                      "/api/v1/freeboard/scopes",
@@ -209,6 +278,7 @@ public sealed class ComplianceEndpointTests
         var persisted = json.GetProperty("persisted");
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("standards").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("controls").ValueKind);
+        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("requirements").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("organisations").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("scopes").ValueKind);
     }

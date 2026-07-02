@@ -29,8 +29,12 @@ public static class ConfigValidator
     {
         var diagnostics = new List<Diagnostic>();
 
+        // Fixed phase order: standards first (produces the standard id set), then requirements
+        // (consumes it and produces the requirement id set), then controls (resolves maps_to
+        // against the requirement id set), then organisations and scopes.
         var standardIds = ValidateStandards(config, diagnostics);
-        ValidateControls(config, standardIds, diagnostics);
+        var requirementIds = ValidateRequirements(config, standardIds, diagnostics);
+        ValidateControls(config, requirementIds, diagnostics);
         var organisationIds = ValidateOrganisations(config, diagnostics);
         ValidateScopes(config, organisationIds, standardIds, diagnostics);
 
@@ -47,6 +51,18 @@ public static class ConfigValidator
             CheckApiVersion(standard.ApiVersion, GitOpsSchema.KindStandard, standard.Id, diagnostics);
             CheckRequired(standard.Id, GitOpsSchema.KindStandard, "id", standard.Title, diagnostics);
             CheckRequired(standard.Title, GitOpsSchema.KindStandard, "title", standard.Id, diagnostics);
+            CheckRequired(standard.Version, GitOpsSchema.KindStandard, "version", standard.Id, diagnostics);
+            CheckRequired(standard.Authority, GitOpsSchema.KindStandard, "authority", standard.Id, diagnostics);
+
+            // source_url is optional (blank means absent); the URL-format check runs only when present.
+            if (!string.IsNullOrWhiteSpace(standard.SourceUrl) && !IsAbsoluteHttpUri(standard.SourceUrl))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindStandard} '{Describe(standard.Id)}' has malformed source_url "
+                        + $"'{standard.SourceUrl}'. Expected an absolute http or https URL.",
+                });
+            }
 
             if (!string.IsNullOrEmpty(standard.Id))
             {
@@ -62,9 +78,60 @@ public static class ConfigValidator
         return ids;
     }
 
-    private static void ValidateControls(
+    private static HashSet<string> ValidateRequirements(
         GitOpsConfig config,
         HashSet<string> standardIds,
+        List<Diagnostic> diagnostics)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var requirement in config.Requirements)
+        {
+            CheckApiVersion(requirement.ApiVersion, GitOpsSchema.KindRequirement, requirement.Id, diagnostics);
+            CheckRequired(requirement.Id, GitOpsSchema.KindRequirement, "id", requirement.Title, diagnostics);
+            CheckRequired(requirement.Title, GitOpsSchema.KindRequirement, "title", requirement.Id, diagnostics);
+            CheckRequired(requirement.Standard, GitOpsSchema.KindRequirement, "standard", requirement.Id, diagnostics);
+            CheckRequired(requirement.Theme, GitOpsSchema.KindRequirement, "theme", requirement.Id, diagnostics);
+            CheckRequired(requirement.Statement, GitOpsSchema.KindRequirement, "statement", requirement.Id, diagnostics);
+            CheckRequired(requirement.CitationLabel, GitOpsSchema.KindRequirement, "citation_label", requirement.Id, diagnostics);
+            CheckRequired(requirement.CitationUrl, GitOpsSchema.KindRequirement, "citation_url", requirement.Id, diagnostics);
+
+            if (!string.IsNullOrWhiteSpace(requirement.CitationUrl) && !IsAbsoluteHttpUri(requirement.CitationUrl))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindRequirement} '{Describe(requirement.Id)}' has malformed citation_url "
+                        + $"'{requirement.CitationUrl}'. Expected an absolute http or https URL.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(requirement.Standard) && !standardIds.Contains(requirement.Standard))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindRequirement} '{Describe(requirement.Id)}' references unknown Standard id "
+                        + $"'{requirement.Standard}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(requirement.Id))
+            {
+                if (!seen.Add(requirement.Id))
+                {
+                    diagnostics.Add(Dup(GitOpsSchema.KindRequirement, requirement.Id));
+                }
+
+                ids.Add(requirement.Id);
+            }
+        }
+
+        return ids;
+    }
+
+    private static void ValidateControls(
+        GitOpsConfig config,
+        HashSet<string> requirementIds,
         List<Diagnostic> diagnostics)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -83,16 +150,16 @@ public static class ConfigValidator
                 });
             }
 
-            foreach (var standardId in control.MapsTo.Where(standardId => !standardIds.Contains(standardId)))
+            foreach (var requirementId in control.MapsTo.Where(requirementId => !requirementIds.Contains(requirementId)))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' maps_to unknown Standard id '{standardId}'.",
+                    Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' maps_to unknown Requirement id '{requirementId}'.",
                 });
             }
 
             CheckNoDuplicateRefs(
-                control.MapsTo, GitOpsSchema.KindControl, control.Id, "maps_to", "Standard", diagnostics);
+                control.MapsTo, GitOpsSchema.KindControl, control.Id, "maps_to", "Requirement", diagnostics);
 
             if (!string.IsNullOrEmpty(control.Id) && !seen.Add(control.Id))
             {
@@ -346,6 +413,10 @@ public static class ConfigValidator
             });
         }
     }
+
+    private static bool IsAbsoluteHttpUri(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
     private static Diagnostic Dup(string kind, string id) => new()
     {
