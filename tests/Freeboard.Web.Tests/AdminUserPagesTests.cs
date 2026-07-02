@@ -542,17 +542,23 @@ public sealed class AdminUserPagesTests
         return await client.SendAsync(request);
     }
 
-    // The display page wraps the value in <p class="temp-password">...</p>.
+    // The display page wraps the value in a <p> carrying the "temp-password" class
+    // (alongside utility classes). Find that element, then read its text content.
     private static string ExtractTempPassword(string html)
     {
-        const string open = "class=\"temp-password\">";
-        var start = html.IndexOf(open, StringComparison.Ordinal);
-        if (start < 0)
+        var marker = html.IndexOf("temp-password", StringComparison.Ordinal);
+        if (marker < 0)
         {
             return string.Empty;
         }
 
-        start += open.Length;
+        var open = html.IndexOf('>', marker);
+        if (open < 0)
+        {
+            return string.Empty;
+        }
+
+        var start = open + 1;
         var end = html.IndexOf('<', start);
         return html[start..end].Trim();
     }

@@ -3,10 +3,10 @@
 @{
     ViewData["Title"] = "Use your passkey";
 }
-<h1>Use your passkey</h1>
+<h1 class="text-2xl font-bold">Use your passkey</h1>
 @if (!Model.HasPendingChallenge || Model.OptionsJson is null)
 {
-    <p class="error">Your sign-in could not be continued. <a href="/login">Start again</a>.</p>
+    <p class="my-3 text-[#b00020]">Your sign-in could not be continued. <a href="/login" class="text-[#215091] underline">Start again</a>.</p>
 }
 else
 {
@@ -15,8 +15,8 @@ else
          data-action="/login/mfa/passkey"
          data-antiforgery="@Model.AntiforgeryToken"
          data-options="@Model.OptionsJson">
-        <p>Confirm with your passkey to finish signing in.</p>
-        <button type="button" data-passkey-go>Use passkey</button>
+        <p class="my-3">Confirm with your passkey to finish signing in.</p>
+        <button type="button" data-passkey-go class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Use passkey</button>
     </div>
     <script src="~/js/passkey.js"></script>
 }

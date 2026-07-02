@@ -4,18 +4,18 @@
 @{
     ViewData["Title"] = "Statement of Applicability";
 }
-<div class="soa">
-    <h1>Statement of Applicability</h1>
+<div>
+    <h1 class="text-2xl font-bold">Statement of Applicability</h1>
 
     @if (Model.StoreUnreachable)
     {
-        <p class="error">The compliance store could not be reached. Check the database connection.</p>
+        <p class="my-3 text-[#b00020]">The compliance store could not be reached. Check the database connection.</p>
     }
     else
     {
-        <form method="get">
-            <label for="standard">Standard</label>
-            <select id="standard" name="standard" onchange="this.form.submit()">
+        <form class="space-y-2" method="get">
+            <label class="block font-semibold" for="standard">Standard</label>
+            <select class="block w-full border border-neutral-400 p-2" id="standard" name="standard" onchange="this.form.submit()">
                 <option value="">Choose a standard</option>
                 @foreach (var standard in Model.Standards)
                 {
@@ -29,28 +29,28 @@
                     }
                 }
             </select>
-            <noscript><button type="submit">Show</button></noscript>
+            <noscript><button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Show</button></noscript>
         </form>
 
         @if (Model.StandardId is not null)
         {
-            <table class="soa-nodes" data-standard="@Model.StandardId">
+            <table class="soa-nodes w-full border-collapse" data-standard="@Model.StandardId">
                 <thead>
                     <tr>
-                        <th>Id</th>
-                        <th>Title</th>
-                        <th>Disposition</th>
-                        <th>Resolution</th>
+                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Id</th>
+                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Title</th>
+                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Disposition</th>
+                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Resolution</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var node in Model.Nodes)
                     {
                         <tr data-node-id="@node.Id">
-                            <td>@node.Id</td>
-                            <td>@node.Title</td>
-                            <td>@Freeboard.Pages.Compliance.StatementOfApplicabilityModel.DispositionLabel(node)</td>
-                            <td>@node.Resolution.ToWireValue()</td>
+                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@node.Id</td>
+                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@node.Title</td>
+                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@Freeboard.Pages.Compliance.StatementOfApplicabilityModel.DispositionLabel(node)</td>
+                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@node.Resolution.ToWireValue()</td>
                         </tr>
                     }
                 </tbody>

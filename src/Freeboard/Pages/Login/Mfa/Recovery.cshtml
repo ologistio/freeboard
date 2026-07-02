@@ -3,17 +3,17 @@
 @{
     ViewData["Title"] = "Recovery code";
 }
-<h1>Recovery code</h1>
+<h1 class="text-2xl font-bold">Recovery code</h1>
 @if (!Model.HasPendingChallenge)
 {
-    <p class="error">Your sign-in could not be continued. <a href="/login">Start again</a>.</p>
+    <p class="my-3 text-[#b00020]">Your sign-in could not be continued. <a href="/login" class="text-[#215091] underline">Start again</a>.</p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <form method="post">
-        <label for="recovery_code">Enter one of your recovery codes</label>
-        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" />
-        <button type="submit">Verify</button>
+    <form method="post" class="space-y-2">
+        <label for="recovery_code" class="block font-semibold">Enter one of your recovery codes</label>
+        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" class="block w-full border border-neutral-400 p-2" />
+        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Verify</button>
     </form>
 }

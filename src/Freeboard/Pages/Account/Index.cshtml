@@ -3,18 +3,18 @@
 @{
     ViewData["Title"] = "Account";
 }
-<h1>Account</h1>
+<h1 class="text-2xl font-bold">Account</h1>
 @if (Model.UserEmail is not null)
 {
-    <dl>
-        <dt>Name</dt>
-        <dd>@Model.UserName</dd>
-        <dt>Email</dt>
-        <dd>@Model.UserEmail</dd>
-        <dt>Role</dt>
-        <dd>@Model.UserRole</dd>
+    <dl class="my-3">
+        <dt class="font-semibold">Name</dt>
+        <dd class="mb-2">@Model.UserName</dd>
+        <dt class="font-semibold">Email</dt>
+        <dd class="mb-2">@Model.UserEmail</dd>
+        <dt class="font-semibold">Role</dt>
+        <dd class="mb-2">@Model.UserRole</dd>
     </dl>
 }
-<form method="post" action="/logout" asp-antiforgery="true">
-    <button type="submit">Sign out</button>
+<form method="post" action="/logout" asp-antiforgery="true" class="space-y-2">
+    <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Sign out</button>
 </form>

@@ -3,38 +3,38 @@
 @{
     ViewData["Title"] = "Active sessions";
 }
-<h1>Active sessions</h1>
+<h1 class="text-2xl font-bold">Active sessions</h1>
 @if (Model.Sessions.Count == 0)
 {
-    <p>No active sessions.</p>
+    <p class="my-3">No active sessions.</p>
 }
 else
 {
-    <table>
+    <table class="w-full border-collapse">
         <thead>
-            <tr><th>Session</th><th>Signed in</th><th>Last seen</th><th>Expires</th><th><span class="visually-hidden">Actions</span></th></tr>
+            <tr><th class="border-b border-neutral-300 px-2 py-1 text-left">Session</th><th class="border-b border-neutral-300 px-2 py-1 text-left">Signed in</th><th class="border-b border-neutral-300 px-2 py-1 text-left">Last seen</th><th class="border-b border-neutral-300 px-2 py-1 text-left">Expires</th><th class="border-b border-neutral-300 px-2 py-1 text-left"><span class="sr-only">Actions</span></th></tr>
         </thead>
         <tbody>
         @foreach (var s in Model.Sessions)
         {
             <tr>
-                <td>@s.Id @(s.IsCurrent ? "(this session)" : string.Empty)</td>
-                <td>@s.CreatedAt.ToString("u")</td>
-                <td>@(s.LastSeenAt?.ToString("u") ?? "-")</td>
-                <td>@s.ExpiresAt.ToString("u")</td>
-                <td>
-                    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true">
+                <td class="border-b border-neutral-300 px-2 py-1 text-left">@s.Id @(s.IsCurrent ? "(this session)" : string.Empty)</td>
+                <td class="border-b border-neutral-300 px-2 py-1 text-left">@s.CreatedAt.ToString("u")</td>
+                <td class="border-b border-neutral-300 px-2 py-1 text-left">@(s.LastSeenAt?.ToString("u") ?? "-")</td>
+                <td class="border-b border-neutral-300 px-2 py-1 text-left">@s.ExpiresAt.ToString("u")</td>
+                <td class="border-b border-neutral-300 px-2 py-1 text-left">
+                    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true" class="space-y-2">
                         <input type="hidden" name="sessionId" value="@s.Id" />
-                        <button type="submit">Revoke</button>
+                        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Revoke</button>
                     </form>
                 </td>
             </tr>
         }
         </tbody>
     </table>
-    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true">
+    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true" class="space-y-2">
         <input type="hidden" name="all" value="true" />
-        <button type="submit">Sign out everywhere</button>
+        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Sign out everywhere</button>
     </form>
 }
-<p><a href="/account">Back to account</a></p>
+<p class="my-3"><a href="/account" class="text-[#215091] underline">Back to account</a></p>
