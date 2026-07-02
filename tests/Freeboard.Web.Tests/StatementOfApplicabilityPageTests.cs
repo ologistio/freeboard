@@ -16,7 +16,7 @@ public sealed class StatementOfApplicabilityPageTests
 
     private static FakeComplianceStore PopulatedStore() => new()
     {
-        Standards = [new StandardRow("std-a", "Standard A")],
+        Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
         Organisations =
         [
             new OrganisationRow("org-a", "Org A", "Company", null),

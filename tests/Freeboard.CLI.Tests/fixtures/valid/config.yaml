@@ -2,13 +2,25 @@ apiVersion: freeboard.io/v1alpha1
 kind: Standard
 id: std-a
 title: Standard A
+version: "1.0"
+authority: Example Authority
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Requirement
+id: req-a
+title: Requirement A
+standard: std-a
+theme: Theme A
+statement: Do the thing.
+citation_label: Source A
+citation_url: https://example.com/a
 ---
 apiVersion: freeboard.io/v1alpha1
 kind: Control
 id: ctrl-a
 title: Control A
 maps_to:
-  - std-a
+  - req-a
 ---
 apiVersion: freeboard.io/v1alpha1
 kind: Organisation

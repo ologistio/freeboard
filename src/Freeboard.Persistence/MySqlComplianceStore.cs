@@ -14,7 +14,19 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var rows = await connection.QueryAsync<StandardRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title FROM standards ORDER BY id;",
+            "SELECT id AS Id, title AS Title, version AS Version, authority AS Authority, "
+            + "publisher AS Publisher, source_url AS SourceUrl FROM standards ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<RequirementRow>> GetRequirementsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<RequirementRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, standard_id AS Standard, theme AS Theme, statement AS Statement, "
+            + "guidance AS Guidance, citation_label AS CitationLabel, citation_url AS CitationUrl "
+            + "FROM requirements ORDER BY id;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
@@ -32,14 +44,15 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
-        var links = await connection.QueryAsync<(string ControlId, string StandardId)>(new CommandDefinition(
-            "SELECT control_id AS ControlId, standard_id AS StandardId FROM control_standards ORDER BY control_id, standard_id;",
+        var links = await connection.QueryAsync<(string ControlId, string RequirementId)>(new CommandDefinition(
+            "SELECT control_id AS ControlId, requirement_id AS RequirementId FROM control_requirements "
+            + "ORDER BY control_id, requirement_id;",
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         var mapsTo = links
             .GroupBy(l => l.ControlId, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Select(l => l.StandardId).ToList(), StringComparer.Ordinal);
+            .ToDictionary(g => g.Key, g => g.Select(l => l.RequirementId).ToList(), StringComparer.Ordinal);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -78,13 +91,14 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Organisations, int Scopes)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
+            + "(SELECT COUNT(*) FROM requirements) AS Requirements, "
             + "(SELECT COUNT(*) FROM organisations) AS Organisations, "
             + "(SELECT COUNT(*) FROM scopes) AS Scopes;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return new ComplianceCounts(counts.Standards, counts.Controls, counts.Organisations, counts.Scopes);
+        return new ComplianceCounts(counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes);
     }
 }

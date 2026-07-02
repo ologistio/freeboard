@@ -7,10 +7,27 @@ public sealed class ImportPlanTests
 {
     private static GitOpsConfig SampleConfig() => new()
     {
-        Standards = [new Standard { Id = "std-a", ApiVersion = "v1", Title = "Standard A" }],
+        Standards =
+        [
+            new Standard { Id = "std-a", ApiVersion = "v1", Title = "Standard A", Version = "1.0", Authority = "Example Authority" },
+        ],
+        Requirements =
+        [
+            new Requirement
+            {
+                Id = "req-a",
+                ApiVersion = "v1",
+                Title = "Requirement A",
+                Standard = "std-a",
+                Theme = "Theme A",
+                Statement = "Do the thing.",
+                CitationLabel = "Source A",
+                CitationUrl = "https://example.com/a",
+            },
+        ],
         Controls =
         [
-            new Control { Id = "ctrl-a", ApiVersion = "v1", Title = "Control A", MapsTo = ["std-a"] },
+            new Control { Id = "ctrl-a", ApiVersion = "v1", Title = "Control A", MapsTo = ["req-a"] },
         ],
         Organisations =
         [
@@ -109,8 +126,8 @@ public sealed class ImportPlanTests
     {
         var plan = ImportPlan.From(SampleConfig());
 
-        var cs = Assert.Single(plan.ControlStandards);
-        Assert.Equal(("ctrl-a", "std-a"), (cs.ControlId, cs.StandardId));
+        var cr = Assert.Single(plan.ControlRequirements);
+        Assert.Equal(("ctrl-a", "req-a"), (cr.ControlId, cr.RequirementId));
     }
 
     [Fact]
@@ -118,7 +135,6 @@ public sealed class ImportPlanTests
     {
         var config = new GitOpsConfig
         {
-            Standards = [new Standard { Id = "iso-27001", ApiVersion = "v1", Title = "ISO 27001" }],
             Controls =
             [
                 new Control
@@ -126,7 +142,7 @@ public sealed class ImportPlanTests
                     Id = "ctrl-a",
                     ApiVersion = "v1",
                     Title = "Control A",
-                    MapsTo = ["iso-27001", "iso-27001"],
+                    MapsTo = ["req-a", "req-a"],
                 },
             ],
         };
@@ -135,8 +151,67 @@ public sealed class ImportPlanTests
 
         // Defensive Distinct collapses duplicates so the composite-PK join table never
         // receives a duplicate row.
-        var cs = Assert.Single(plan.ControlStandards);
-        Assert.Equal(("ctrl-a", "iso-27001"), (cs.ControlId, cs.StandardId));
+        var cr = Assert.Single(plan.ControlRequirements);
+        Assert.Equal(("ctrl-a", "req-a"), (cr.ControlId, cr.RequirementId));
+    }
+
+    [Fact]
+    public void RequirementRowsFlattenInOrderCarryingStandardAndCitation()
+    {
+        var config = new GitOpsConfig
+        {
+            Requirements =
+            [
+                new Requirement
+                {
+                    Id = "req-b", ApiVersion = "v1", Title = "B", Standard = "std-a", Theme = "T",
+                    Statement = "S", CitationLabel = "L", CitationUrl = "https://example.com/b",
+                },
+                new Requirement
+                {
+                    Id = "req-a", ApiVersion = "v1", Title = "A", Standard = "std-a", Theme = "T",
+                    Statement = "S", CitationLabel = "L", CitationUrl = "https://example.com/a",
+                },
+            ],
+        };
+
+        var rows = ImportPlan.From(config).Requirements;
+
+        // Flatten preserves config order (no reordering imposed by the plan).
+        Assert.Equal(["req-b", "req-a"], rows.Select(r => r.Id).ToArray());
+        Assert.Equal("std-a", rows[0].Standard);
+        Assert.Equal("https://example.com/b", rows[0].CitationUrl);
+    }
+
+    [Fact]
+    public void BlankOptionalFieldsNormalizeToNull()
+    {
+        var config = new GitOpsConfig
+        {
+            Standards =
+            [
+                new Standard
+                {
+                    Id = "std-a", ApiVersion = "v1", Title = "A", Version = "1.0", Authority = "Auth",
+                    Publisher = "   ", SourceUrl = string.Empty,
+                },
+            ],
+            Requirements =
+            [
+                new Requirement
+                {
+                    Id = "req-a", ApiVersion = "v1", Title = "A", Standard = "std-a", Theme = "T",
+                    Statement = "S", Guidance = "   ", CitationLabel = "L", CitationUrl = "https://example.com/a",
+                },
+            ],
+        };
+
+        var plan = ImportPlan.From(config);
+
+        var standard = Assert.Single(plan.Standards);
+        Assert.Null(standard.Publisher);
+        Assert.Null(standard.SourceUrl);
+        Assert.Null(Assert.Single(plan.Requirements).Guidance);
     }
 
     [Fact]
@@ -145,6 +220,7 @@ public sealed class ImportPlanTests
         var plan = ImportPlan.From(SampleConfig());
 
         Assert.Equal(["std-a"], plan.StandardIds);
+        Assert.Equal(["req-a"], plan.RequirementIds);
         Assert.Equal(["ctrl-a"], plan.ControlIds);
         Assert.Equal(["org-a"], plan.OrganisationIds);
         Assert.Equal(["scope-a"], plan.ScopeIds);

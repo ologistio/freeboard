@@ -114,8 +114,9 @@ public sealed class GitOpsCommands
         }
 
         Console.WriteLine(
-            $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Controls.Count} control(s), "
-            + $"{result.Config.Organisations.Count} organisation(s), {result.Config.Scopes.Count} scope(s).");
+            $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Requirements.Count} requirement(s), "
+            + $"{result.Config.Controls.Count} control(s), {result.Config.Organisations.Count} organisation(s), "
+            + $"{result.Config.Scopes.Count} scope(s).");
         return 0;
     }
 
@@ -130,8 +131,9 @@ public sealed class GitOpsCommands
     private static void PrintSummary(GitOpsConfig config)
     {
         Console.WriteLine(
-            $"OK: {config.Standards.Count} standard(s), {config.Controls.Count} control(s), "
-            + $"{config.Organisations.Count} organisation(s), {config.Scopes.Count} scope(s).");
+            $"OK: {config.Standards.Count} standard(s), {config.Requirements.Count} requirement(s), "
+            + $"{config.Controls.Count} control(s), {config.Organisations.Count} organisation(s), "
+            + $"{config.Scopes.Count} scope(s).");
     }
 
     private static void PrintPlannedState(GitOpsConfig config)
@@ -140,6 +142,12 @@ public sealed class GitOpsCommands
         foreach (var standard in config.Standards)
         {
             Console.WriteLine($"  - {standard.Id}: {standard.Title}");
+        }
+
+        Console.WriteLine($"Requirements ({config.Requirements.Count}):");
+        foreach (var requirement in config.Requirements)
+        {
+            Console.WriteLine($"  - {requirement.Id}: {requirement.Title} [{requirement.Theme}] -> {requirement.Standard}");
         }
 
         Console.WriteLine($"Controls ({config.Controls.Count}):");

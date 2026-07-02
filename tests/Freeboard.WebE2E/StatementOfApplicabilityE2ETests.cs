@@ -18,7 +18,7 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
     {
         Gate();
 
-        App.Compliance.Standards = [new StandardRow("std-a", "Standard A")];
+        App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
         App.Compliance.Organisations =
         [
             new OrganisationRow("org-a", "Org A", "Company", null),

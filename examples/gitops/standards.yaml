@@ -3,8 +3,23 @@ apiVersion: freeboard.io/v1alpha1
 kind: Standard
 id: std-cyber-essentials
 title: Cyber Essentials
+version: "3.3"
+authority: National Cyber Security Centre
+publisher: IASME Consortium
+source_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Standard
+id: std-cyber-essentials-plus
+title: Cyber Essentials Plus
+version: "3.3"
+authority: National Cyber Security Centre
+publisher: IASME Consortium
+source_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
 apiVersion: freeboard.io/v1alpha1
 kind: Standard
 id: std-soc2
 title: SOC 2
+version: "2017"
+authority: American Institute of Certified Public Accountants

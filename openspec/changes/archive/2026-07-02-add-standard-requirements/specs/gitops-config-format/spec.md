@@ -1,8 +1,96 @@
-# gitops-config-format Specification
+## ADDED Requirements
 
-## Purpose
-TBD - created by archiving change add-gitops-config-management. Update Purpose after archive.
-## Requirements
+### Requirement: Requirement authorship and standard metadata
+
+The system SHALL support a `Requirement` kind that is DISTINCT from `Control` and
+records a standard's published normative content. A `Requirement` SHALL belong to
+exactly one `Standard`, named by a singular `standard` field that is a `Standard`
+id. A `Requirement` SHALL carry a `theme` (a free-form label, NOT a fixed enum),
+a `statement` (the normative requirement text), an optional `guidance`, and an
+external citation split into a required `citation_label` (a human label for the
+published source) and a required `citation_url` (an absolute `http`/`https` link
+to it). `Control.maps_to` SHALL name `Requirement` ids: a control maps to the
+specific requirements it satisfies, not to a whole standard. `maps_to` SHALL be a
+non-empty list, each entry SHALL resolve to a defined `Requirement` id, and a
+control SHALL NOT list the same `Requirement` id more than once.
+
+The `Standard` kind SHALL support metadata: required `version` and `authority`
+(the body that owns the scheme), and optional `publisher` (the delivery or
+certification body) and `source_url` (the official source). `version` and
+`authority` SHALL be required so a `Standard` is a described object; `publisher`
+and `source_url` SHALL be optional. `theme` SHALL be a free-form string so the
+model stays standard-agnostic; the five Cyber Essentials Plus themes are values a
+fixture supplies, not values the schema enumerates.
+
+Optional string fields (`Requirement.guidance`, `Standard.publisher`,
+`Standard.source_url`) SHALL normalize omitted-or-whitespace-only to absent: an
+absent value is stored and read as NULL, and the non-empty and URI-format checks
+SHALL run only when such a field is present and non-empty (the same treatment
+`Organisation.parent` gives an empty value). Required fields (`Standard.version`,
+`Standard.authority`) keep the non-empty rule and SHALL fail validation when empty
+or whitespace-only.
+
+#### Scenario: Requirement is distinct from Control and owned by one standard
+
+- **WHEN** a `Requirement` document names a `standard`, a `theme`, a `statement`,
+  a `citation_label`, and a `citation_url`
+- **THEN** it loads as a `Requirement` (not a `Control`), owned by the single named
+  `Standard` id, and no `Control` semantics (such as `maps_to`) apply to it
+
+#### Scenario: Control maps to requirements
+
+- **WHEN** a `Control` document's `maps_to` names defined `Requirement` ids
+- **THEN** it loads and validates, and the control is mapped to those requirements
+  (not to a standard directly)
+
+#### Scenario: Control mapping to an unknown requirement is rejected
+
+- **WHEN** a `Control.maps_to` entry names a `Requirement` id that no `Requirement`
+  document defines
+- **THEN** validation fails and the error list names the control and the unknown
+  requirement reference
+
+#### Scenario: Duplicate requirement id within one control is rejected
+
+- **WHEN** a `Control.maps_to` lists the same `Requirement` id more than once
+- **THEN** validation fails and the error list names the control and the duplicated
+  `Requirement` id
+
+#### Scenario: Optional guidance omitted or blank is absent
+
+- **WHEN** a `Requirement` omits `guidance` (or sets it to a whitespace-only value)
+  but provides `standard`, `theme`, `statement`, `citation_label`, and
+  `citation_url`
+- **THEN** it loads and validates, and `guidance` is absent (read back as null)
+
+#### Scenario: Standard requires version and authority
+
+- **WHEN** a `Standard` document provides `id`, `title`, `version`, and
+  `authority`, and omits `publisher` and `source_url`
+- **THEN** it loads and validates, with `publisher` and `source_url` absent (read
+  back as null)
+
+#### Scenario: Blank optional standard metadata is absent, not an error
+
+- **WHEN** a `Standard` provides `version` and `authority` but sets `publisher` or
+  `source_url` to an omitted or whitespace-only value
+- **THEN** it loads and validates, treating the blank optional field as absent
+  rather than reporting an empty-value or malformed-URL error
+
+#### Scenario: Standard missing version or authority is rejected
+
+- **WHEN** a `Standard` document omits `version` or `authority`
+- **THEN** validation fails and the error list names the standard and the missing
+  field
+
+#### Scenario: Theme is a free-form label
+
+- **WHEN** two `Requirement` documents under different standards use different
+  `theme` values
+- **THEN** both load without the schema constraining `theme` to any fixed set
+
+## MODIFIED Requirements
+
 ### Requirement: Declarative compliance config schema
 
 The system SHALL define a YAML config format that describes compliance state as
@@ -48,25 +136,6 @@ valid key (not `api_version`).
 
 - **WHEN** a single YAML file contains multiple documents separated by `---`
 - **THEN** every document is parsed and included in the config model
-
-### Requirement: Stable id is identity, title is display only
-
-The system SHALL treat each resource's `id` as its permanent identity. The
-`title` is human-facing and MAY change without changing identity. All
-cross-references and duplicate detection SHALL key off `id` and SHALL NOT match
-on `title`.
-
-#### Scenario: Title change does not change identity
-
-- **WHEN** a resource's `title` is edited but its `id` is unchanged
-- **THEN** the resource is treated as the same resource, and any references to
-  its `id` still resolve
-
-#### Scenario: References resolve by id
-
-- **WHEN** a `Control.maps_to`, an `Organisation.parent`, or a `Scope.organisation`
-  or `Scope.standard` entry names an id
-- **THEN** resolution matches on that `id` only, never on any resource `title`
 
 ### Requirement: Config validation
 
@@ -199,107 +268,3 @@ a named credential resolved out-of-band, never inlined in git-tracked config.
 - **WHEN** the schema for `Standard`, `Control`, `Requirement`, `Organisation`,
   and `Scope` is inspected
 - **THEN** it contains no field intended to hold secret material
-
-### Requirement: Deterministic loading
-
-The system SHALL load files in a deterministic order: files sorted by their
-normalized relative path using ordinal comparison, then documents in their
-in-file order. This makes validation output and reporting stable across runs and
-across platforms on the same input.
-
-#### Scenario: Order matches normalized path then in-file order
-
-- **WHEN** a known multi-file fixture is loaded
-- **THEN** the resulting config model and any error list are ordered by each
-  file's normalized relative path (ordinal comparison) and then by document
-  order within the file, matching the expected order for that fixture
-
-### Requirement: Requirement authorship and standard metadata
-
-The system SHALL support a `Requirement` kind that is DISTINCT from `Control` and
-records a standard's published normative content. A `Requirement` SHALL belong to
-exactly one `Standard`, named by a singular `standard` field that is a `Standard`
-id. A `Requirement` SHALL carry a `theme` (a free-form label, NOT a fixed enum),
-a `statement` (the normative requirement text), an optional `guidance`, and an
-external citation split into a required `citation_label` (a human label for the
-published source) and a required `citation_url` (an absolute `http`/`https` link
-to it). `Control.maps_to` SHALL name `Requirement` ids: a control maps to the
-specific requirements it satisfies, not to a whole standard. `maps_to` SHALL be a
-non-empty list, each entry SHALL resolve to a defined `Requirement` id, and a
-control SHALL NOT list the same `Requirement` id more than once.
-
-The `Standard` kind SHALL support metadata: required `version` and `authority`
-(the body that owns the scheme), and optional `publisher` (the delivery or
-certification body) and `source_url` (the official source). `version` and
-`authority` SHALL be required so a `Standard` is a described object; `publisher`
-and `source_url` SHALL be optional. `theme` SHALL be a free-form string so the
-model stays standard-agnostic; the five Cyber Essentials Plus themes are values a
-fixture supplies, not values the schema enumerates.
-
-Optional string fields (`Requirement.guidance`, `Standard.publisher`,
-`Standard.source_url`) SHALL normalize omitted-or-whitespace-only to absent: an
-absent value is stored and read as NULL, and the non-empty and URI-format checks
-SHALL run only when such a field is present and non-empty (the same treatment
-`Organisation.parent` gives an empty value). Required fields (`Standard.version`,
-`Standard.authority`) keep the non-empty rule and SHALL fail validation when empty
-or whitespace-only.
-
-#### Scenario: Requirement is distinct from Control and owned by one standard
-
-- **WHEN** a `Requirement` document names a `standard`, a `theme`, a `statement`,
-  a `citation_label`, and a `citation_url`
-- **THEN** it loads as a `Requirement` (not a `Control`), owned by the single named
-  `Standard` id, and no `Control` semantics (such as `maps_to`) apply to it
-
-#### Scenario: Control maps to requirements
-
-- **WHEN** a `Control` document's `maps_to` names defined `Requirement` ids
-- **THEN** it loads and validates, and the control is mapped to those requirements
-  (not to a standard directly)
-
-#### Scenario: Control mapping to an unknown requirement is rejected
-
-- **WHEN** a `Control.maps_to` entry names a `Requirement` id that no `Requirement`
-  document defines
-- **THEN** validation fails and the error list names the control and the unknown
-  requirement reference
-
-#### Scenario: Duplicate requirement id within one control is rejected
-
-- **WHEN** a `Control.maps_to` lists the same `Requirement` id more than once
-- **THEN** validation fails and the error list names the control and the duplicated
-  `Requirement` id
-
-#### Scenario: Optional guidance omitted or blank is absent
-
-- **WHEN** a `Requirement` omits `guidance` (or sets it to a whitespace-only value)
-  but provides `standard`, `theme`, `statement`, `citation_label`, and
-  `citation_url`
-- **THEN** it loads and validates, and `guidance` is absent (read back as null)
-
-#### Scenario: Standard requires version and authority
-
-- **WHEN** a `Standard` document provides `id`, `title`, `version`, and
-  `authority`, and omits `publisher` and `source_url`
-- **THEN** it loads and validates, with `publisher` and `source_url` absent (read
-  back as null)
-
-#### Scenario: Blank optional standard metadata is absent, not an error
-
-- **WHEN** a `Standard` provides `version` and `authority` but sets `publisher` or
-  `source_url` to an omitted or whitespace-only value
-- **THEN** it loads and validates, treating the blank optional field as absent
-  rather than reporting an empty-value or malformed-URL error
-
-#### Scenario: Standard missing version or authority is rejected
-
-- **WHEN** a `Standard` document omits `version` or `authority`
-- **THEN** validation fails and the error list names the standard and the missing
-  field
-
-#### Scenario: Theme is a free-form label
-
-- **WHEN** two `Requirement` documents under different standards use different
-  `theme` values
-- **THEN** both load without the schema constraining `theme` to any fixed set
-

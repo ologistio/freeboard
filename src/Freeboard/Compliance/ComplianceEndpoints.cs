@@ -22,7 +22,37 @@ public static class ComplianceEndpoints
             try
             {
                 var rows = await store.GetStandardsAsync(ct);
-                return Results.Ok(rows.Select(r => new { id = r.Id, title = r.Title }));
+                return Results.Ok(rows.Select(r => new
+                {
+                    id = r.Id,
+                    title = r.Title,
+                    version = r.Version,
+                    authority = r.Authority,
+                    publisher = r.Publisher,
+                    source_url = r.SourceUrl,
+                }));
+            }
+            catch (Exception ex) when (IsStoreFailure(ex))
+            {
+                return Unreachable();
+            }
+        });
+
+        reads.MapGet("/requirements", async (IComplianceStore store, CancellationToken ct) =>
+        {
+            try
+            {
+                var rows = await store.GetRequirementsAsync(ct);
+                return Results.Ok(rows.Select(r => new
+                {
+                    id = r.Id,
+                    title = r.Title,
+                    standard = r.Standard,
+                    theme = r.Theme,
+                    statement = r.Statement,
+                    guidance = r.Guidance,
+                    citation = new { label = r.CitationLabel, url = r.CitationUrl },
+                }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
             {
@@ -115,6 +145,7 @@ public static class ComplianceEndpoints
                     {
                         standards = (int?)counts.Standards,
                         controls = (int?)counts.Controls,
+                        requirements = (int?)counts.Requirements,
                         organisations = (int?)counts.Organisations,
                         scopes = (int?)counts.Scopes,
                     },
@@ -129,6 +160,7 @@ public static class ComplianceEndpoints
                     {
                         standards = (int?)null,
                         controls = (int?)null,
+                        requirements = (int?)null,
                         organisations = (int?)null,
                         scopes = (int?)null,
                     },

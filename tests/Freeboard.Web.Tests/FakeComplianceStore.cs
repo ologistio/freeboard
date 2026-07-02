@@ -13,6 +13,8 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public IReadOnlyList<StandardRow> Standards { get; set; } = [];
 
+    public IReadOnlyList<RequirementRow> Requirements { get; set; } = [];
+
     public IReadOnlyList<ControlRow> Controls { get; set; } = [];
 
     public IReadOnlyList<OrganisationRow> Organisations { get; set; } = [];
@@ -21,6 +23,9 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Standards);
+
+    public Task<IReadOnlyList<RequirementRow>> GetRequirementsAsync(CancellationToken cancellationToken = default) =>
+        Guard(() => Requirements);
 
     public Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Controls);
@@ -32,7 +37,8 @@ internal sealed class FakeComplianceStore : IComplianceStore
         Guard(() => Scopes);
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => new ComplianceCounts(Standards.Count, Controls.Count, Organisations.Count, Scopes.Count));
+        Guard(() => new ComplianceCounts(
+            Standards.Count, Controls.Count, Requirements.Count, Organisations.Count, Scopes.Count));
 
     private Task<T> Guard<T>(Func<T> value)
     {

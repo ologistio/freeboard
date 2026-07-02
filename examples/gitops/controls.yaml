@@ -1,15 +1,15 @@
-# Sample controls. Each maps_to one or more Standard ids.
+# Sample controls. Each maps_to one or more Requirement ids.
 apiVersion: freeboard.io/v1alpha1
 kind: Control
 id: ctrl-mfa
 title: Multi-factor authentication enforced
 maps_to:
-  - std-cyber-essentials
-  - std-soc2
+  - req-ce-plus-user-access-control-04
 ---
 apiVersion: freeboard.io/v1alpha1
 kind: Control
 id: ctrl-patching
 title: Security patches applied within 14 days
 maps_to:
-  - std-cyber-essentials
+  - req-ce-plus-security-update-management-04
+  - req-ce-plus-security-update-management-05

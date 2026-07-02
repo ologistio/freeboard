@@ -13,6 +13,19 @@ public sealed class ConfigLoaderTests
                 kind: Standard
                 id: std-a
                 title: Standard A
+                version: "1.0"
+                authority: Example Authority
+                """),
+            ("requirements.yaml", """
+                apiVersion: freeboard.io/v1alpha1
+                kind: Requirement
+                id: req-a
+                title: Requirement A
+                standard: std-a
+                theme: Theme A
+                statement: Do the thing.
+                citation_label: Source A
+                citation_url: https://example.com/a
                 """),
             ("controls.yaml", """
                 apiVersion: freeboard.io/v1alpha1
@@ -20,7 +33,7 @@ public sealed class ConfigLoaderTests
                 id: ctrl-a
                 title: Control A
                 maps_to:
-                  - std-a
+                  - req-a
                 """),
             ("orgs.yaml", """
                 apiVersion: freeboard.io/v1alpha1
@@ -43,6 +56,7 @@ public sealed class ConfigLoaderTests
 
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
         Assert.Single(result.Config.Standards);
+        Assert.Single(result.Config.Requirements);
         Assert.Single(result.Config.Controls);
         Assert.Single(result.Config.Organisations);
         Assert.Single(result.Config.Scopes);
@@ -51,7 +65,7 @@ public sealed class ConfigLoaderTests
         Assert.Equal("std-a", standard.Id);
         Assert.Equal("Standard A", standard.Title);
         Assert.NotEqual(standard.Id, standard.Title);
-        Assert.Equal(["std-a"], result.Config.Controls[0].MapsTo);
+        Assert.Equal(["req-a"], result.Config.Controls[0].MapsTo);
 
         var organisation = result.Config.Organisations[0];
         Assert.Equal("org-a", organisation.Id);

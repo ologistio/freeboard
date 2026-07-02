@@ -6,10 +6,12 @@ namespace Freeboard.Persistence.GitOps;
 
 /// <summary>
 /// Imports a validated <see cref="GitOpsConfig"/> into MySQL in one DML transaction.
-/// FK-safe order: upsert standards, controls, organisations (parent-before-child); prune
-/// absent scopes then upsert the new scope set (which references organisations and
-/// standards); replace all control->standard join rows; then hard-remove absent domain
-/// rows (organisations child-before-parent; controls; standards). Matches on id only.
+/// FK-safe order: upsert standards (with metadata), requirements (reference standards), controls,
+/// organisations (parent-before-child); prune absent scopes then upsert the new scope set (which
+/// references organisations and standards); replace all control->requirement join rows; then
+/// hard-remove absent domain rows (organisations child-before-parent; controls; requirements before
+/// standards, so a removed standard's requirements clear before the RESTRICT FK is hit; standards).
+/// Matches on id only.
 /// </summary>
 public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) : IGitOpsImporter
 {
@@ -21,8 +23,10 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        // 1. Upsert domain rows by id, FK-safe (standards, controls, organisations).
-        await UpsertAsync(connection, transaction, "standards", plan.Standards, now, cancellationToken).ConfigureAwait(false);
+        // 1. Upsert domain rows by id, FK-safe (standards, requirements, controls, organisations).
+        //    Requirements reference standards, so they follow standards and precede any standard delete.
+        await UpsertStandardsAsync(connection, transaction, plan.Standards, now, cancellationToken).ConfigureAwait(false);
+        await UpsertRequirementsAsync(connection, transaction, plan.Requirements, now, cancellationToken).ConfigureAwait(false);
         await UpsertAsync(connection, transaction, "controls", plan.Controls, now, cancellationToken).ConfigureAwait(false);
         await UpsertOrganisationsAsync(connection, transaction, plan.Organisations, now, cancellationToken).ConfigureAwait(false);
 
@@ -33,17 +37,76 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await DeleteAbsentAsync(connection, transaction, "scopes", plan.ScopeIds, cancellationToken).ConfigureAwait(false);
         await UpsertScopesAsync(connection, transaction, plan.Scopes, now, cancellationToken).ConfigureAwait(false);
 
-        // 3. Replace all control->standard join rows for the imported set (whole-set delete+insert).
-        await ReplaceControlStandardsAsync(connection, transaction, plan, cancellationToken).ConfigureAwait(false);
+        // 3. Replace all control->requirement join rows for the imported set (whole-set delete+insert).
+        await ReplaceControlRequirementsAsync(connection, transaction, plan, cancellationToken).ConfigureAwait(false);
 
         // 4. Hard-remove remaining domain rows whose id is absent, FK-safe order (organisations
-        //    child-before-parent; controls; standards). OrganisationIds is parent-before-child,
-        //    so reversing it deletes children first.
+        //    child-before-parent; controls; requirements before standards; standards). OrganisationIds
+        //    is parent-before-child, so reversing it deletes children first. Requirements reference
+        //    standards with ON DELETE RESTRICT, so a removed standard's requirements must clear first.
         await DeleteAbsentOrganisationsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "controls", plan.ControlIds, cancellationToken).ConfigureAwait(false);
+        await DeleteAbsentAsync(connection, transaction, "requirements", plan.RequirementIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "standards", plan.StandardIds, cancellationToken).ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertStandardsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<StandardRowPlan> rows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        const string sql =
+            "INSERT INTO standards (id, api_version, title, version, authority, publisher, source_url, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Version, @Authority, @Publisher, @SourceUrl, @Now, @Now) "
+            + "ON DUPLICATE KEY UPDATE "
+            + "api_version = VALUES(api_version), title = VALUES(title), version = VALUES(version), "
+            + "authority = VALUES(authority), publisher = VALUES(publisher), source_url = VALUES(source_url), "
+            + "updated_at = VALUES(updated_at);";
+
+        var parameters = rows.Select(r => new
+        {
+            r.Id, r.ApiVersion, r.Title, r.Version, r.Authority, r.Publisher, r.SourceUrl, Now = now,
+        });
+        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task UpsertRequirementsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<RequirementRowPlan> rows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        const string sql =
+            "INSERT INTO requirements "
+            + "(id, api_version, title, standard_id, theme, statement, guidance, citation_label, citation_url, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Standard, @Theme, @Statement, @Guidance, @CitationLabel, @CitationUrl, @Now, @Now) "
+            + "ON DUPLICATE KEY UPDATE "
+            + "api_version = VALUES(api_version), title = VALUES(title), standard_id = VALUES(standard_id), "
+            + "theme = VALUES(theme), statement = VALUES(statement), guidance = VALUES(guidance), "
+            + "citation_label = VALUES(citation_label), citation_url = VALUES(citation_url), updated_at = VALUES(updated_at);";
+
+        var parameters = rows.Select(r => new
+        {
+            r.Id, r.ApiVersion, r.Title, r.Standard, r.Theme, r.Statement, r.Guidance, r.CitationLabel, r.CitationUrl, Now = now,
+        });
+        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
     }
 
     private static async Task UpsertAsync(
@@ -123,24 +186,24 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             .ConfigureAwait(false);
     }
 
-    private static async Task ReplaceControlStandardsAsync(
+    private static async Task ReplaceControlRequirementsAsync(
         DbConnection connection,
         DbTransaction transaction,
         ImportPlan plan,
         CancellationToken cancellationToken)
     {
         await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM control_standards;", transaction: transaction, cancellationToken: cancellationToken))
+            "DELETE FROM control_requirements;", transaction: transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
 
-        if (plan.ControlStandards.Count == 0)
+        if (plan.ControlRequirements.Count == 0)
         {
             return;
         }
 
         await connection.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO control_standards (control_id, standard_id) VALUES (@ControlId, @StandardId);",
-            plan.ControlStandards, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            "INSERT INTO control_requirements (control_id, requirement_id) VALUES (@ControlId, @RequirementId);",
+            plan.ControlRequirements, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
     }
 
     private static async Task DeleteAbsentAsync(

@@ -19,7 +19,15 @@ public static class ConfigLoader
     private static readonly IReadOnlyDictionary<string, HashSet<string>> SchemaKeys =
         new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         {
-            [GitOpsSchema.KindStandard] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title" },
+            [GitOpsSchema.KindStandard] = new(StringComparer.Ordinal)
+            {
+                "apiVersion", "kind", "id", "title", "version", "authority", "publisher", "source_url",
+            },
+            [GitOpsSchema.KindRequirement] = new(StringComparer.Ordinal)
+            {
+                "apiVersion", "kind", "id", "title", "standard", "theme", "statement", "guidance",
+                "citation_label", "citation_url",
+            },
             [GitOpsSchema.KindControl] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "maps_to" },
             [GitOpsSchema.KindOrganisation] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "parent" },
             [GitOpsSchema.KindScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "standard", "disposition" },
@@ -28,6 +36,7 @@ public static class ConfigLoader
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
         .WithAttributeOverride<Standard>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<Requirement>(r => r.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Control>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Organisation>(o => o.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         // The Company/Department value is authored under `type`; it binds to the OrgKind property.
@@ -136,7 +145,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}.",
             });
             return;
         }
@@ -149,6 +158,9 @@ public static class ConfigLoader
             {
                 case GitOpsSchema.KindStandard:
                     config.Standards.Add(Deserialize<Standard>(mapping));
+                    break;
+                case GitOpsSchema.KindRequirement:
+                    config.Requirements.Add(Deserialize<Requirement>(mapping));
                     break;
                 case GitOpsSchema.KindControl:
                     var control = Deserialize<Control>(mapping);

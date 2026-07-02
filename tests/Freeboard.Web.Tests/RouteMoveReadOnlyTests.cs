@@ -14,7 +14,7 @@ public sealed class RouteMoveReadOnlyTests
 {
     private static FakeComplianceStore Store() => new()
     {
-        Standards = [new Persistence.StandardRow("std-a", "Standard A")],
+        Standards = [new Persistence.StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
     };
 
     [Fact]
