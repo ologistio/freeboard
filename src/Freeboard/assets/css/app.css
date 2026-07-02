@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* Razor templates are the utility source; auto-detection skips wwwroot output. */
+@source "../../Pages";

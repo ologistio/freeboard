@@ -38,6 +38,27 @@ dotnet run --project src/Freeboard.Agent
 dotnet run --project src/Freeboard      # web UI
 ```
 
+## Front-end assets (Tailwind CSS + Alpine)
+
+`Freeboard` (web UI) and `Freeboard.Web` (public site) build their CSS/JS with
+[bun](https://bun.sh). Each has its own `package.json` and `assets/` source dir:
+`assets/css/app.css` (Tailwind entry) and `assets/js/app.js` (Alpine entry).
+Output goes to `wwwroot/css/app.css` and `wwwroot/js/app.js` (both gitignored).
+
+`dotnet build` runs the asset build automatically (MSBuild `BuildAssets` target,
+which runs `bun install` on first use then `bun run build`), so **bun must be on
+PATH** to build these two projects. The build is incremental: it re-runs only
+when `assets/`, `package.json`, `bun.lock`, or a `.cshtml` file changes.
+
+To iterate on assets without a full rebuild:
+
+```sh
+cd src/Freeboard        # or src/Freeboard.Web
+bun run build           # one-off build
+bun run watch:css       # rebuild CSS on change
+bun run watch:js        # rebuild JS on change
+```
+
 ## Freeboard.Web (public website)
 
 A static site generator built on AspNetStatic. Razor Pages under `Pages/`

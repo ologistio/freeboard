@@ -61,3 +61,12 @@ nunit-*.xml
 
 # AspNetStatic generated output
 src/Freeboard.Web/_site/
+
+# Front-end toolchain (bun)
+node_modules/
+
+# Generated front-end assets (built from assets/ by bun)
+src/Freeboard/wwwroot/css/app.css
+src/Freeboard/wwwroot/js/app.js
+src/Freeboard.Web/wwwroot/css/app.css
+src/Freeboard.Web/wwwroot/js/app.js

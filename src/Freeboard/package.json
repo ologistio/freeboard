@@ -1,0 +1,19 @@
+{
+  "name": "freeboard-web-assets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/css/app.css -o ./wwwroot/css/app.css --minify",
+    "build:js": "bun build ./assets/js/app.js --outdir ./wwwroot/js --minify",
+    "build": "bun run build:css && bun run build:js",
+    "watch:css": "tailwindcss -i ./assets/css/app.css -o ./wwwroot/css/app.css --watch",
+    "watch:js": "bun build ./assets/js/app.js --outdir ./wwwroot/js --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4",
+    "tailwindcss": "^4"
+  },
+  "dependencies": {
+    "alpinejs": "^3"
+  }
+}
