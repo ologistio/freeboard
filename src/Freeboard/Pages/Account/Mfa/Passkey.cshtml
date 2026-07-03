@@ -3,26 +3,34 @@
 @{
     ViewData["Title"] = "Add a passkey";
 }
-<h1 class="text-2xl font-bold">Add a passkey</h1>
+<partial name="_AccountNav" />
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Add a passkey</h1>
+    <p class="mt-1 text-sm text-neutral-500">Register a device passkey or security key.</p>
+</div>
 @if (Model.WebAuthnUnconfigured)
 {
-    <p class="my-3 text-[#b00020]">Passkeys are not available on this server.</p>
+    <p class="notice-error max-w-md">Passkeys are not available on this server.</p>
 }
 else if (Model.OptionsJson is null)
 {
-    <p class="my-3 text-[#b00020]">Could not start passkey registration. <a class="text-[#215091] underline" href="/account/mfa">Go back</a> and try again.</p>
+    <p class="notice-error max-w-md">Could not start passkey registration. <a class="link" href="/account/mfa">Go back</a> and try again.</p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <div data-passkey-register
+    <div class="card max-w-md space-y-4"
+         data-passkey-register
          data-action="/account/mfa/passkey"
          data-antiforgery="@Model.AntiforgeryToken"
          data-options="@Model.OptionsJson"
          data-correlation="@Model.Correlation">
-        <label class="block font-semibold" for="nickname">Passkey name (optional)</label>
-        <input class="block w-full border border-neutral-400 p-2" type="text" id="nickname" data-nickname />
-        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="button" data-passkey-go>Add passkey</button>
+        <div class="space-y-1.5">
+            <label class="form-label" for="nickname">Passkey name (optional)</label>
+            <input class="form-input" type="text" id="nickname" data-nickname />
+        </div>
+        <button class="btn-primary" type="button" data-passkey-go>Add passkey</button>
     </div>
     <script src="~/js/passkey.js"></script>
 }
+<p class="mt-6 text-sm"><a class="link" href="/account/mfa">Back to security</a></p>

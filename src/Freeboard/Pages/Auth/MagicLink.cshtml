@@ -2,17 +2,21 @@
 @model Freeboard.Pages.Auth.MagicLinkModel
 @{
     ViewData["Title"] = "Continue sign-in";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">Continue sign-in</h1>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Continue sign-in</h1>
+    <p class="mt-1 text-sm text-neutral-500">Confirm to finish signing in.</p>
+</div>
 @if (!Model.CanComplete)
 {
-    <p class="my-3 text-[#b00020]">This sign-in link could not be used here. <a href="/login" class="text-[#215091] underline">Start again</a> in the browser where you began signing in.</p>
+    <p class="notice-error">This sign-in link could not be used here. Start again in the browser where you began signing in.</p>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Back to sign in</a></p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <p class="my-3">Confirm to finish signing in.</p>
-    <form method="post" class="space-y-2">
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Continue</button>
+    <form method="post">
+        <button type="submit" class="btn-primary w-full">Continue</button>
     </form>
 }

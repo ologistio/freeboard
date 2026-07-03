@@ -1,0 +1,14 @@
+@{
+    var path = (Context.Request.Path.Value ?? string.Empty).ToLowerInvariant();
+    string Tab(string href, bool exact = false)
+    {
+        var active = exact ? path == href : path == href || path.StartsWith(href + "/", StringComparison.Ordinal);
+        return active ? "acct-tab acct-tab-active" : "acct-tab";
+    }
+}
+<nav class="mb-6 flex gap-1 overflow-x-auto border-b border-neutral-200">
+    <a href="/account" class="@Tab("/account", exact: true)">Profile</a>
+    <a href="/account/mfa" class="@Tab("/account/mfa")">Security</a>
+    <a href="/account/password/change" class="@Tab("/account/password/change")">Password</a>
+    <a href="/account/sessions" class="@Tab("/account/sessions")">Sessions</a>
+</nav>

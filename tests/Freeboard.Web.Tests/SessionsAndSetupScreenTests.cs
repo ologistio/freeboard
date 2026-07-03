@@ -43,7 +43,7 @@ public sealed class SessionsAndSetupScreenTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains(AuthWebFactory.SessionIdFor(user), html);
         Assert.Contains("sess-other", html);
-        Assert.Contains("(this session)", html); // the current session is marked.
+        Assert.Contains("This session", html); // the current session is marked.
         // The bearer token never appears in the rendered list.
         Assert.DoesNotContain(token, html);
     }

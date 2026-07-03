@@ -3,94 +3,124 @@
 @{
     ViewData["Title"] = "Users";
 }
-<div>
+<div class="mb-6">
     <h1 class="text-2xl font-bold">Users</h1>
+    <p class="mt-1 text-sm text-neutral-500">Create and manage user accounts.</p>
+</div>
 
-    @if (Model.Notice is not null)
-    {
-        <p class="my-3 text-[#b00020]">@Model.Notice</p>
-    }
-    @if (Model.InvitedEmail is not null)
-    {
-        <p class="success my-3" data-invite-confirmation>Invite sent to @Model.InvitedEmail, link expires in 7 days.</p>
-    }
-    @if (Model.InviteFailedEmail is not null)
-    {
-        <p class="my-3 text-[#b00020]">
-            @Model.InviteFailedEmail was created, but the invite could not be sent. Use the
-            reset-password action on that user to provide a credential. Re-creating the user will not work.
-        </p>
-    }
+@if (Model.Notice is not null)
+{
+    <p class="notice-error mb-4 max-w-2xl">@Model.Notice</p>
+}
+@if (Model.InvitedEmail is not null)
+{
+    <p class="notice mb-4 max-w-2xl" data-invite-confirmation>Invite sent to @Model.InvitedEmail, link expires in 7 days.</p>
+}
+@if (Model.InviteFailedEmail is not null)
+{
+    <p class="notice-error mb-4 max-w-2xl">
+        @Model.InviteFailedEmail was created, but the invite could not be sent. Use the
+        reset-password action on that user to provide a credential. Re-creating the user will not work.
+    </p>
+}
 
-    <h2 class="mt-6 text-xl font-semibold">Create user</h2>
-    <partial name="_ErrorSummary" model="ModelState" />
-    <form class="space-y-2" method="post" asp-page-handler="Create">
-        <label class="block font-semibold" for="email">Email</label>
-        <input class="block w-full border border-neutral-400 p-2" type="email" id="email" name="email" autocomplete="off" />
-        <label class="block font-semibold" for="name">Name</label>
-        <input class="block w-full border border-neutral-400 p-2" type="text" id="name" name="name" autocomplete="off" />
-        <label class="block font-semibold" for="global_role">Role</label>
-        <select class="block w-full border border-neutral-400 p-2" id="global_role" name="global_role">
-            <option value="member">member</option>
-            <option value="admin">admin</option>
-        </select>
-        <fieldset class="border border-neutral-400 p-3">
-            <legend class="px-1 font-semibold">Credential handoff</legend>
-            <label class="font-semibold"><input type="radio" name="handoff" value="temp" checked /> Temporary password</label>
-            @if (Model.EmailConfigured)
-            {
-                <label class="font-semibold"><input type="radio" name="handoff" value="invite" /> Email an invite link</label>
-            }
-            else
-            {
-                <label class="font-semibold"><input type="radio" name="handoff" value="invite" disabled /> Email an invite link</label>
-                <span>Email is not configured; new users get a temporary password.</span>
-            }
-        </fieldset>
-        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Create user</button>
-    </form>
-
-    <h2 class="mt-6 text-xl font-semibold">Existing users</h2>
-    <table class="w-full border-collapse">
-        <thead>
+<div class="card mb-8 overflow-x-auto p-0">
+    <table class="w-full text-sm">
+        <thead class="border-b border-neutral-200 text-left text-neutral-500">
             <tr>
-                <th class="border-b border-neutral-300 px-2 py-1 text-left">Email</th>
-                <th class="border-b border-neutral-300 px-2 py-1 text-left">Name</th>
-                <th class="border-b border-neutral-300 px-2 py-1 text-left">Role</th>
-                <th class="border-b border-neutral-300 px-2 py-1 text-left">Enabled</th>
-                <th class="border-b border-neutral-300 px-2 py-1 text-left">Actions</th>
+                <th class="px-4 py-3 font-medium">Email</th>
+                <th class="px-4 py-3 font-medium">Name</th>
+                <th class="px-4 py-3 font-medium">Role</th>
+                <th class="px-4 py-3 font-medium">Status</th>
+                <th class="px-4 py-3 font-medium text-right">Actions</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody class="divide-y divide-neutral-100">
             @foreach (var user in Model.Users)
             {
                 <tr>
-                    <td class="border-b border-neutral-300 px-2 py-1 text-left">@user.Email</td>
-                    <td class="border-b border-neutral-300 px-2 py-1 text-left">@user.Name</td>
-                    <td class="border-b border-neutral-300 px-2 py-1 text-left">@user.GlobalRole</td>
-                    <td class="border-b border-neutral-300 px-2 py-1 text-left">@(user.Enabled ? "yes" : "no")</td>
-                    <td class="border-b border-neutral-300 px-2 py-1 text-left">
-                        <form class="space-y-2" method="post" asp-page-handler="ResetPassword">
-                            <input type="hidden" name="id" value="@user.Id" />
-                            <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Reset password</button>
-                        </form>
-                        @if (user.Enabled)
+                    <td class="px-4 py-3">@user.Email</td>
+                    <td class="px-4 py-3 text-neutral-600">@user.Name</td>
+                    <td class="px-4 py-3">
+                        @if (string.Equals(user.GlobalRole, "admin", StringComparison.OrdinalIgnoreCase))
                         {
-                            <form class="space-y-2" method="post" asp-page-handler="Disable">
-                                <input type="hidden" name="id" value="@user.Id" />
-                                <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Disable</button>
-                            </form>
+                            <span class="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand capitalize">@user.GlobalRole</span>
                         }
                         else
                         {
-                            <form class="space-y-2" method="post" asp-page-handler="Enable">
-                                <input type="hidden" name="id" value="@user.Id" />
-                                <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Enable</button>
-                            </form>
+                            <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 capitalize">@user.GlobalRole</span>
                         }
+                    </td>
+                    <td class="px-4 py-3">
+                        @if (user.Enabled)
+                        {
+                            <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Enabled</span>
+                        }
+                        else
+                        {
+                            <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500">Disabled</span>
+                        }
+                    </td>
+                    <td class="px-4 py-3">
+                        <div class="flex justify-end gap-2">
+                            <form method="post" asp-page-handler="ResetPassword">
+                                <input type="hidden" name="id" value="@user.Id" />
+                                <button class="btn-secondary btn-sm" type="submit">Reset password</button>
+                            </form>
+                            @if (user.Enabled)
+                            {
+                                <form method="post" asp-page-handler="Disable">
+                                    <input type="hidden" name="id" value="@user.Id" />
+                                    <button class="btn-danger btn-sm" type="submit">Disable</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <form method="post" asp-page-handler="Enable">
+                                    <input type="hidden" name="id" value="@user.Id" />
+                                    <button class="btn-secondary btn-sm" type="submit">Enable</button>
+                                </form>
+                            }
+                        </div>
                     </td>
                 </tr>
             }
         </tbody>
     </table>
+</div>
+
+<div class="card max-w-xl">
+    <h2 class="mb-4 text-lg font-semibold">Create user</h2>
+    <partial name="_ErrorSummary" model="ModelState" />
+    <form class="space-y-4" method="post" asp-page-handler="Create">
+        <div class="space-y-1.5">
+            <label class="form-label" for="email">Email</label>
+            <input class="form-input" type="email" id="email" name="email" autocomplete="off" placeholder="user@example.com" />
+        </div>
+        <div class="space-y-1.5">
+            <label class="form-label" for="name">Name</label>
+            <input class="form-input" type="text" id="name" name="name" autocomplete="off" placeholder="Full name" />
+        </div>
+        <div class="space-y-1.5">
+            <label class="form-label" for="global_role">Role</label>
+            <select class="form-input" id="global_role" name="global_role">
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+            </select>
+        </div>
+        <fieldset class="space-y-2 rounded-md border border-neutral-200 p-4">
+            <legend class="px-1 text-sm font-semibold">Credential handoff</legend>
+            <label class="flex items-center gap-2 text-sm"><input type="radio" name="handoff" value="temp" class="accent-brand" checked /> Temporary password</label>
+            @if (Model.EmailConfigured)
+            {
+                <label class="flex items-center gap-2 text-sm"><input type="radio" name="handoff" value="invite" class="accent-brand" /> Email an invite link</label>
+            }
+            else
+            {
+                <label class="flex items-center gap-2 text-sm text-neutral-400"><input type="radio" name="handoff" value="invite" class="accent-brand" disabled /> Email an invite link</label>
+                <p class="text-xs text-neutral-500">Email is not configured; new users get a temporary password.</p>
+            }
+        </fieldset>
+        <button class="btn-primary" type="submit">Create user</button>
+    </form>
 </div>

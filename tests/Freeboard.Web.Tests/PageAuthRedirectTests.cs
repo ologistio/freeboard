@@ -45,6 +45,33 @@ public sealed class PageAuthRedirectTests
     }
 
     [Fact]
+    public async Task UnauthenticatedGetToHomeRedirectsToLogin()
+    {
+        using var factory = new AuthWebFactory();
+        using var client = NoRedirectClient(factory);
+
+        var response = await client.GetAsync("/home");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.StartsWith("/login", response.Headers.Location!.OriginalString);
+    }
+
+    [Fact]
+    public async Task AuthenticatedCookieRendersHomePage()
+    {
+        using var factory = new AuthWebFactory();
+        var user = AuthWebFactory.MakeUser("home1");
+        var token = factory.SeedSession(user);
+        using var client = NoRedirectClient(factory);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/home");
+        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task UnauthenticatedApiRequestReturnsJsonUnauthorizedNotRedirect()
     {
         using var factory = new AuthWebFactory();

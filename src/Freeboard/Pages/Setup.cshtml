@@ -2,28 +2,37 @@
 @model Freeboard.Pages.SetupModel
 @{
     ViewData["Title"] = "First-admin setup";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">First-admin setup</h1>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">First-admin setup</h1>
+    <p class="mt-1 text-sm text-neutral-500">Create the first administrator for this Freeboard instance.</p>
+</div>
 @if (Model.AlreadyInitialized)
 {
-    <p class="my-3">This Freeboard instance is already set up. <a href="/login" class="text-[#215091] underline">Sign in</a>.</p>
+    <p class="notice">This Freeboard instance is already set up.</p>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Sign in</a></p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <form method="post" class="space-y-2">
-        <label for="name" class="block font-semibold">Name</label>
-        <input type="text" id="name" name="name" autocomplete="name" class="block w-full border border-neutral-400 p-2" />
-
-        <label for="email" class="block font-semibold">Email</label>
-        <input type="email" id="email" name="email" autocomplete="username" class="block w-full border border-neutral-400 p-2" />
-
-        <label for="password" class="block font-semibold">Password</label>
-        <input type="password" id="password" name="password" autocomplete="new-password" class="block w-full border border-neutral-400 p-2" />
-
-        <label for="bootstrap_secret" class="block font-semibold">Bootstrap secret</label>
-        <input type="password" id="bootstrap_secret" name="bootstrap_secret" autocomplete="off" class="block w-full border border-neutral-400 p-2" />
-
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Create admin</button>
+    <form method="post" class="space-y-4">
+        <div class="space-y-1.5">
+            <label for="name" class="form-label">Name</label>
+            <input type="text" id="name" name="name" autocomplete="name" placeholder="Your name" autofocus class="form-input" />
+        </div>
+        <div class="space-y-1.5">
+            <label for="email" class="form-label">Email</label>
+            <input type="email" id="email" name="email" autocomplete="username" placeholder="you@example.com" class="form-input" />
+        </div>
+        <div class="space-y-1.5">
+            <label for="password" class="form-label">Password</label>
+            <input type="password" id="password" name="password" autocomplete="new-password" placeholder="Choose a password" class="form-input" />
+        </div>
+        <div class="space-y-1.5">
+            <label for="bootstrap_secret" class="form-label">Bootstrap secret</label>
+            <input type="password" id="bootstrap_secret" name="bootstrap_secret" autocomplete="off" placeholder="From your server configuration" class="form-input" />
+        </div>
+        <button type="submit" class="btn-primary w-full">Create admin</button>
     </form>
 }

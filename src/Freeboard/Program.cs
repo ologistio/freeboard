@@ -171,6 +171,9 @@ builder.Services.AddRazorPages(options =>
 {
     options.Conventions.ConfigureFilter(
         new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute());
+    // The authenticated home dashboard. Lives at the root of Pages/ (not a protected folder),
+    // so it is authorized individually; an unauthenticated browser is redirected to /login.
+    options.Conventions.AuthorizePage("/Home", Freeboard.Web.PageChallengeScheme.PolicyName);
     options.Conventions.AuthorizeFolder("/Account", Freeboard.Web.PageChallengeScheme.PolicyName);
     // Authenticate the /admin folder the same way (unauthenticated -> /login). The admin-ROLE gate is
     // enforced in-page (a bare 403), NOT here: a Forbid under the page scheme redirects to

@@ -2,12 +2,17 @@
 @model Freeboard.Pages.Account.CompleteResetModel
 @{
     ViewData["Title"] = "Set a new password";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">Set a new password</h1>
-<p class="my-3">You must set a new password before continuing.</p>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Set a new password</h1>
+    <p class="mt-1 text-sm text-neutral-500">You must set a new password before continuing.</p>
+</div>
 <partial name="_ErrorSummary" model="ModelState" />
-<form method="post" class="space-y-2">
-    <label for="new_password" class="block font-semibold">New password</label>
-    <input type="password" id="new_password" name="new_password" autocomplete="new-password" class="block w-full border border-neutral-400 p-2" />
-    <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Set password</button>
+<form method="post" class="space-y-4">
+    <div class="space-y-1.5">
+        <label for="new_password" class="form-label">New password</label>
+        <input type="password" id="new_password" name="new_password" autocomplete="new-password" placeholder="New password" autofocus class="form-input" />
+    </div>
+    <button type="submit" class="btn-primary w-full">Set password</button>
 </form>
