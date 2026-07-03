@@ -7,9 +7,11 @@ namespace Freeboard.Pages.Shared.Components.OrgSelector;
 /// <summary>
 /// One organisation node in the selector tree, with its accessible children. <see cref="Kind"/> is
 /// the raw <c>Company</c>/<c>Department</c> value, used to pick a differentiating icon in the view.
+/// <see cref="OnSelectionPath"/> is true when this node is the current selection or an ancestor of it,
+/// so the view starts that branch expanded and a deep selection is revealed rather than hidden.
 /// </summary>
 public sealed record OrgSelectorNode(
-    string Id, string Title, string Kind, IReadOnlyList<OrgSelectorNode> Children);
+    string Id, string Title, string Kind, bool OnSelectionPath, IReadOnlyList<OrgSelectorNode> Children);
 
 /// <summary>
 /// The selector view model: the accessible root nodes, the current selection, and the return target
@@ -34,13 +36,14 @@ public sealed class OrgSelectorViewComponent(OrgSelectionResolver resolver) : Vi
         var accessible = state.Organisations
             .Where(o => state.AccessibleIds.Contains(o.Id))
             .ToList();
-        var roots = BuildRoots(accessible);
+        var roots = BuildRoots(accessible, state.SelectedId);
 
         var returnTarget = HttpContext.Request.Path + HttpContext.Request.QueryString;
         return View(new OrgSelectorViewModel(roots, state.SelectedId, returnTarget));
     }
 
-    private static IReadOnlyList<OrgSelectorNode> BuildRoots(IReadOnlyList<OrganisationRow> organisations)
+    private static IReadOnlyList<OrgSelectorNode> BuildRoots(
+        IReadOnlyList<OrganisationRow> organisations, string? selectedId)
     {
         var ids = organisations.Select(o => o.Id).ToHashSet(StringComparer.Ordinal);
         var childrenByParent = organisations
@@ -52,19 +55,26 @@ public sealed class OrgSelectorViewComponent(OrgSelectionResolver resolver) : Vi
         var roots = organisations
             .Where(o => o.Parent is null || !ids.Contains(o.Parent))
             .OrderBy(o => o.Id, StringComparer.Ordinal)
-            .Select(o => Build(o, childrenByParent))
+            .Select(o => Build(o, childrenByParent, selectedId))
             .ToList();
         return roots;
     }
 
     private static OrgSelectorNode Build(
-        OrganisationRow organisation, IReadOnlyDictionary<string, List<OrganisationRow>> childrenByParent)
+        OrganisationRow organisation,
+        IReadOnlyDictionary<string, List<OrganisationRow>> childrenByParent,
+        string? selectedId)
     {
         var children = childrenByParent.TryGetValue(organisation.Id, out var kids)
             ? kids.OrderBy(o => o.Id, StringComparer.Ordinal)
-                .Select(child => Build(child, childrenByParent))
+                .Select(child => Build(child, childrenByParent, selectedId))
                 .ToList()
             : (IReadOnlyList<OrgSelectorNode>)[];
-        return new OrgSelectorNode(organisation.Id, organisation.Title, organisation.Kind, children);
+        // On the selection path when this node is the selection or any descendant is, so the view
+        // starts this branch expanded and the path down to a deep selection stays unrolled.
+        var onSelectionPath = string.Equals(organisation.Id, selectedId, StringComparison.Ordinal)
+            || children.Any(c => c.OnSelectionPath);
+        return new OrgSelectorNode(
+            organisation.Id, organisation.Title, organisation.Kind, onSelectionPath, children);
     }
 }

@@ -82,6 +82,38 @@ public sealed class OrgSelectorViewComponentTests
     }
 
     [Fact]
+    public async Task SelectedNodePathIsExpandedOnLoad()
+    {
+        // Two root branches, one three levels deep. Selecting the deepest node must start its two
+        // ancestor branches expanded (open: true) while the unrelated branch stays collapsed, so the
+        // path down to a deep selection is unrolled in the picker on load.
+        using var factory = Factory(new FakeComplianceStore
+        {
+            Organisations =
+            [
+                new OrganisationRow("org-a", "Org A", "Company", null),
+                new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+                new OrganisationRow("org-team", "Platform", "Department", "org-eng"),
+                new OrganisationRow("org-b", "Org B", "Company", null),
+                new OrganisationRow("org-sales", "Sales", "Department", "org-b"),
+            ],
+        });
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAsync(factory, client, HomePath, orgCookie: "org-team");
+        var html = await response.Content.ReadAsStringAsync();
+
+        // The deep node is rendered, and exactly the two ancestors (org-a, org-eng) start open while
+        // the off-path branch (org-b) starts collapsed. org-team is a leaf and carries no toggle.
+        Assert.Contains("org=org-team", html, StringComparison.Ordinal);
+        Assert.Equal(2, Occurrences(html, "{ open: true }"));
+        Assert.Equal(1, Occurrences(html, "{ open: false }"));
+    }
+
+    private static int Occurrences(string haystack, string needle)
+        => haystack.Split(needle).Length - 1;
+
+    [Fact]
     public async Task OnlyAccessibleOrganisationsAppear()
     {
         using var factory = Factory(

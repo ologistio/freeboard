@@ -18,7 +18,7 @@
 <li>
     @if (hasChildren)
     {
-        <div x-data="{ open: false }">
+        <div x-data="{ open: @(Model.OnSelectionPath ? "true" : "false") }">
             <div class="flex items-center gap-1">
                 <button type="button" @@click="open = !open" :aria-expanded="open ? 'true' : 'false'"
                         class="shrink-0 rounded p-1 text-neutral-600 hover:bg-neutral-100">
