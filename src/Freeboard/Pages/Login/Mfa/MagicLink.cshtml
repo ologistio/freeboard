@@ -6,11 +6,11 @@
 }
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Email a sign-in link</h1>
-    <p class="mt-1 text-sm text-neutral-500">We'll email you a link to finish signing in.</p>
+    <p class="mt-1 text-sm text-neutral-600">We'll email you a link to finish signing in.</p>
 </div>
 @if (Model.Sent)
 {
-    <p class="notice">If your account can use a sign-in link, we have sent one. Check your email and open the link in this browser to continue.</p>
+    <p class="notice success">If your account can use a sign-in link, we have sent one. Check your email and open the link in this browser to continue.</p>
 }
 else if (!Model.HasPendingChallenge)
 {

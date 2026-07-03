@@ -6,11 +6,11 @@
 <partial name="_AccountNav" />
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Change password</h1>
-    <p class="mt-1 text-sm text-neutral-500">Update the password you use to sign in.</p>
+    <p class="mt-1 text-sm text-neutral-600">Update the password you use to sign in.</p>
 </div>
 @if (Model.Changed)
 {
-    <p class="notice mb-4 max-w-md">Your password has been changed.</p>
+    <p class="notice success mb-4 max-w-md">Your password has been changed.</p>
 }
 <partial name="_ErrorSummary" model="ModelState" />
 <form method="post" class="card max-w-md space-y-4">

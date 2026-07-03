@@ -6,24 +6,24 @@
 <partial name="_AccountNav" />
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Profile</h1>
-    <p class="mt-1 text-sm text-neutral-500">Your account details.</p>
+    <p class="mt-1 text-sm text-neutral-600">Your account details.</p>
 </div>
 @if (Model.UserEmail is not null)
 {
     <div class="card max-w-xl">
         <dl class="divide-y divide-neutral-100">
             <div class="flex justify-between gap-4 py-3 first:pt-0">
-                <dt class="font-medium text-neutral-500">Name</dt>
+                <dt class="font-medium text-neutral-600">Name</dt>
                 <dd class="text-right">@Model.UserName</dd>
             </div>
             <div class="flex justify-between gap-4 py-3">
-                <dt class="font-medium text-neutral-500">Email</dt>
+                <dt class="font-medium text-neutral-600">Email</dt>
                 <dd class="text-right">@Model.UserEmail</dd>
             </div>
             <div class="flex justify-between gap-4 py-3 last:pb-0">
-                <dt class="font-medium text-neutral-500">Role</dt>
+                <dt class="font-medium text-neutral-600">Role</dt>
                 <dd class="text-right">
-                    <span class="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand capitalize">@Model.UserRole</span>
+                    <span class="badge badge-brand capitalize">@Model.UserRole</span>
                 </dd>
             </div>
         </dl>

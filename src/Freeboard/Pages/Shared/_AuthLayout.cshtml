@@ -3,15 +3,17 @@
 <partial name="_Head" />
 <body class="min-h-screen bg-neutral-100 font-sans text-neutral-900">
     <div class="flex min-h-screen flex-col items-center justify-center px-4 py-6">
-        <a href="/" class="mb-6 flex items-center gap-2 text-brand" aria-label="Freeboard home">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <rect x="2" y="3" width="20" height="18" rx="3" fill="currentColor" />
-                <rect x="5" y="7" width="6" height="4" rx="1" fill="#ffffff" />
-                <rect x="13" y="7" width="6" height="4" rx="1" fill="#ffffff" fill-opacity="0.55" />
-                <rect x="5" y="13" width="14" height="4" rx="1" fill="#ffffff" fill-opacity="0.55" />
-            </svg>
-            <span class="text-xl font-bold tracking-tight">Freeboard</span>
-        </a>
+        <header class="mb-6">
+            <a href="/" class="flex items-center gap-2 text-brand" aria-label="Freeboard home">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="2" y="3" width="20" height="18" rx="3" fill="currentColor" />
+                    <rect x="5" y="7" width="6" height="4" rx="1" fill="#ffffff" />
+                    <rect x="13" y="7" width="6" height="4" rx="1" fill="#ffffff" fill-opacity="0.55" />
+                    <rect x="5" y="13" width="14" height="4" rx="1" fill="#ffffff" fill-opacity="0.55" />
+                </svg>
+                <span class="text-xl font-bold tracking-tight">Freeboard</span>
+            </a>
+        </header>
         <main class="w-full max-w-md rounded-lg bg-white px-6 py-8 shadow-[0_1px_15px_rgba(0,0,0,0.08)] sm:px-10">
             @RenderBody()
         </main>

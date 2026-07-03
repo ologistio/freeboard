@@ -6,7 +6,7 @@
         return active ? "acct-tab acct-tab-active" : "acct-tab";
     }
 }
-<nav class="mb-6 flex gap-1 overflow-x-auto border-b border-neutral-200">
+<nav aria-label="Account settings" class="mb-6 flex gap-1 overflow-x-auto border-b border-neutral-200">
     <a href="/account" class="@Tab("/account", exact: true)">Profile</a>
     <a href="/account/mfa" class="@Tab("/account/mfa")">Security</a>
     <a href="/account/password/change" class="@Tab("/account/password/change")">Password</a>
