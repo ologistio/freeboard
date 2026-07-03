@@ -56,7 +56,21 @@ key_token="$(openssl rand -base64 32)"
 key_protect="$(openssl rand -base64 32)"
 
 echo "==> Starting local MySQL (compose)"
-compose -f "$compose_file" up -d --wait
+# No `--wait`: it is a `docker compose` (v2) option the standalone `docker-compose`
+# (v1) fallback does not accept. Poll for readiness instead, which works on both.
+compose -f "$compose_file" up -d
+
+echo "==> Waiting for MySQL to accept connections"
+mysql_ready=""
+for _ in $(seq 1 60); do
+  if compose -f "$compose_file" exec -T mysql \
+      mysqladmin ping -uroot -proot --silent >/dev/null 2>&1; then
+    mysql_ready=1
+    break
+  fi
+  sleep 1
+done
+[ -n "$mysql_ready" ] || { echo "error: MySQL did not become ready in time." >&2; exit 1; }
 
 echo "==> Resetting the freeboard database (fresh seed)"
 compose -f "$compose_file" exec -T mysql \
