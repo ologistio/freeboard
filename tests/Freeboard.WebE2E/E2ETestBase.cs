@@ -128,4 +128,21 @@ public abstract class E2ETestBase : IAsyncLifetime
                 SameSite = SameSiteAttribute.Strict,
             }
         ]);
+
+    /// <summary>
+    /// Sets the <c>freeboard-org</c> selection cookie (HttpOnly, Secure, SameSite=Lax) so a page loads
+    /// with an organisation already selected, without driving the selector UI first.
+    /// </summary>
+    private protected async Task AddOrgSelectionCookieAsync(IBrowserContext context, string organisationId)
+        => await context.AddCookiesAsync([
+            new Cookie
+            {
+                Name = "freeboard-org",
+                Value = organisationId,
+                Url = App.BaseUrl,
+                Secure = true,
+                HttpOnly = true,
+                SameSite = SameSiteAttribute.Lax,
+            }
+        ]);
 }

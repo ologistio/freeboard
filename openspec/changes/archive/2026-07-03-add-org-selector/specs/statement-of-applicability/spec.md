@@ -1,63 +1,4 @@
-# statement-of-applicability Specification
-
-## Purpose
-TBD - created by archiving change redefine-scope-org-standard. Update Purpose after archive.
-## Requirements
-### Requirement: Scope disposition resolves by nearest-ancestor inheritance
-
-The system SHALL resolve an organisation node's disposition for a standard as
-follows: if a Scope exists for that `(organisation, standard)` pair, its
-disposition is the resolved value and is `explicit`; otherwise the resolved value
-is the parent's resolved value and is `inherited`; if the node has no ancestor with
-a Scope for that standard, the resolved value is `Undetermined`. `Undetermined`
-SHALL be distinct from an explicit or inherited `Out`.
-
-#### Scenario: Explicit disposition wins
-
-- **WHEN** a node has a Scope of disposition `Out` for a standard
-- **THEN** the node resolves to `Out`, marked `explicit`, regardless of its
-  ancestors
-
-#### Scenario: Child inherits nearest ancestor
-
-- **WHEN** a company has disposition `In` for a standard and its department has no
-  Scope for that standard
-- **THEN** the department resolves to `In`, marked `inherited`
-
-#### Scenario: No ancestor disposition is undetermined
-
-- **WHEN** neither a node nor any ancestor has a Scope for a standard
-- **THEN** the node resolves to `Undetermined`, distinct from `Out`
-
-### Requirement: Statement of Applicability requires an authenticated user
-
-The Statement of Applicability SHALL require an authenticated user, both on the
-`GET /api/v1/freeboard/statement-of-applicability/{standardId}` endpoint and on the
-`/compliance/statement-of-applicability` read-only view page. Authentication (any
-logged-in user) is sufficient; neither SHALL require the admin role. An anonymous
-request to the endpoint SHALL return HTTP 401; an anonymous browser GET to the page
-SHALL be redirected to `/login` rather than rendering the view. Authentication is
-orthogonal to the GitOps read-only gate: both the endpoint and the page SHALL still
-be served to an authenticated user when the instance is in read-only mode, and both
-remain GET-only.
-
-#### Scenario: Anonymous request to the endpoint is rejected
-
-- **WHEN** an anonymous client requests
-  `GET /api/v1/freeboard/statement-of-applicability/{standardId}`
-- **THEN** the endpoint returns HTTP 401
-
-#### Scenario: Anonymous request to the page redirects to login
-
-- **WHEN** an anonymous browser requests `/compliance/statement-of-applicability`
-- **THEN** the response redirects to `/login` rather than rendering the view
-
-#### Scenario: Authenticated user is served in read-only mode
-
-- **WHEN** GitOps read-only mode is on and an authenticated user requests the
-  Statement of Applicability endpoint or view page
-- **THEN** the request is served normally and is not rejected with the 409
-  read-only response
+## MODIFIED Requirements
 
 ### Requirement: Statement of Applicability is a read-only projection
 
@@ -162,4 +103,3 @@ authentication failure (HTTP 401 for the endpoint, a `/login` redirect for the p
   organisation selected, and separately with no selection
 - **THEN** the page names that organisation's title as the active scope above the
   projection in the first case, and names "All Organisations" in the second
-

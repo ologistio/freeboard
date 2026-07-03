@@ -11,6 +11,9 @@ internal sealed class FakeComplianceStore : IComplianceStore
 {
     public bool Unreachable { get; init; }
 
+    /// <summary>When true, only <see cref="GetOrganisationsAsync"/> throws; the other reads succeed.</summary>
+    public bool OrganisationsUnreachable { get; init; }
+
     public IReadOnlyList<StandardRow> Standards { get; set; } = [];
 
     public IReadOnlyList<RequirementRow> Requirements { get; set; } = [];
@@ -30,8 +33,15 @@ internal sealed class FakeComplianceStore : IComplianceStore
     public Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Controls);
 
-    public Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Organisations);
+    public Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default)
+    {
+        if (OrganisationsUnreachable)
+        {
+            throw new InvalidOperationException("organisations unreachable");
+        }
+
+        return Guard(() => Organisations);
+    }
 
     public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Scopes);

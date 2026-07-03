@@ -1,0 +1,51 @@
+@using Freeboard.Pages.Shared.Components.OrgSelector
+@model OrgSelectorNode
+@{
+    var returnTarget = (string)ViewData["OrgSelectorReturn"]!;
+    var selectedId = ViewData["OrgSelectorSelectedId"] as string;
+    var selected = string.Equals(Model.Id, selectedId, StringComparison.Ordinal);
+    var href = $"/org/select?org={Uri.EscapeDataString(Model.Id)}&return={returnTarget}";
+    var hasChildren = Model.Children.Count > 0;
+}
+<li>
+    @if (hasChildren)
+    {
+        <div x-data="{ open: false }">
+            <div class="flex items-center gap-1">
+                <button type="button" @@click="open = !open" :aria-expanded="open ? 'true' : 'false'"
+                        class="shrink-0 rounded p-1 text-neutral-600 hover:bg-neutral-100">
+                    <span class="sr-only">Toggle @Model.Title</span>
+                    <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-90' : ''"
+                         fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                </button>
+                <a href="@href" class="@(selected ? "nav-link nav-link-active flex-1" : "nav-link flex-1")"
+                   aria-current="@(selected ? "true" : null)">
+                    @Model.Title
+                    @if (selected)
+                    {
+                        <span class="sr-only">(current selection)</span>
+                    }
+                </a>
+            </div>
+            <ul x-show="open" x-cloak class="ml-4 mt-0.5 space-y-0.5 border-l border-neutral-200 pl-2">
+                @foreach (var child in Model.Children)
+                {
+                    <partial name="~/Pages/Shared/Components/OrgSelector/_Node.cshtml" model="child" />
+                }
+            </ul>
+        </div>
+    }
+    else
+    {
+        <a href="@href" class="@(selected ? "nav-link nav-link-active" : "nav-link")"
+           aria-current="@(selected ? "true" : null)">
+            @Model.Title
+            @if (selected)
+            {
+                <span class="sr-only">(current selection)</span>
+            }
+        </a>
+    }
+</li>

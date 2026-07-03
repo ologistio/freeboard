@@ -72,6 +72,12 @@ if (trustForwardedHeaders)
     });
 }
 
+// Organisation selector: the accessibility seam (all-access in v1) and the request-scoped resolver
+// that serves the layout selector. The resolver reads the cookie and user via IHttpContextAccessor.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<Freeboard.Web.IOrgAccess, Freeboard.Web.AllOrgAccess>();
+builder.Services.AddScoped<Freeboard.Web.OrgSelectionResolver>();
+
 builder.Services.AddSingleton<AuthRateLimiter>();
 builder.Services.AddSingleton<SessionIssuer>();
 builder.Services.TryAddEnumerable(
@@ -270,6 +276,7 @@ app.MapGet("/", () => "Hello World!");
 
 app.MapComplianceEndpoints();
 app.MapComplianceWriteEndpoints();
+app.MapOrgSelectEndpoints();
 
 app.MapGet(ApiRoutes.ApiRoutePrefix + "/gitops/status", (IOptions<GitOpsOptions> options) =>
 {

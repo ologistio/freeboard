@@ -38,6 +38,7 @@ else
 
     @if (Model.StandardId is not null)
     {
+        <p class="mb-3 text-sm text-neutral-600">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
         <div class="card overflow-x-auto p-0">
             <table class="soa-nodes w-full text-sm" data-standard="@Model.StandardId">
                 <thead class="border-b border-neutral-200 text-left text-neutral-600">
