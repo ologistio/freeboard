@@ -4,8 +4,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Freeboard.Pages.Shared.Components.OrgSelector;
 
-/// <summary>One organisation node in the selector tree, with its accessible children.</summary>
-public sealed record OrgSelectorNode(string Id, string Title, IReadOnlyList<OrgSelectorNode> Children);
+/// <summary>
+/// One organisation node in the selector tree, with its accessible children. <see cref="Kind"/> is
+/// the raw <c>Company</c>/<c>Department</c> value, used to pick a differentiating icon in the view.
+/// </summary>
+public sealed record OrgSelectorNode(
+    string Id, string Title, string Kind, IReadOnlyList<OrgSelectorNode> Children);
 
 /// <summary>
 /// The selector view model: the accessible root nodes, the current selection, and the return target
@@ -61,6 +65,6 @@ public sealed class OrgSelectorViewComponent(OrgSelectionResolver resolver) : Vi
                 .Select(child => Build(child, childrenByParent))
                 .ToList()
             : (IReadOnlyList<OrgSelectorNode>)[];
-        return new OrgSelectorNode(organisation.Id, organisation.Title, children);
+        return new OrgSelectorNode(organisation.Id, organisation.Title, organisation.Kind, children);
     }
 }

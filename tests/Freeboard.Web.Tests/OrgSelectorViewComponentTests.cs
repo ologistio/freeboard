@@ -60,6 +60,9 @@ public sealed class OrgSelectorViewComponentTests
         Assert.Contains("org=org-eng", html, StringComparison.Ordinal);
         // A parent with children exposes an expand/collapse toggle.
         Assert.Contains("Toggle Org A", html, StringComparison.Ordinal);
+        // Each entry carries its kind so the view renders a differentiating company/department icon.
+        Assert.Contains("data-kind=\"Company\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-kind=\"Department\"", html, StringComparison.Ordinal);
     }
 
     [Fact]
