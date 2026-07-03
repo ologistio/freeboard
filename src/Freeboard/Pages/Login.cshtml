@@ -2,15 +2,25 @@
 @model Freeboard.Pages.LoginModel
 @{
     ViewData["Title"] = "Sign in";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">Sign in</h1>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Sign in</h1>
+    <p class="mt-1 text-sm text-neutral-600">Welcome back. Sign in to your Freeboard account.</p>
+</div>
 <partial name="_ErrorSummary" model="ModelState" />
-<form method="post" class="space-y-2">
+<form method="post" class="space-y-4">
     <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-    <label for="email" class="block font-semibold">Email</label>
-    <input type="email" id="email" name="email" autocomplete="username" class="block w-full border border-neutral-400 p-2" />
-    <label for="password" class="block font-semibold">Password</label>
-    <input type="password" id="password" name="password" autocomplete="current-password" class="block w-full border border-neutral-400 p-2" />
-    <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Sign in</button>
+    <div class="space-y-1.5">
+        <label for="email" class="form-label">Email</label>
+        <input type="email" id="email" name="email" autocomplete="username" placeholder="you@example.com" autofocus class="form-input" />
+    </div>
+    <div class="space-y-1.5">
+        <label for="password" class="form-label">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" placeholder="Your password" class="form-input" />
+    </div>
+    <button type="submit" class="btn-primary w-full">Sign in</button>
 </form>
-<p class="my-3"><a href="/forgot-password" class="text-[#215091] underline">Forgot your password?</a></p>
+<p class="mt-6 text-center text-sm">
+    <a href="/forgot-password" class="link">Forgot your password?</a>
+</p>

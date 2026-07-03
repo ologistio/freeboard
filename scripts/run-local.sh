@@ -36,6 +36,17 @@ need dotnet
 need openssl
 need curl
 
+# Prefer the `docker compose` plugin; fall back to the standalone `docker-compose`
+# binary for docker CLIs that ship without the plugin (e.g. orbstack).
+if docker compose version >/dev/null 2>&1; then
+  compose() { docker compose "$@"; }
+elif command -v docker-compose >/dev/null 2>&1; then
+  compose() { docker-compose "$@"; }
+else
+  echo "error: neither 'docker compose' nor 'docker-compose' is available." >&2
+  exit 1
+fi
+
 # Fresh per-run secrets. Auth keys are 32 random bytes (base64); the bootstrap
 # secret and admin password are throwaway. Nothing here is persisted to disk.
 admin_password="Local-$(openssl rand -hex 6)"
@@ -45,10 +56,24 @@ key_token="$(openssl rand -base64 32)"
 key_protect="$(openssl rand -base64 32)"
 
 echo "==> Starting local MySQL (compose)"
-docker compose -f "$compose_file" up -d --wait
+# No `--wait`: it is a `docker compose` (v2) option the standalone `docker-compose`
+# (v1) fallback does not accept. Poll for readiness instead, which works on both.
+compose -f "$compose_file" up -d
+
+echo "==> Waiting for MySQL to accept connections"
+mysql_ready=""
+for _ in $(seq 1 60); do
+  if compose -f "$compose_file" exec -T mysql \
+      mysqladmin ping -uroot -proot --silent >/dev/null 2>&1; then
+    mysql_ready=1
+    break
+  fi
+  sleep 1
+done
+[ -n "$mysql_ready" ] || { echo "error: MySQL did not become ready in time." >&2; exit 1; }
 
 echo "==> Resetting the freeboard database (fresh seed)"
-docker compose -f "$compose_file" exec -T mysql \
+compose -f "$compose_file" exec -T mysql \
   mysql -uroot -proot -e "DROP DATABASE IF EXISTS freeboard; CREATE DATABASE freeboard CHARACTER SET utf8mb4;"
 
 echo "==> Building (once)"

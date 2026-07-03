@@ -2,3 +2,131 @@
 
 /* Razor templates are the utility source; auto-detection skips wwwroot output. */
 @source "../../Pages";
+
+@theme {
+    --color-brand: #215091;
+    --color-brand-hover: #1b436f;
+    --color-danger: #b00020;
+}
+
+/* Shared form-control and messaging styling. Defined once here so pages stay
+   markup-light and every control stays visually consistent. */
+@layer components {
+    .form-label {
+        @apply block font-semibold;
+    }
+
+    .form-input {
+        @apply block w-full rounded-md border border-neutral-300 px-3 py-2 text-neutral-900 shadow-sm;
+        @apply focus:border-brand focus:ring-2 focus:ring-brand/30 focus:outline-none;
+    }
+
+    /* Buttons size to their content; add w-full where a full-width submit is wanted (auth forms). */
+    .btn-primary {
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold;
+        @apply bg-brand text-white hover:bg-brand-hover focus:ring-2 focus:ring-brand/40 focus:ring-offset-2 focus:outline-none;
+    }
+
+    .btn-secondary {
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 font-semibold text-neutral-700;
+        @apply hover:bg-neutral-50 focus:ring-2 focus:ring-neutral-300 focus:ring-offset-2 focus:outline-none;
+    }
+
+    .btn-danger {
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-danger/30 bg-white px-4 py-2 font-semibold text-danger;
+        @apply hover:bg-danger/5 focus:ring-2 focus:ring-danger/30 focus:ring-offset-2 focus:outline-none;
+    }
+
+    /* Compact button for dense contexts like table rows. Defined after the variants so its
+       padding wins. */
+    .btn-sm {
+        @apply px-3 py-1 text-sm font-medium;
+    }
+
+    .link {
+        @apply font-medium text-brand hover:underline;
+    }
+
+    /* Informational panel (a sent link, an already-done state). */
+    .notice {
+        @apply rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700;
+    }
+
+    /* Error panel (a dead-end link, a blocked action). White ground keeps the danger
+       text at an AAA contrast ratio on any page background. */
+    .notice-error {
+        @apply rounded-md border border-danger/40 bg-white px-4 py-3 text-sm text-danger;
+    }
+
+    /* Status pills. Each carries its meaning in a coloured border plus dark text on a
+       white/transparent ground, so contrast clears the AAA threshold. */
+    .badge {
+        @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium;
+    }
+
+    .badge-brand {
+        @apply border-brand/30 text-brand;
+    }
+
+    .badge-neutral {
+        @apply border-neutral-300 text-neutral-700;
+    }
+
+    .badge-success {
+        @apply border-green-700/40 text-green-900;
+    }
+
+    .badge-warn {
+        @apply border-amber-600/50 text-amber-900;
+    }
+
+    .badge-danger {
+        @apply border-danger/40 text-danger;
+    }
+
+    /* App-shell sidebar navigation. */
+    .nav-link {
+        @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-neutral-600;
+        @apply hover:bg-neutral-100 hover:text-neutral-900;
+    }
+
+    .nav-link-active {
+        @apply bg-neutral-100 text-brand hover:bg-neutral-100 hover:text-brand;
+    }
+
+    .nav-section-title {
+        @apply px-3 pt-5 pb-1 text-xs font-semibold tracking-wider text-neutral-600 uppercase;
+    }
+
+    /* App-shell user-menu item. */
+    .menu-item {
+        @apply block w-full px-4 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100;
+    }
+
+    /* Dashboard link card. */
+    .app-card {
+        @apply block rounded-lg border border-neutral-200 bg-white p-5 shadow-sm transition;
+        @apply hover:border-brand/40 hover:shadow-md;
+    }
+
+    /* Static content card. */
+    .card {
+        @apply rounded-lg border border-neutral-200 bg-white p-5 shadow-sm;
+    }
+
+    /* Account settings tab. */
+    .acct-tab {
+        @apply -mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-900;
+    }
+
+    .acct-tab-active {
+        @apply border-brand text-brand hover:text-brand;
+    }
+}
+
+@layer base {
+    /* Hide Alpine-controlled elements until Alpine initializes to avoid a flash. */
+    [x-cloak] {
+        display: none !important;
+    }
+}

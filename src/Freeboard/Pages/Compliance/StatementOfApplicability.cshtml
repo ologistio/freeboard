@@ -4,18 +4,21 @@
 @{
     ViewData["Title"] = "Statement of Applicability";
 }
-<div>
+<div class="mb-6">
     <h1 class="text-2xl font-bold">Statement of Applicability</h1>
+    <p class="mt-1 text-sm text-neutral-600">Review how each standard applies across your organisation.</p>
+</div>
 
-    @if (Model.StoreUnreachable)
-    {
-        <p class="my-3 text-[#b00020]">The compliance store could not be reached. Check the database connection.</p>
-    }
-    else
-    {
-        <form class="space-y-2" method="get">
-            <label class="block font-semibold" for="standard">Standard</label>
-            <select class="block w-full border border-neutral-400 p-2" id="standard" name="standard" onchange="this.form.submit()">
+@if (Model.StoreUnreachable)
+{
+    <p class="notice-error max-w-2xl">The compliance store could not be reached. Check the database connection.</p>
+}
+else
+{
+    <form class="mb-6 max-w-sm" method="get">
+        <div class="space-y-1.5">
+            <label class="form-label" for="standard">Standard</label>
+            <select class="form-input" id="standard" name="standard" onchange="this.form.submit()">
                 <option value="">Choose a standard</option>
                 @foreach (var standard in Model.Standards)
                 {
@@ -29,32 +32,50 @@
                     }
                 }
             </select>
-            <noscript><button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Show</button></noscript>
-        </form>
+        </div>
+        <noscript><button class="btn-primary mt-2" type="submit">Show</button></noscript>
+    </form>
 
-        @if (Model.StandardId is not null)
-        {
-            <table class="soa-nodes w-full border-collapse" data-standard="@Model.StandardId">
-                <thead>
+    @if (Model.StandardId is not null)
+    {
+        <div class="card overflow-x-auto p-0">
+            <table class="soa-nodes w-full text-sm" data-standard="@Model.StandardId">
+                <thead class="border-b border-neutral-200 text-left text-neutral-600">
                     <tr>
-                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Id</th>
-                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Title</th>
-                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Disposition</th>
-                        <th class="border-b border-neutral-300 px-2 py-1 text-left">Resolution</th>
+                        <th class="px-4 py-3 font-medium">Id</th>
+                        <th class="px-4 py-3 font-medium">Title</th>
+                        <th class="px-4 py-3 font-medium">Disposition</th>
+                        <th class="px-4 py-3 font-medium">Resolution</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="divide-y divide-neutral-100">
                     @foreach (var node in Model.Nodes)
                     {
+                        var disposition = Freeboard.Pages.Compliance.StatementOfApplicabilityModel.DispositionLabel(node);
                         <tr data-node-id="@node.Id">
-                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@node.Id</td>
-                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@node.Title</td>
-                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@Freeboard.Pages.Compliance.StatementOfApplicabilityModel.DispositionLabel(node)</td>
-                            <td class="border-b border-neutral-300 px-2 py-1 text-left">@node.Resolution.ToWireValue()</td>
+                            <td class="px-4 py-3 font-mono text-xs text-neutral-600">@node.Id</td>
+                            <td class="px-4 py-3">@node.Title</td>
+                            <td class="px-4 py-3">
+                                @if (disposition == "In")
+                                {
+                                    <span class="badge badge-success">In</span>
+                                }
+                                else if (disposition == "Out")
+                                {
+                                    <span class="badge badge-danger">Out</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-warn">@disposition</span>
+                                }
+                            </td>
+                            <td class="px-4 py-3">
+                                <span class="badge badge-neutral">@node.Resolution.ToWireValue()</span>
+                            </td>
                         </tr>
                     }
                 </tbody>
             </table>
-        }
+        </div>
     }
-</div>
+}

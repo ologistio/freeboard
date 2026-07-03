@@ -3,54 +3,70 @@
 @{
     ViewData["Title"] = "Security settings";
 }
-<h1 class="text-2xl font-bold">Security settings</h1>
+<partial name="_AccountNav" />
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Security</h1>
+    <p class="mt-1 text-sm text-neutral-600">Manage the factors used to protect your account.</p>
+</div>
 
-<section class="my-6">
-    <h2 class="mt-6 text-xl font-semibold">Authenticator app (TOTP)</h2>
-    @if (Model.TotpEnrolled)
-    {
-        <p class="my-3">An authenticator app is set up.</p>
-        <form class="space-y-2" method="post" action="/account/mfa/totp/remove" asp-antiforgery="true">
-            <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Remove authenticator</button>
-        </form>
-    }
-    else
-    {
-        <p class="my-3">No authenticator app is set up.</p>
-        <p class="my-3"><a class="text-[#215091] underline" href="/account/mfa/totp">Set up an authenticator app</a></p>
-    }
-</section>
-
-<section class="my-6">
-    <h2 class="mt-6 text-xl font-semibold">Passkeys</h2>
-    @if (Model.Passkeys.Count > 0)
-    {
-        <ul class="my-2 list-disc pl-5">
-            @foreach (var passkey in Model.Passkeys)
+<div class="max-w-2xl space-y-4">
+    <div class="card">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h2 class="font-semibold">Authenticator app</h2>
+                <p class="mt-1 text-sm text-neutral-600">
+                    @(Model.TotpEnrolled ? "An authenticator app is set up." : "Use a one-time code from an app as a second factor.")
+                </p>
+            </div>
+            @if (Model.TotpEnrolled)
             {
-                <li>
-                    <span>@(string.IsNullOrEmpty(passkey.Nickname) ? "Passkey" : passkey.Nickname)</span>
-                    <form class="space-y-2" method="post" action="/account/mfa/passkey/remove" asp-antiforgery="true">
-                        <input type="hidden" name="id" value="@passkey.Id" />
-                        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Remove</button>
-                    </form>
-                </li>
+                <form method="post" action="/account/mfa/totp/remove" asp-antiforgery="true">
+                    <button class="btn-danger" type="submit">Remove</button>
+                </form>
             }
-        </ul>
-    }
-    else
-    {
-        <p class="my-3">No passkeys are registered.</p>
-    }
-    <p class="my-3"><a class="text-[#215091] underline" href="/account/mfa/passkey">Add a passkey</a></p>
-</section>
+            else
+            {
+                <a class="btn-primary" href="/account/mfa/totp">Set up</a>
+            }
+        </div>
+    </div>
 
-<section class="my-6">
-    <h2 class="mt-6 text-xl font-semibold">Recovery codes</h2>
-    <p class="my-3">@Model.RecoveryCodesRemaining recovery code(s) remaining.</p>
-    <form class="space-y-2" method="post" action="/account/mfa/recovery" asp-antiforgery="true">
-        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Generate new recovery codes</button>
-    </form>
-</section>
+    <div class="card">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h2 class="font-semibold">Passkeys</h2>
+                <p class="mt-1 text-sm text-neutral-600">Sign in with a device passkey or security key.</p>
+            </div>
+            <a class="btn-primary" href="/account/mfa/passkey">Add passkey</a>
+        </div>
+        @if (Model.Passkeys.Count > 0)
+        {
+            <ul class="mt-4 divide-y divide-neutral-100 border-t border-neutral-100">
+                @foreach (var passkey in Model.Passkeys)
+                {
+                    <li class="flex items-center justify-between gap-4 py-3">
+                        <span>@(string.IsNullOrEmpty(passkey.Nickname) ? "Passkey" : passkey.Nickname)</span>
+                        <form method="post" action="/account/mfa/passkey/remove" asp-antiforgery="true">
+                            <input type="hidden" name="id" value="@passkey.Id" />
+                            <button class="btn-danger" type="submit">Remove</button>
+                        </form>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
 
-<p class="my-3"><a class="text-[#215091] underline" href="/account">Back to account</a></p>
+    <div class="card">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h2 class="font-semibold">Recovery codes</h2>
+                <p class="mt-1 text-sm text-neutral-600">
+                    @Model.RecoveryCodesRemaining remaining. One-time codes to sign in if you lose your other factors.
+                </p>
+            </div>
+            <form method="post" action="/account/mfa/recovery" asp-antiforgery="true">
+                <button class="btn-secondary" type="submit">Generate new</button>
+            </form>
+        </div>
+    </div>
+</div>

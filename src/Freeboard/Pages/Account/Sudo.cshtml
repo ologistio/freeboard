@@ -2,53 +2,63 @@
 @model Freeboard.Pages.Account.SudoModel
 @{
     ViewData["Title"] = "Confirm it's you";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">Confirm it's you</h1>
-<p class="my-3">For your security, confirm your identity to continue.</p>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Confirm it's you</h1>
+    <p class="mt-1 text-sm text-neutral-600">For your security, confirm your identity to continue.</p>
+</div>
 <partial name="_ErrorSummary" model="ModelState" />
 
-@if (Model.OfferPassword)
-{
-    <form method="post" class="space-y-2">
-        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-        <input type="hidden" name="factor" value="password" />
-        <label for="password" class="block font-semibold">Password</label>
-        <input type="password" id="password" name="password" autocomplete="current-password" class="block w-full border border-neutral-400 p-2" />
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Confirm</button>
-    </form>
-}
+<div class="space-y-6">
+    @if (Model.OfferPassword)
+    {
+        <form method="post" class="space-y-4">
+            <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+            <input type="hidden" name="factor" value="password" />
+            <div class="space-y-1.5">
+                <label for="password" class="form-label">Password</label>
+                <input type="password" id="password" name="password" autocomplete="current-password" placeholder="Your password" class="form-input" />
+            </div>
+            <button type="submit" class="btn-primary w-full">Confirm</button>
+        </form>
+    }
 
-@if (Model.OfferTotp)
-{
-    <form method="post" class="space-y-2">
-        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-        <input type="hidden" name="factor" value="totp" />
-        <label for="code" class="block font-semibold">Authenticator code</label>
-        <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" class="block w-full border border-neutral-400 p-2" />
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Confirm with authenticator</button>
-    </form>
-}
+    @if (Model.OfferTotp)
+    {
+        <form method="post" class="space-y-4">
+            <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+            <input type="hidden" name="factor" value="totp" />
+            <div class="space-y-1.5">
+                <label for="code" class="form-label">Authenticator code</label>
+                <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" class="form-input text-center tracking-[0.4em]" />
+            </div>
+            <button type="submit" class="btn-primary w-full">Confirm with authenticator</button>
+        </form>
+    }
 
-@if (Model.OfferRecovery)
-{
-    <form method="post" class="space-y-2">
-        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-        <input type="hidden" name="factor" value="recovery" />
-        <label for="recovery_code" class="block font-semibold">Recovery code</label>
-        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" class="block w-full border border-neutral-400 p-2" />
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Confirm with recovery code</button>
-    </form>
-}
+    @if (Model.OfferRecovery)
+    {
+        <form method="post" class="space-y-4">
+            <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+            <input type="hidden" name="factor" value="recovery" />
+            <div class="space-y-1.5">
+                <label for="recovery_code" class="form-label">Recovery code</label>
+                <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" placeholder="Recovery code" class="form-input" />
+            </div>
+            <button type="submit" class="btn-primary w-full">Confirm with recovery code</button>
+        </form>
+    }
 
-@if (Model.OfferPasskey && Model.PasskeyOptionsJson is not null)
-{
-    <div data-passkey-assert
-         data-action="/account/sudo@(string.IsNullOrEmpty(Model.ReturnUrl) ? "" : $"?returnUrl={Model.ReturnUrl}")"
-         data-antiforgery="@Model.AntiforgeryToken"
-         data-options="@Model.PasskeyOptionsJson"
-         data-correlation="@Model.PasskeyCorrelation">
-        <p class="my-3">Confirm with your passkey.</p>
-        <button type="button" data-passkey-go class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Use passkey</button>
-    </div>
-    <script src="~/js/passkey.js"></script>
-}
+    @if (Model.OfferPasskey && Model.PasskeyOptionsJson is not null)
+    {
+        <div data-passkey-assert
+             data-action="/account/sudo@(string.IsNullOrEmpty(Model.ReturnUrl) ? "" : $"?returnUrl={Model.ReturnUrl}")"
+             data-antiforgery="@Model.AntiforgeryToken"
+             data-options="@Model.PasskeyOptionsJson"
+             data-correlation="@Model.PasskeyCorrelation">
+            <button type="button" data-passkey-go class="btn-primary w-full">Use passkey</button>
+        </div>
+        <script src="~/js/passkey.js"></script>
+    }
+</div>

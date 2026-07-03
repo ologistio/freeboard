@@ -3,23 +3,33 @@
 @{
     ViewData["Title"] = "Set up an authenticator app";
 }
-<h1 class="text-2xl font-bold">Set up an authenticator app</h1>
+<partial name="_AccountNav" />
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Set up an authenticator app</h1>
+    <p class="mt-1 text-sm text-neutral-600">Use a one-time code from an app as a second factor.</p>
+</div>
 @if (Model.ProvisioningUri is null)
 {
-    <p class="my-3">Set up an authenticator app to use a one-time code as a second factor.</p>
-    <form class="space-y-2" method="post" asp-page-handler="Begin">
-        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Set up authenticator app</button>
-    </form>
+    <div class="card max-w-md space-y-4">
+        <p class="text-sm text-neutral-600">Set up an authenticator app to use a one-time code as a second factor.</p>
+        <form method="post" asp-page-handler="Begin">
+            <button class="btn-primary" type="submit">Set up authenticator app</button>
+        </form>
+    </div>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <p class="my-3">Add this to your authenticator app, then enter the 6-digit code it shows to confirm.</p>
-    <p class="my-3 break-all"><code>@Model.ProvisioningUri</code></p>
-    <form class="space-y-2" method="post">
-        <label class="block font-semibold" for="code">Confirmation code</label>
-        <input class="block w-full border border-neutral-400 p-2" type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" />
-        <button class="cursor-pointer bg-[#215091] px-4 py-2 text-white" type="submit">Confirm</button>
-    </form>
+    <div class="card max-w-md space-y-4">
+        <p class="text-sm text-neutral-600">Add this to your authenticator app, then enter the 6-digit code it shows to confirm.</p>
+        <p class="rounded-md bg-neutral-50 p-3 text-sm break-all"><code>@Model.ProvisioningUri</code></p>
+        <form method="post" class="space-y-4">
+            <div class="space-y-1.5">
+                <label class="form-label" for="code">Confirmation code</label>
+                <input class="form-input text-center tracking-[0.4em]" type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+            </div>
+            <button class="btn-primary" type="submit">Confirm</button>
+        </form>
+    </div>
 }
-<p class="my-3"><a class="text-[#215091] underline" href="/account/mfa">Back to security settings</a></p>
+<p class="mt-6 text-sm"><a class="link" href="/account/mfa">Back to security</a></p>

@@ -2,20 +2,26 @@
 @model Freeboard.Pages.Login.Mfa.MagicLinkModel
 @{
     ViewData["Title"] = "Email a sign-in link";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">Email a sign-in link</h1>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Email a sign-in link</h1>
+    <p class="mt-1 text-sm text-neutral-600">We'll email you a link to finish signing in.</p>
+</div>
 @if (Model.Sent)
 {
-    <p class="success my-3">If your account can use a sign-in link, we have sent one. Check your email and open the link in this browser to continue.</p>
+    <p class="notice success">If your account can use a sign-in link, we have sent one. Check your email and open the link in this browser to continue.</p>
 }
 else if (!Model.HasPendingChallenge)
 {
-    <p class="my-3 text-[#b00020]">Your sign-in could not be continued. <a href="/login" class="text-[#215091] underline">Start again</a>.</p>
+    <p class="notice-error">Your sign-in could not be continued.</p>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Start again</a></p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <form method="post" class="space-y-2">
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Email me a sign-in link</button>
+    <form method="post">
+        <button type="submit" class="btn-primary w-full">Email me a sign-in link</button>
     </form>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Start again</a></p>
 }

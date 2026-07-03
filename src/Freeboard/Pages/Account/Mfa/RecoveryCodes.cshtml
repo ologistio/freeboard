@@ -3,19 +3,25 @@
 @{
     ViewData["Title"] = "Recovery codes";
 }
-<h1 class="text-2xl font-bold">Recovery codes</h1>
+<partial name="_AccountNav" />
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Recovery codes</h1>
+    <p class="mt-1 text-sm text-neutral-600">Each code works once if you lose your other factors.</p>
+</div>
 @if (Model.RecoveryCodes is { Count: > 0 })
 {
-    <p class="success my-3">Save these recovery codes now - they are shown only once. Each code works once if you lose your other factors.</p>
-    <ul class="my-2 list-disc pl-5">
-        @foreach (var code in Model.RecoveryCodes)
-        {
-            <li>@code</li>
-        }
-    </ul>
+    <p class="notice success max-w-md">Save these recovery codes now - they are shown only once.</p>
+    <div class="card mt-4 max-w-md">
+        <ul class="grid grid-cols-2 gap-2 font-mono text-sm">
+            @foreach (var code in Model.RecoveryCodes)
+            {
+                <li class="rounded bg-neutral-50 px-3 py-2 text-center">@code</li>
+            }
+        </ul>
+    </div>
 }
 else
 {
-    <p class="my-3">There are no recovery codes to show. They are displayed only once, right after they are generated.</p>
+    <p class="notice max-w-md">There are no recovery codes to show. They are displayed only once, right after they are generated.</p>
 }
-<p class="my-3"><a class="text-[#215091] underline" href="/account/mfa">Back to security settings</a></p>
+<p class="mt-6 text-sm"><a class="link" href="/account/mfa">Back to security</a></p>

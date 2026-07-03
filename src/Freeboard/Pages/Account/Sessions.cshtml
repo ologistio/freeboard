@@ -3,38 +3,55 @@
 @{
     ViewData["Title"] = "Active sessions";
 }
-<h1 class="text-2xl font-bold">Active sessions</h1>
+<partial name="_AccountNav" />
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Active sessions</h1>
+    <p class="mt-1 text-sm text-neutral-600">Devices and browsers currently signed in to your account.</p>
+</div>
 @if (Model.Sessions.Count == 0)
 {
-    <p class="my-3">No active sessions.</p>
+    <p class="notice max-w-md">No active sessions.</p>
 }
 else
 {
-    <table class="w-full border-collapse">
-        <thead>
-            <tr><th class="border-b border-neutral-300 px-2 py-1 text-left">Session</th><th class="border-b border-neutral-300 px-2 py-1 text-left">Signed in</th><th class="border-b border-neutral-300 px-2 py-1 text-left">Last seen</th><th class="border-b border-neutral-300 px-2 py-1 text-left">Expires</th><th class="border-b border-neutral-300 px-2 py-1 text-left"><span class="sr-only">Actions</span></th></tr>
-        </thead>
-        <tbody>
-        @foreach (var s in Model.Sessions)
-        {
-            <tr>
-                <td class="border-b border-neutral-300 px-2 py-1 text-left">@s.Id @(s.IsCurrent ? "(this session)" : string.Empty)</td>
-                <td class="border-b border-neutral-300 px-2 py-1 text-left">@s.CreatedAt.ToString("u")</td>
-                <td class="border-b border-neutral-300 px-2 py-1 text-left">@(s.LastSeenAt?.ToString("u") ?? "-")</td>
-                <td class="border-b border-neutral-300 px-2 py-1 text-left">@s.ExpiresAt.ToString("u")</td>
-                <td class="border-b border-neutral-300 px-2 py-1 text-left">
-                    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true" class="space-y-2">
-                        <input type="hidden" name="sessionId" value="@s.Id" />
-                        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Revoke</button>
-                    </form>
-                </td>
-            </tr>
-        }
-        </tbody>
-    </table>
-    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true" class="space-y-2">
+    <div class="card overflow-x-auto p-0">
+        <table class="w-full text-sm">
+            <thead class="border-b border-neutral-200 text-left text-neutral-600">
+                <tr>
+                    <th class="px-4 py-3 font-medium">Session</th>
+                    <th class="px-4 py-3 font-medium">Signed in</th>
+                    <th class="px-4 py-3 font-medium">Last seen</th>
+                    <th class="px-4 py-3 font-medium">Expires</th>
+                    <th class="px-4 py-3 font-medium"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+            @foreach (var s in Model.Sessions)
+            {
+                <tr>
+                    <td class="px-4 py-3">
+                        <span class="font-mono text-xs text-neutral-600">@s.Id</span>
+                        @if (s.IsCurrent)
+                        {
+                            <span class="ml-1 badge badge-brand">This session</span>
+                        }
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-neutral-600">@s.CreatedAt.ToString("u")</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-neutral-600">@(s.LastSeenAt?.ToString("u") ?? "-")</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-neutral-600">@s.ExpiresAt.ToString("u")</td>
+                    <td class="px-4 py-3 text-right">
+                        <form method="post" action="/account/sessions/revoke" asp-antiforgery="true">
+                            <input type="hidden" name="sessionId" value="@s.Id" />
+                            <button type="submit" class="btn-danger">Revoke</button>
+                        </form>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <form method="post" action="/account/sessions/revoke" asp-antiforgery="true" class="mt-4">
         <input type="hidden" name="all" value="true" />
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Sign out everywhere</button>
+        <button type="submit" class="btn-danger">Sign out everywhere</button>
     </form>
 }
-<p class="my-3"><a href="/account" class="text-[#215091] underline">Back to account</a></p>

@@ -3,17 +3,24 @@
 @{
     ViewData["Title"] = "Change password";
 }
-<h1 class="text-2xl font-bold">Change password</h1>
+<partial name="_AccountNav" />
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Change password</h1>
+    <p class="mt-1 text-sm text-neutral-600">Update the password you use to sign in.</p>
+</div>
 @if (Model.Changed)
 {
-    <p class="success my-3">Your password has been changed.</p>
+    <p class="notice success mb-4 max-w-md">Your password has been changed.</p>
 }
 <partial name="_ErrorSummary" model="ModelState" />
-<form method="post" class="space-y-2">
-    <label for="old_password" class="block font-semibold">Current password</label>
-    <input type="password" id="old_password" name="old_password" autocomplete="current-password" class="block w-full border border-neutral-400 p-2" />
-    <label for="new_password" class="block font-semibold">New password</label>
-    <input type="password" id="new_password" name="new_password" autocomplete="new-password" class="block w-full border border-neutral-400 p-2" />
-    <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Change password</button>
+<form method="post" class="card max-w-md space-y-4">
+    <div class="space-y-1.5">
+        <label for="old_password" class="form-label">Current password</label>
+        <input type="password" id="old_password" name="old_password" autocomplete="current-password" class="form-input" />
+    </div>
+    <div class="space-y-1.5">
+        <label for="new_password" class="form-label">New password</label>
+        <input type="password" id="new_password" name="new_password" autocomplete="new-password" class="form-input" />
+    </div>
+    <button type="submit" class="btn-primary">Change password</button>
 </form>
-<p class="my-3"><a href="/account" class="text-[#215091] underline">Back to account</a></p>

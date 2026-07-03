@@ -2,11 +2,16 @@
 @model Freeboard.Pages.Login.Mfa.PasskeyModel
 @{
     ViewData["Title"] = "Use your passkey";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">Use your passkey</h1>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Use your passkey</h1>
+    <p class="mt-1 text-sm text-neutral-600">Confirm with your passkey to finish signing in.</p>
+</div>
 @if (!Model.HasPendingChallenge || Model.OptionsJson is null)
 {
-    <p class="my-3 text-[#b00020]">Your sign-in could not be continued. <a href="/login" class="text-[#215091] underline">Start again</a>.</p>
+    <p class="notice-error">Your sign-in could not be continued.</p>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Start again</a></p>
 }
 else
 {
@@ -15,8 +20,8 @@ else
          data-action="/login/mfa/passkey"
          data-antiforgery="@Model.AntiforgeryToken"
          data-options="@Model.OptionsJson">
-        <p class="my-3">Confirm with your passkey to finish signing in.</p>
-        <button type="button" data-passkey-go class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Use passkey</button>
+        <button type="button" data-passkey-go class="btn-primary w-full">Use passkey</button>
     </div>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Start again</a></p>
     <script src="~/js/passkey.js"></script>
 }

@@ -45,7 +45,7 @@ public sealed class MfaManagementScreenTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("authenticator app is set up", html);
         Assert.Contains("Remove", html); // passkey present -> a remove control renders.
-        Assert.Contains("3 recovery code(s) remaining", html);
+        Assert.Contains("3 remaining", html);
     }
 
     [Fact]

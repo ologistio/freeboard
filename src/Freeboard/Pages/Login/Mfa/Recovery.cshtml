@@ -2,18 +2,26 @@
 @model Freeboard.Pages.Login.Mfa.RecoveryModel
 @{
     ViewData["Title"] = "Recovery code";
+    Layout = "_AuthLayout";
 }
-<h1 class="text-2xl font-bold">Recovery code</h1>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Recovery code</h1>
+    <p class="mt-1 text-sm text-neutral-600">Enter one of your saved recovery codes to sign in.</p>
+</div>
 @if (!Model.HasPendingChallenge)
 {
-    <p class="my-3 text-[#b00020]">Your sign-in could not be continued. <a href="/login" class="text-[#215091] underline">Start again</a>.</p>
+    <p class="notice-error">Your sign-in could not be continued.</p>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Start again</a></p>
 }
 else
 {
     <partial name="_ErrorSummary" model="ModelState" />
-    <form method="post" class="space-y-2">
-        <label for="recovery_code" class="block font-semibold">Enter one of your recovery codes</label>
-        <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" class="block w-full border border-neutral-400 p-2" />
-        <button type="submit" class="cursor-pointer bg-[#215091] px-4 py-2 text-white">Verify</button>
+    <form method="post" class="space-y-4">
+        <div class="space-y-1.5">
+            <label for="recovery_code" class="form-label">Recovery code</label>
+            <input type="text" id="recovery_code" name="recovery_code" autocomplete="one-time-code" placeholder="Recovery code" autofocus class="form-input" />
+        </div>
+        <button type="submit" class="btn-primary w-full">Verify</button>
     </form>
+    <p class="mt-6 text-center text-sm"><a href="/login" class="link">Start again</a></p>
 }
