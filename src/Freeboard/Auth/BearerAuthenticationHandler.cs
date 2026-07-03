@@ -20,7 +20,7 @@ namespace Freeboard.Auth;
 ///   invalidates prior-epoch sessions race-free;
 /// - rejects an MFA challenge token presented as a bearer (it is not a session row, so the
 ///   session lookup misses -> 401);
-/// - on success builds a principal carrying the user id, session id, role, and auth-state.
+/// - on success builds a principal carrying the user id, session id, name, email, role, and auth-state.
 /// The force-reset (limited) allowlist is enforced after auth by
 /// <see cref="LimitedSessionGuardMiddleware"/>.
 /// </summary>
@@ -100,6 +100,8 @@ public sealed class BearerAuthenticationHandler(
         var identity = new ClaimsIdentity(AuthClaims.Scheme);
         identity.AddClaim(new Claim(AuthClaims.UserId, user.Id));
         identity.AddClaim(new Claim(AuthClaims.SessionId, session.Id));
+        identity.AddClaim(new Claim(AuthClaims.Name, user.Name));
+        identity.AddClaim(new Claim(AuthClaims.Email, user.Email));
         identity.AddClaim(new Claim(AuthClaims.Role, user.GlobalRole));
         identity.AddClaim(new Claim(
             AuthClaims.AuthState, ((int)session.AuthState).ToString(CultureInfo.InvariantCulture)));
