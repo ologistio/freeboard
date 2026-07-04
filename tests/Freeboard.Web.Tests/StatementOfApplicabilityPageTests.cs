@@ -23,6 +23,11 @@ public sealed class StatementOfApplicabilityPageTests
             new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
         ],
         Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+        Requirements =
+        [
+            new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
+        ],
+        RequirementScopes = [new RequirementScopeRow("rs-a", "Exclude req-a", "org-a", "req-a", "Out")],
     };
 
     private static AuthWebFactory Factory(FakeComplianceStore store, bool readOnly = false)
@@ -70,6 +75,21 @@ public sealed class StatementOfApplicabilityPageTests
         Assert.Contains("explicit", html, StringComparison.Ordinal);
         Assert.Contains("inherited", html, StringComparison.Ordinal);
         Assert.Contains("In", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RendersPerRequirementExclusionsForInScopeNode()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        // org-a excludes req-a (explicit); org-eng inherits the exclusion. Both render the deviation.
+        Assert.Contains("data-requirement-id=\"req-a\"", html, StringComparison.Ordinal);
+        Assert.Contains("req-a = Out", html, StringComparison.Ordinal);
     }
 
     [Fact]

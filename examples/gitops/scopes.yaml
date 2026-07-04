@@ -11,6 +11,14 @@ disposition: In
 ---
 apiVersion: freeboard.io/v1alpha1
 kind: Scope
+id: scope-products-ce-plus
+title: Ologist Products - Cyber Essentials Plus
+organisation: ologist-products
+standard: std-cyber-essentials-plus
+disposition: In
+---
+apiVersion: freeboard.io/v1alpha1
+kind: Scope
 id: scope-products-soc2
 title: Ologist Products - SOC 2
 organisation: ologist-products

@@ -1,0 +1,25 @@
+# Sample requirement-scopes. Each marks one organisation In or Out for one
+# requirement, layered under the standard-level scope. The owning standard is
+# derived from the requirement, so there is no `standard` field. A requirement-
+# scope applies only where the requirement's standard resolves In; nearest-
+# ancestor inheritance and child override work exactly as for standard scopes.
+#
+# Here Ologist Products excludes one Cyber Essentials Plus requirement company-
+# wide, and the Engineering department re-includes it - demonstrating both the
+# exclusion and the child-override path. Both sit under the CE+ standard scope
+# in scopes.yaml, which resolves In for ologist-products.
+apiVersion: freeboard.io/v1alpha1
+kind: RequirementScope
+id: rs-products-firewalls-01-out
+title: Exclude firewall-on-every-device company-wide
+organisation: ologist-products
+requirement: req-ce-plus-firewalls-01
+disposition: Out
+---
+apiVersion: freeboard.io/v1alpha1
+kind: RequirementScope
+id: rs-products-eng-firewalls-01-in
+title: Re-include firewall-on-every-device for Engineering
+organisation: ologist-products-eng
+requirement: req-ce-plus-firewalls-01
+disposition: In

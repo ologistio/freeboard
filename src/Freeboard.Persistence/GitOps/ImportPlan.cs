@@ -34,6 +34,13 @@ public sealed record OrganisationRowPlan(string Id, string ApiVersion, string Ti
 public sealed record ScopeRowPlan(
     string Id, string ApiVersion, string Title, string Organisation, string Standard, string Disposition);
 
+/// <summary>
+/// A requirement-scope row to upsert: organisation and requirement foreign keys plus disposition.
+/// The standard is derived from the requirement, so no standard column is carried.
+/// </summary>
+public sealed record RequirementScopeRowPlan(
+    string Id, string ApiVersion, string Title, string Organisation, string Requirement, string Disposition);
+
 /// <summary>A control -> requirement cross-ref row.</summary>
 public sealed record ControlRequirementRow(string ControlId, string RequirementId);
 
@@ -53,6 +60,8 @@ public sealed class ImportPlan
     public IReadOnlyList<OrganisationRowPlan> Organisations { get; }
 
     public IReadOnlyList<ScopeRowPlan> Scopes { get; }
+
+    public IReadOnlyList<RequirementScopeRowPlan> RequirementScopes { get; }
 
     public IReadOnlyList<ControlRequirementRow> ControlRequirements { get; }
 
@@ -75,6 +84,10 @@ public sealed class ImportPlan
         Scopes = config.Scopes
             .Select(s => new ScopeRowPlan(
                 s.Id, s.ApiVersion, s.Title, s.Organisation, s.Standard, s.Disposition))
+            .ToList();
+        RequirementScopes = config.RequirementScopes
+            .Select(s => new RequirementScopeRowPlan(
+                s.Id, s.ApiVersion, s.Title, s.Organisation, s.Requirement, s.Disposition))
             .ToList();
 
         // Distinct guards the composite-PK join table against a duplicate maps_to id within a
@@ -100,6 +113,8 @@ public sealed class ImportPlan
     public IReadOnlyList<string> OrganisationIds => Organisations.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> ScopeIds => Scopes.Select(r => r.Id).ToList();
+
+    public IReadOnlyList<string> RequirementScopeIds => RequirementScopes.Select(r => r.Id).ToList();
 
     /// <summary>
     /// Orders organisations so every parent precedes its children (topological by depth).

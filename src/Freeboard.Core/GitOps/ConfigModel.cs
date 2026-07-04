@@ -12,6 +12,7 @@ public static class GitOpsSchema
     public const string KindControl = "Control";
     public const string KindOrganisation = "Organisation";
     public const string KindScope = "Scope";
+    public const string KindRequirementScope = "RequirementScope";
 }
 
 /// <summary>
@@ -140,6 +141,26 @@ public sealed record Scope
 }
 
 /// <summary>
+/// Maps one <see cref="Organisation"/> to one <see cref="Requirement"/> with a
+/// <see cref="Disposition"/>. Identity is <see cref="Id"/>; at most one RequirementScope
+/// exists per <c>(organisation, requirement)</c> pair. The owning standard is derived from
+/// the requirement, so there is no <c>standard</c> field. Resolved under the standard-level
+/// <see cref="Scope"/>: it applies only where the requirement's standard resolves <c>In</c>.
+/// </summary>
+public sealed record RequirementScope
+{
+    public string ApiVersion { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string Organisation { get; init; } = string.Empty;
+    public string Requirement { get; init; } = string.Empty;
+
+    /// <summary>Raw disposition text as authored; validation maps it to <see cref="ScopeDisposition"/>.</summary>
+    public string Disposition { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// The aggregate config model loaded from a directory.
 /// </summary>
 public sealed record GitOpsConfig
@@ -149,4 +170,5 @@ public sealed record GitOpsConfig
     public List<Control> Controls { get; init; } = [];
     public List<Organisation> Organisations { get; init; } = [];
     public List<Scope> Scopes { get; init; } = [];
+    public List<RequirementScope> RequirementScopes { get; init; } = [];
 }

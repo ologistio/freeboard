@@ -15,12 +15,13 @@ public sealed record WriteResult(string? Error)
 }
 
 /// <summary>
-/// App-managed create/update/delete of organisations and scope dispositions over the same
-/// store the read path uses. Active only when the instance is not in GitOps read-only mode.
-/// The implementation enforces the same domain invariants as import: organisation kind in
-/// <c>Company</c>/<c>Department</c>, acyclic resolvable parents, scope references that
-/// resolve, disposition in <c>In</c>/<c>Out</c>, and at most one scope per
-/// <c>(organisation, standard)</c> pair. An invalid write returns a failing
+/// App-managed create/update/delete of organisations, scope dispositions, and requirement-scope
+/// dispositions over the same store the read path uses. Active only when the instance is not in
+/// GitOps read-only mode. The implementation enforces the same domain invariants as import:
+/// organisation kind in <c>Company</c>/<c>Department</c>, acyclic resolvable parents, references
+/// that resolve, disposition in <c>In</c>/<c>Out</c>, at most one scope per
+/// <c>(organisation, standard)</c> pair, and at most one requirement-scope per
+/// <c>(organisation, requirement)</c> pair. An invalid write returns a failing
 /// <see cref="WriteResult"/> and does not modify the store.
 /// </summary>
 public interface IComplianceWriteStore
@@ -51,4 +52,20 @@ public interface IComplianceWriteStore
 
     /// <summary>Deletes a scope disposition by its id.</summary>
     Task<WriteResult> DeleteScopeAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates or updates the requirement-scope disposition for an <c>(organisation, requirement)</c>
+    /// pair. <paramref name="id"/> is the requirement-scope's own identity. Fails if a different
+    /// requirement-scope already maps the same pair.
+    /// </summary>
+    Task<WriteResult> UpsertRequirementScopeDispositionAsync(
+        string id,
+        string title,
+        string organisation,
+        string requirement,
+        string disposition,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes a requirement-scope disposition by its id.</summary>
+    Task<WriteResult> DeleteRequirementScopeAsync(string id, CancellationToken cancellationToken = default);
 }
