@@ -1,0 +1,69 @@
+@using Freeboard.Pages.Shared.Components.OrgSelector
+@model OrgSelectorNode
+@{
+    var returnTarget = (string)ViewData["OrgSelectorReturn"]!;
+    var selectedId = ViewData["OrgSelectorSelectedId"] as string;
+    var selected = string.Equals(Model.Id, selectedId, StringComparison.Ordinal);
+    var href = $"/org/select?org={Uri.EscapeDataString(Model.Id)}&return={returnTarget}";
+    var hasChildren = Model.Children.Count > 0;
+
+    // Differentiate the two organisation kinds with a small leading icon. A company gets a building
+    // outline, a department a grouped-cells outline. Decorative only (aria-hidden): the link's
+    // accessible name stays the organisation title, and data-kind carries the distinction for tests.
+    var companyKind = string.Equals(Model.Kind, "Company", StringComparison.Ordinal);
+    var iconPath = companyKind
+        ? "M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.75A.75.75 0 019.75 16.5h4.5a.75.75 0 01.75.75V21"
+        : "M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z";
+}
+<li>
+    @if (hasChildren)
+    {
+        <div x-data="{ open: @(Model.OnSelectionPath ? "true" : "false") }">
+            <div class="flex items-center gap-1">
+                <button type="button" @@click="open = !open" :aria-expanded="open ? 'true' : 'false'"
+                        class="shrink-0 rounded p-1 text-neutral-600 hover:bg-neutral-100">
+                    <span class="sr-only">Toggle @Model.Title</span>
+                    <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-90' : ''"
+                         fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                </button>
+                <a href="@href" data-kind="@Model.Kind"
+                   class="@(selected ? "nav-link nav-link-active flex-1" : "nav-link flex-1")"
+                   aria-current="@(selected ? "true" : null)">
+                    <svg class="h-4 w-4 shrink-0 text-neutral-500" fill="none" viewBox="0 0 24 24"
+                         stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="@iconPath" />
+                    </svg>
+                    @Model.Title
+                    @if (selected)
+                    {
+                        <span class="sr-only">(current selection)</span>
+                    }
+                </a>
+            </div>
+            <ul x-show="open" x-cloak class="ml-4 mt-0.5 space-y-0.5 border-l border-neutral-200 pl-2">
+                @foreach (var child in Model.Children)
+                {
+                    <partial name="~/Pages/Shared/Components/OrgSelector/_Node.cshtml" model="child" />
+                }
+            </ul>
+        </div>
+    }
+    else
+    {
+        <a href="@href" data-kind="@Model.Kind"
+           class="@(selected ? "nav-link nav-link-active" : "nav-link")"
+           aria-current="@(selected ? "true" : null)">
+            <svg class="h-4 w-4 shrink-0 text-neutral-500" fill="none" viewBox="0 0 24 24"
+                 stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="@iconPath" />
+            </svg>
+            @Model.Title
+            @if (selected)
+            {
+                <span class="sr-only">(current selection)</span>
+            }
+        </a>
+    }
+</li>

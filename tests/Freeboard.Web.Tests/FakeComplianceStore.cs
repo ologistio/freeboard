@@ -11,6 +11,12 @@ internal sealed class FakeComplianceStore : IComplianceStore
 {
     public bool Unreachable { get; init; }
 
+    /// <summary>
+    /// When true, the reads that surface the organisation list - <see cref="GetOrganisationsAsync"/>
+    /// and <see cref="GetStatementOfApplicabilityInputsAsync"/> - throw; the other reads succeed.
+    /// </summary>
+    public bool OrganisationsUnreachable { get; init; }
+
     public IReadOnlyList<StandardRow> Standards { get; set; } = [];
 
     public IReadOnlyList<RequirementRow> Requirements { get; set; } = [];
@@ -32,8 +38,15 @@ internal sealed class FakeComplianceStore : IComplianceStore
     public Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Controls);
 
-    public Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Organisations);
+    public Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default)
+    {
+        if (OrganisationsUnreachable)
+        {
+            throw new InvalidOperationException("organisations unreachable");
+        }
+
+        return Guard(() => Organisations);
+    }
 
     public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Scopes);
@@ -41,8 +54,15 @@ internal sealed class FakeComplianceStore : IComplianceStore
     public Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default) =>
         Guard(() => RequirementScopes);
 
-    public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => new SoaInputs(Organisations, Scopes, Requirements, RequirementScopes));
+    public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
+    {
+        if (OrganisationsUnreachable)
+        {
+            throw new InvalidOperationException("organisations unreachable");
+        }
+
+        return Guard(() => new SoaInputs(Organisations, Scopes, Requirements, RequirementScopes));
+    }
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => new ComplianceCounts(

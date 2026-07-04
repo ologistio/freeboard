@@ -3,6 +3,7 @@ using Deque.AxeCore.Playwright;
 using Freeboard.Persistence.Auth;
 using Freeboard.TestInfrastructure;
 using Freeboard.Web.Tests;
+using Microsoft.Playwright;
 
 namespace Freeboard.WebE2E;
 
@@ -108,6 +109,56 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         Assert.True(
             result.Violations.Length == 0,
             $"{expectedPath}: {result.Violations.Length} accessibility violation(s)\n"
+                + string.Join("\n", result.Violations.Select(DescribeViolation)));
+    }
+
+    /// <summary>
+    /// Audits a layout page whose organisation selector is actually populated and expanded. The
+    /// theory above seeds no organisations, so its selector renders only the "All Organisations" entry
+    /// and its nested tree, selection marker, and toggle controls never appear. Here a multi-node tree
+    /// plus a NESTED selection are seeded: selecting a child auto-unrolls its ancestor path, so the
+    /// nested selected node and a toggle control are visible on load (axe skips invisible elements).
+    /// Both are asserted present before auditing - so a selector that fails to render, or hides the
+    /// selected node while collapsed, cannot pass this audit trivially.
+    /// </summary>
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
+    public async Task LayoutWithOrgSelector_HasNoAccessibilityViolations()
+    {
+        Gate();
+
+        App.Compliance.Organisations =
+        [
+            new Freeboard.Persistence.OrganisationRow("org-a", "Org A", "Company", null),
+            new Freeboard.Persistence.OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+        ];
+
+        await using var context = await NewContextAsync();
+        var token = App.SeedSession(E2EAppFixture.MakeUser("a11y-orgsel"));
+        await AddSessionCookieAsync(context, token);
+        // Select the NESTED node: its ancestor path auto-expands, so the selected node is visible
+        // without a manual toggle and axe can audit the nested tree markup and selection marker.
+        await AddOrgSelectionCookieAsync(context, "org-eng");
+
+        var page = await context.NewPageAsync();
+        await page.GotoAsync($"{App.BaseUrl}/account");
+        Assert.Equal("/account", new Uri(page.Url).AbsolutePath);
+
+        // The selection's ancestor branch is expanded on load, so a toggle control and the nested
+        // selected node are present and visible without interaction.
+        var toggle = page.GetByRole(AriaRole.Button, new() { Name = "Toggle Org A" });
+        Assert.True(await toggle.CountAsync() >= 1, "expected an expand/collapse toggle in the selector");
+
+        var nested = page.GetByRole(AriaRole.Link, new() { Name = "Engineering" });
+        await nested.First.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+        Assert.True(
+            await nested.First.IsVisibleAsync(),
+            "expected the selected nested tree node to be visible via ancestor auto-expansion");
+
+        var result = await page.RunAxe(AccessibilityStandards);
+
+        Assert.True(
+            result.Violations.Length == 0,
+            $"/account (with org selector): {result.Violations.Length} accessibility violation(s)\n"
                 + string.Join("\n", result.Violations.Select(DescribeViolation)));
     }
 

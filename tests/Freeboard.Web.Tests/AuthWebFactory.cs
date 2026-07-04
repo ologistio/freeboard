@@ -57,6 +57,12 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     public FakeComplianceStore Compliance { get; init; } = new();
 
     /// <summary>
+    /// When set, replaces the default all-access <see cref="IOrgAccess"/> so a test can inject a
+    /// restricted seam returning a strict subset of the supplied organisation list.
+    /// </summary>
+    public IOrgAccess? OrgAccess { get; init; }
+
+    /// <summary>
     /// Captures every log entry the app emits at information level and above, so a test can assert a
     /// credential (e.g. a reset token) never reaches the logs. Each entry records both the rendered
     /// message and the exception's full string - a real provider renders the exception separately, so
@@ -118,6 +124,12 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IComplianceStore>();
             services.AddSingleton<IComplianceStore>(Compliance);
+
+            if (OrgAccess is not null)
+            {
+                services.RemoveAll<IOrgAccess>();
+                services.AddSingleton(OrgAccess);
+            }
 
             if (IncludeTestProbe)
             {

@@ -77,6 +77,25 @@ scopes are not applied there. The endpoint SHALL be GET-only and SHALL NOT be bl
 by GitOps read-only mode. Node output SHALL be deterministically ordered by `id`, and
 each node's per-requirement list SHALL be ordered by requirement `id`.
 
+The projection SHALL always be computed over the full organisation tree so that
+nearest-ancestor inheritance is correct. The `/compliance/statement-of-applicability`
+view page SHALL then render only the nodes in scope for the active organisation
+selection, bounded by the accessible set: when an organisation is selected, the
+selected node and its descendants intersected with the accessible set; when the
+selection is "All Organisations", every accessible node. Because the projection is
+computed over the full tree before the view is scoped, a node whose disposition is
+inherited from an ancestor above the selected node SHALL keep that inherited value.
+The scoping SHALL be applied server-side so out-of-scope nodes are absent from the
+rendered page. The page SHALL name the active organisation scope above the projection:
+the selected organisation's title when one is selected, or "All Organisations" when
+none is. The page SHALL derive its resolved selection from its own reads - its own
+organisation list, its accessible set, and the selection cookie it reads itself - and
+SHALL NOT take the resolved selection from the shared request-scoped selection
+resolver, so a transient failure that degrades only the resolver's own read cannot
+drop the page's scope to "All Organisations". The JSON endpoint
+`GET /api/v1/freeboard/statement-of-applicability/{standardId}`
+is unaffected and continues to return every node for the standard.
+
 Authentication precedes this read and shares the same backing store as the
 compliance store. So the HTTP 503 unreachable-store response describes the case
 where the request is authenticated and only the compliance store is unavailable to
@@ -118,6 +137,54 @@ authentication failure (HTTP 401 for the endpoint, a `/login` redirect for the p
   of Applicability
 - **THEN** the endpoint returns HTTP 503 with an RFC 7807 problem body rather than
   an unhandled exception
+
+#### Scenario: Page scopes to the selected organisation subtree
+
+- **WHEN** an organisation is the active selection and an authenticated user opens
+  the Statement of Applicability page for a standard
+- **THEN** the page renders only that organisation and its descendants and omits
+  organisation nodes outside that subtree
+
+#### Scenario: Inherited disposition from an ancestor above the selection is kept
+
+- **WHEN** a company is marked `In` for a standard, its department has no scope, and
+  the department is the active selection
+- **THEN** the page renders the department as `In` `inherited`, resolved from the
+  company that is outside the rendered subtree
+
+#### Scenario: Page keeps its store-unreachable notice under an outage
+
+- **WHEN** the store is unreachable and an authenticated user opens the Statement of
+  Applicability page, which reads its standards and its Statement-of-Applicability
+  inputs (organisations, scopes, requirements, requirement-scopes) directly from the
+  store and derives its entire scope from its own reads - its accessible set from its
+  own organisation read and its resolved selection by reading the selection cookie
+  itself - consuming the shared server-side selection resolver for nothing
+- **THEN** the page renders its store-unreachable notice rather than an empty table,
+  driven by its own direct store reads failing, so the outage still surfaces on the
+  page and is not mistaken for a healthy result with no organisations
+
+#### Scenario: Inputs load failure after standards still shows the notice
+
+- **WHEN** the standards load succeeds but the Statement-of-Applicability inputs load
+  (which carries the organisation list) fails
+- **THEN** the page renders its store-unreachable notice rather than a healthy but
+  empty table, because it reads its organisation list from its own inputs read and does
+  not take the selection resolver's degraded empty list
+
+#### Scenario: All Organisations renders every node
+
+- **WHEN** the active selection is "All Organisations" and an authenticated user
+  opens the Statement of Applicability page for a standard
+- **THEN** the page renders every accessible organisation node for the standard,
+  ordered by `id`
+
+#### Scenario: Page names the active scope
+
+- **WHEN** an authenticated user opens the Statement of Applicability page with an
+  organisation selected, and separately with no selection
+- **THEN** the page names that organisation's title as the active scope above the
+  projection in the first case, and names "All Organisations" in the second
 
 ### Requirement: Requirement disposition resolves by nearest-ancestor inheritance under the standard
 
