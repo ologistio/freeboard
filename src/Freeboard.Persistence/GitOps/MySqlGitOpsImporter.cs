@@ -8,11 +8,11 @@ namespace Freeboard.Persistence.GitOps;
 /// Imports a validated <see cref="GitOpsConfig"/> into MySQL in one DML transaction.
 /// FK-safe order: upsert standards (with metadata), requirements (reference standards), controls,
 /// organisations (parent-before-child); prune absent scopes then upsert the new scope set (which
-/// references organisations and standards); prune absent requirement-scopes then upsert the new set
-/// (which references organisations and requirements); replace all control->requirement join rows;
+/// references organisations and standards); replace the whole requirement-scope set (delete-all then
+/// insert, referencing organisations and requirements); replace all control->requirement join rows;
 /// then hard-remove absent domain rows (organisations child-before-parent; controls; requirements
 /// before standards, so a removed standard's requirements clear before the RESTRICT FK is hit;
-/// standards). The requirement-scope prune precedes the absent-organisation and absent-requirement
+/// standards). The requirement-scope replace precedes the absent-organisation and absent-requirement
 /// deletes, keeping those RESTRICT FKs safe. Matches on id only.
 /// </summary>
 public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) : IGitOpsImporter
@@ -39,12 +39,15 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await DeleteAbsentAsync(connection, transaction, "scopes", plan.ScopeIds, cancellationToken).ConfigureAwait(false);
         await UpsertScopesAsync(connection, transaction, plan.Scopes, now, cancellationToken).ConfigureAwait(false);
 
-        // 3. Prune absent requirement-scopes before upserting the new set (same rename-safety reason
-        //    as scopes above, keyed on (organisation, requirement)). Requirement-scopes reference
-        //    organisations and requirements, both already upserted. Pruning here, before the absent-
-        //    organisation and absent-requirement deletes below, keeps those RESTRICT FKs safe.
-        await DeleteAbsentAsync(connection, transaction, "requirement_scopes", plan.RequirementScopeIds, cancellationToken).ConfigureAwait(false);
-        await UpsertRequirementScopesAsync(connection, transaction, plan.RequirementScopes, now, cancellationToken).ConfigureAwait(false);
+        // 3. Replace the whole requirement-scope set (delete-all then insert). A plain upsert is
+        //    unsafe here: requirement_scopes has both a primary key (id) and a unique
+        //    (organisation, requirement) key, so when rows swap pairs while keeping their ids,
+        //    INSERT ... ON DUPLICATE KEY UPDATE can match the pair key and update the wrong row.
+        //    Nothing references requirement_scopes, so a whole-set replace is safe and correct; it
+        //    subsumes the absent-row prune. It re-inserts only rows referencing in-config
+        //    organisations and requirements, so the absent-organisation and absent-requirement
+        //    deletes below stay RESTRICT-safe.
+        await ReplaceRequirementScopesAsync(connection, transaction, plan.RequirementScopes, now, cancellationToken).ConfigureAwait(false);
 
         // 4. Replace all control->requirement join rows for the imported set (whole-set delete+insert).
         await ReplaceControlRequirementsAsync(connection, transaction, plan, cancellationToken).ConfigureAwait(false);
@@ -195,24 +198,27 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             .ConfigureAwait(false);
     }
 
-    private static async Task UpsertRequirementScopesAsync(
+    private static async Task ReplaceRequirementScopesAsync(
         DbConnection connection,
         DbTransaction transaction,
         IReadOnlyList<RequirementScopeRowPlan> rows,
         DateTime now,
         CancellationToken cancellationToken)
     {
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM requirement_scopes;", transaction: transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+
         if (rows.Count == 0)
         {
             return;
         }
 
+        // Plain INSERT after the delete: config validation guarantees unique ids and unique
+        // (organisation, requirement) pairs within the set, so no duplicate key can arise.
         const string sql =
             "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now) "
-            + "ON DUPLICATE KEY UPDATE "
-            + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
-            + "requirement_id = VALUES(requirement_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);";
+            + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now);";
 
         var parameters = rows.Select(r => new
         {

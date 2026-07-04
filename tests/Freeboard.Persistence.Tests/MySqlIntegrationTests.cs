@@ -626,8 +626,8 @@ public sealed class MySqlIntegrationTests
             [Rqs("rs-a", "org-gone", "req-gone")]));
 
         // New config drops the organisation and the requirement (and the requirement-scope). The
-        // importer must prune the requirement-scope before the absent-organisation and absent-
-        // requirement deletes, so neither RESTRICT FK is hit.
+        // importer must replace the requirement-scope set before the absent-organisation and
+        // absent-requirement deletes, so neither RESTRICT FK is hit.
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
@@ -654,7 +654,7 @@ public sealed class MySqlIntegrationTests
             [Rqs("rs-old", "org-a", "req-a", "Out")]));
 
         // Rename the requirement-scope id while keeping the same (organisation, requirement) pair.
-        // Prune-then-upsert frees the unique key so the new id replaces the old row.
+        // The whole-set replace drops the old row and inserts the new id, so no unique-key collision.
         await importer.ImportAsync(Config(
             [Std("std-a")], [], [Org("org-a")], [],
             [Req("req-a", "std-a")],
@@ -665,6 +665,34 @@ public sealed class MySqlIntegrationTests
         Assert.Equal("org-a", requirementScope.Organisation);
         Assert.Equal("req-a", requirementScope.Requirement);
         Assert.Equal("Out", requirementScope.Disposition);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncSwappingRequirementScopePairsKeepingIdsSurvives()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a"), Org("org-b")], [],
+            [Req("req-x", "std-a"), Req("req-y", "std-a")],
+            [Rqs("rs-1", "org-a", "req-x", "Out"), Rqs("rs-2", "org-b", "req-y", "In")]));
+
+        // Two requirement-scopes exchange their (organisation, requirement) pairs while keeping
+        // their ids. Neither id is absent, so a prune-then-upsert would not free the pairs and the
+        // upsert could match the unique pair key instead of the primary key, corrupting the result.
+        // The whole-set replace re-inserts both correctly.
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a"), Org("org-b")], [],
+            [Req("req-x", "std-a"), Req("req-y", "std-a")],
+            [Rqs("rs-1", "org-b", "req-y", "Out"), Rqs("rs-2", "org-a", "req-x", "In")]));
+
+        var scopes = (await store.GetRequirementScopesAsync()).ToDictionary(r => r.Id);
+        Assert.Equal(2, scopes.Count);
+        Assert.Equal(("org-b", "req-y", "Out"), (scopes["rs-1"].Organisation, scopes["rs-1"].Requirement, scopes["rs-1"].Disposition));
+        Assert.Equal(("org-a", "req-x", "In"), (scopes["rs-2"].Organisation, scopes["rs-2"].Requirement, scopes["rs-2"].Disposition));
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
