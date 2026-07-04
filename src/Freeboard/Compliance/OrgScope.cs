@@ -28,18 +28,16 @@ public static class OrgScope
         }
 
         var childrenByParent = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var organisation in organisations)
+        foreach (var organisation in organisations.Where(o => o.Parent is not null))
         {
-            if (organisation.Parent is { } parent)
+            var parent = organisation.Parent!;
+            if (!childrenByParent.TryGetValue(parent, out var children))
             {
-                if (!childrenByParent.TryGetValue(parent, out var children))
-                {
-                    children = [];
-                    childrenByParent[parent] = children;
-                }
-
-                children.Add(organisation.Id);
+                children = [];
+                childrenByParent[parent] = children;
             }
+
+            children.Add(organisation.Id);
         }
 
         // Walk the selected node and its descendants; the visited set doubles as the result and
