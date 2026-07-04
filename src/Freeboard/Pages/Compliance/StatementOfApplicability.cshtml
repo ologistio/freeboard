@@ -47,6 +47,7 @@ else
                         <th class="px-4 py-3 font-medium">Title</th>
                         <th class="px-4 py-3 font-medium">Disposition</th>
                         <th class="px-4 py-3 font-medium">Resolution</th>
+                        <th class="px-4 py-3 font-medium">Requirement deviations</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-neutral-100">
@@ -72,6 +73,21 @@ else
                             </td>
                             <td class="px-4 py-3">
                                 <span class="badge badge-neutral">@node.Resolution.ToWireValue()</span>
+                            </td>
+                            <td class="px-4 py-3">
+                                @if (node.Requirements.Count == 0)
+                                {
+                                    <span class="text-neutral-500">-</span>
+                                }
+                                else
+                                {
+                                    <ul class="list-none space-y-1">
+                                        @foreach (var requirement in node.Requirements)
+                                        {
+                                            <li class="text-xs" data-requirement-id="@requirement.Requirement">@requirement.Requirement = @requirement.Disposition (@requirement.Resolution.ToWireValue())</li>
+                                        }
+                                    </ul>
+                                }
                             </td>
                         </tr>
                     }

@@ -37,13 +37,15 @@ public sealed class MySqlIntegrationTests
         IEnumerable<Control> controls,
         IEnumerable<Organisation>? organisations = null,
         IEnumerable<Scope>? scopes = null,
-        IEnumerable<Requirement>? requirements = null) => new()
+        IEnumerable<Requirement>? requirements = null,
+        IEnumerable<RequirementScope>? requirementScopes = null) => new()
         {
             Standards = standards.ToList(),
             Requirements = requirements?.ToList() ?? [],
             Controls = controls.ToList(),
             Organisations = organisations?.ToList() ?? [],
             Scopes = scopes?.ToList() ?? [],
+            RequirementScopes = requirementScopes?.ToList() ?? [],
         };
 
     private static Standard Std(
@@ -83,6 +85,18 @@ public sealed class MySqlIntegrationTests
             Disposition = disposition,
         };
 
+    private static RequirementScope Rqs(
+        string id, string organisation, string requirement, string disposition = "Out", string title = "T", string apiVersion = "v1") =>
+        new()
+        {
+            Id = id,
+            Title = title,
+            ApiVersion = apiVersion,
+            Organisation = organisation,
+            Requirement = requirement,
+            Disposition = disposition,
+        };
+
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task MigrateEmptySchemaCreatesAllTablesWithBinaryCollation()
     {
@@ -101,7 +115,7 @@ public sealed class MySqlIntegrationTests
         foreach (var t in new[]
                  {
                      "standards", "requirements", "controls", "organisations", "scopes",
-                     "control_requirements", "schema_migrations",
+                     "requirement_scopes", "control_requirements", "schema_migrations",
                  })
         {
             Assert.Contains(t, tables);
@@ -186,6 +200,70 @@ public sealed class MySqlIntegrationTests
             + "WHERE table_schema = DATABASE() AND table_name = 'scopes' "
             + "AND index_name = 'uq_scopes_organisation_standard' AND non_unique = 0;");
         Assert.Equal(2, uniqueKeyCols);
+
+        // requirement_scopes id/organisation_id/requirement_id are binary-collated.
+        foreach (var column in new[] { "id", "organisation_id", "requirement_id" })
+        {
+            var col = await conn.ExecuteScalarAsync<string>(
+                "SELECT collation_name FROM information_schema.columns "
+                + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' AND column_name = @Column;",
+                new { Column = column });
+            Assert.Equal("utf8mb4_bin", col);
+        }
+
+        // requirement_scopes FKs to organisations and requirements.
+        var requirementScopeFks = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.key_column_usage "
+            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
+            + "AND referenced_table_name IN ('organisations', 'requirements');");
+        Assert.Equal(2, requirementScopeFks);
+
+        // Unique key on (organisation_id, requirement_id) and the requirement_id index.
+        var requirementScopeUnique = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.statistics "
+            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
+            + "AND index_name = 'uq_requirement_scopes_organisation_requirement' AND non_unique = 0;");
+        Assert.Equal(2, requirementScopeUnique);
+        var requirementScopeIndex = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.statistics "
+            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
+            + "AND index_name = 'ix_requirement_scopes_requirement_id';");
+        Assert.True(requirementScopeIndex >= 1);
+
+        // Both requirement_scopes FKs are ON DELETE RESTRICT (a referenced organisation or
+        // requirement cannot be dropped while a requirement-scope still binds it).
+        var requirementScopeDeleteRules = (await conn.QueryAsync<string>(
+            "SELECT delete_rule FROM information_schema.referential_constraints "
+            + "WHERE constraint_schema = DATABASE() AND table_name = 'requirement_scopes';"))
+            .ToArray();
+        Assert.Equal(2, requirementScopeDeleteRules.Length);
+        Assert.All(requirementScopeDeleteRules, rule => Assert.Equal("RESTRICT", rule));
+
+        // The unique key spans (organisation_id, requirement_id) in that column order.
+        var requirementScopeUniqueColumns = (await conn.QueryAsync<string>(
+            "SELECT column_name FROM information_schema.statistics "
+            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
+            + "AND index_name = 'uq_requirement_scopes_organisation_requirement' "
+            + "ORDER BY seq_in_index;"))
+            .ToArray();
+        Assert.Equal(["organisation_id", "requirement_id"], requirementScopeUniqueColumns);
+
+        // Two requirement-scope ids differing only in case stay distinct rows under utf8mb4_bin.
+        // Each binds a distinct requirement so the (organisation, requirement) unique key is not hit.
+        await conn.ExecuteAsync(
+            "INSERT INTO standards (id, api_version, title, created_at, updated_at) VALUES ('s', 'v1', 'S', NOW(6), NOW(6));");
+        await conn.ExecuteAsync(
+            "INSERT INTO requirements (id, api_version, title, standard_id, theme, statement, citation_label, citation_url, created_at, updated_at) "
+            + "VALUES ('r', 'v1', 'R', 's', 'T', 'S', 'L', 'https://example.com/r', NOW(6), NOW(6)), "
+            + "('R', 'v1', 'R', 's', 'T', 'S', 'L', 'https://example.com/R', NOW(6), NOW(6));");
+        await conn.ExecuteAsync(
+            "INSERT INTO organisations (id, api_version, title, kind, created_at, updated_at) VALUES ('o', 'v1', 'O', 'Company', NOW(6), NOW(6));");
+        await conn.ExecuteAsync(
+            "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
+            + "VALUES ('rs-a', 'v1', 'T', 'o', 'r', 'Out', NOW(6), NOW(6)), ('RS-A', 'v1', 'T', 'o', 'R', 'Out', NOW(6), NOW(6));");
+        var distinctRows = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM requirement_scopes WHERE id IN ('rs-a', 'RS-A');");
+        Assert.Equal(2, distinctRows);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -274,10 +352,17 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-a", ["req-a", "req-b"])],
             [Org("org-a"), Org("org-eng", "Department", "org-a")],
             [Scp("scope-a", "org-a", "std-a")],
-            [Req("req-a", "std-a"), Req("req-b", "std-b")]));
+            [Req("req-a", "std-a"), Req("req-b", "std-b")],
+            [Rqs("rs-a", "org-a", "req-a")]));
 
         var counts = await store.GetCountsAsync();
-        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1), counts);
+        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1, 1), counts);
+
+        var requirementScope = Assert.Single(await store.GetRequirementScopesAsync());
+        Assert.Equal("rs-a", requirementScope.Id);
+        Assert.Equal("org-a", requirementScope.Organisation);
+        Assert.Equal("req-a", requirementScope.Requirement);
+        Assert.Equal("Out", requirementScope.Disposition);
 
         var standard = (await store.GetStandardsAsync()).Single(s => s.Id == "std-a");
         Assert.Equal("3.3", standard.Version);
@@ -521,6 +606,152 @@ public sealed class MySqlIntegrationTests
 
         Assert.Single(await store.GetStandardsAsync());
         Assert.Equal(["req-a"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRemovesOrganisationAndRequirementThatHadRequirementScope()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        // Old state: rs-a binds org-gone to req-gone (a requirement of std-a). Both FKs RESTRICT.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [],
+            [Org("org-keep"), Org("org-gone")],
+            [],
+            [Req("req-keep", "std-a"), Req("req-gone", "std-a")],
+            [Rqs("rs-a", "org-gone", "req-gone")]));
+
+        // New config drops the organisation and the requirement (and the requirement-scope). The
+        // importer must replace the requirement-scope set before the absent-organisation and
+        // absent-requirement deletes, so neither RESTRICT FK is hit.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [],
+            [Org("org-keep")],
+            [],
+            [Req("req-keep", "std-a")]));
+
+        Assert.Empty(await store.GetRequirementScopesAsync());
+        Assert.Equal(["org-keep"], (await store.GetOrganisationsAsync()).Select(o => o.Id).ToArray());
+        Assert.Equal(["req-keep"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRenamedRequirementScopeKeepingSamePairSurvives()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")], [],
+            [Req("req-a", "std-a")],
+            [Rqs("rs-old", "org-a", "req-a", "Out")]));
+
+        // Rename the requirement-scope id while keeping the same (organisation, requirement) pair.
+        // The whole-set replace drops the old row and inserts the new id, so no unique-key collision.
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")], [],
+            [Req("req-a", "std-a")],
+            [Rqs("rs-new", "org-a", "req-a", "Out")]));
+
+        var requirementScope = Assert.Single(await store.GetRequirementScopesAsync());
+        Assert.Equal("rs-new", requirementScope.Id);
+        Assert.Equal("org-a", requirementScope.Organisation);
+        Assert.Equal("req-a", requirementScope.Requirement);
+        Assert.Equal("Out", requirementScope.Disposition);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncSwappingRequirementScopePairsKeepingIdsSurvives()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a"), Org("org-b")], [],
+            [Req("req-x", "std-a"), Req("req-y", "std-a")],
+            [Rqs("rs-1", "org-a", "req-x", "Out"), Rqs("rs-2", "org-b", "req-y", "In")]));
+
+        // Two requirement-scopes exchange their (organisation, requirement) pairs while keeping
+        // their ids. Neither id is absent, so a prune-then-upsert would not free the pairs and the
+        // upsert could match the unique pair key instead of the primary key, corrupting the result.
+        // The whole-set replace re-inserts both correctly.
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a"), Org("org-b")], [],
+            [Req("req-x", "std-a"), Req("req-y", "std-a")],
+            [Rqs("rs-1", "org-b", "req-y", "Out"), Rqs("rs-2", "org-a", "req-x", "In")]));
+
+        var scopes = (await store.GetRequirementScopesAsync()).ToDictionary(r => r.Id);
+        Assert.Equal(2, scopes.Count);
+        Assert.Equal(("org-b", "req-y", "Out"), (scopes["rs-1"].Organisation, scopes["rs-1"].Requirement, scopes["rs-1"].Disposition));
+        Assert.Equal(("org-a", "req-x", "In"), (scopes["rs-2"].Organisation, scopes["rs-2"].Requirement, scopes["rs-2"].Disposition));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task WriteStoreUpsertsRequirementScopeAndRejectsInvalidWrites()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+        var writeStore = new MySqlComplianceWriteStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")], [], [Org("org-a")], [], [Req("req-a", "std-a")]));
+
+        // A valid app-managed upsert persists and reads back through the read store.
+        Assert.True((await writeStore.UpsertRequirementScopeDispositionAsync("rs-a", "T", "org-a", "req-a", "Out")).Ok);
+        var persisted = Assert.Single(await store.GetRequirementScopesAsync());
+        Assert.Equal("rs-a", persisted.Id);
+        Assert.Equal("org-a", persisted.Organisation);
+        Assert.Equal("req-a", persisted.Requirement);
+        Assert.Equal("Out", persisted.Disposition);
+
+        // Each invariant violation returns WriteResult.Fail (the 422-mapped failure) and writes nothing.
+        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "absent-org", "req-a", "Out")).Ok);
+        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "absent-req", "Out")).Ok);
+        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "req-a", "Sideways")).Ok);
+        Assert.Single(await store.GetRequirementScopesAsync());
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task GetStatementOfApplicabilityInputsMatchesIndividualReads()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [],
+            [Org("org-a"), Org("org-eng", "Department", "org-a")],
+            [Scp("scope-a", "org-a", "std-a")],
+            [Req("req-a", "std-a"), Req("req-b", "std-a")],
+            [Rqs("rs-a", "org-a", "req-a")]));
+
+        var inputs = await store.GetStatementOfApplicabilityInputsAsync();
+
+        Assert.Equal(
+            (await store.GetOrganisationsAsync()).Select(o => o.Id).ToArray(),
+            inputs.Organisations.Select(o => o.Id).ToArray());
+        Assert.Equal(
+            (await store.GetScopesAsync()).Select(s => s.Id).ToArray(),
+            inputs.Scopes.Select(s => s.Id).ToArray());
+        Assert.Equal(
+            (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray(),
+            inputs.Requirements.Select(r => r.Id).ToArray());
+        Assert.Equal(
+            (await store.GetRequirementScopesAsync()).Select(r => r.Id).ToArray(),
+            inputs.RequirementScopes.Select(r => r.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

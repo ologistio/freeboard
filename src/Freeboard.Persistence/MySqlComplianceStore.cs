@@ -83,6 +83,53 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         return rows.ToList();
     }
 
+    public async Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<RequirementScopeRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, requirement_id AS Requirement, "
+            + "disposition AS Disposition FROM requirement_scopes ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.ToList();
+    }
+
+    public async Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        // One consistent snapshot so the four SoA inputs cannot straddle a concurrent gitops sync
+        // commit and pair, say, old organisations with new requirement-scopes.
+        await using var transaction = await connection
+            .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
+
+        var organisations = (await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, kind AS Kind, parent_id AS Parent FROM organisations ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var scopes = (await connection.QueryAsync<ScopeRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, standard_id AS Standard, "
+            + "disposition AS Disposition FROM scopes ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var requirements = (await connection.QueryAsync<RequirementRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, standard_id AS Standard, theme AS Theme, statement AS Statement, "
+            + "guidance AS Guidance, citation_label AS CitationLabel, citation_url AS CitationUrl "
+            + "FROM requirements ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var requirementScopes = (await connection.QueryAsync<RequirementScopeRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, requirement_id AS Requirement, "
+            + "disposition AS Disposition FROM requirement_scopes ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return new SoaInputs(organisations, scopes, requirements, requirementScopes);
+    }
+
     public async Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -91,14 +138,16 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
             + "(SELECT COUNT(*) FROM requirements) AS Requirements, "
             + "(SELECT COUNT(*) FROM organisations) AS Organisations, "
-            + "(SELECT COUNT(*) FROM scopes) AS Scopes;",
+            + "(SELECT COUNT(*) FROM scopes) AS Scopes, "
+            + "(SELECT COUNT(*) FROM requirement_scopes) AS RequirementScopes;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return new ComplianceCounts(counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes);
+        return new ComplianceCounts(
+            counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes, counts.RequirementScopes);
     }
 }

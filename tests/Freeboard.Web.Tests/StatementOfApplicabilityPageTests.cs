@@ -26,6 +26,11 @@ public sealed class StatementOfApplicabilityPageTests
             new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
         ],
         Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+        Requirements =
+        [
+            new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
+        ],
+        RequirementScopes = [new RequirementScopeRow("rs-a", "Exclude req-a", "org-a", "req-a", "Out")],
     };
 
     // company -> dept -> team, plus a separate sibling company. std-a is explicit In at the company,
@@ -111,6 +116,21 @@ public sealed class StatementOfApplicabilityPageTests
         Assert.Contains("explicit", html, StringComparison.Ordinal);
         Assert.Contains("inherited", html, StringComparison.Ordinal);
         Assert.Contains("In", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RendersPerRequirementExclusionsForInScopeNode()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        // org-a excludes req-a (explicit); org-eng inherits the exclusion. Both render the deviation.
+        Assert.Contains("data-requirement-id=\"req-a\"", html, StringComparison.Ordinal);
+        Assert.Contains("req-a = Out", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -281,11 +301,12 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
-    public async Task OrganisationLoadFailingAloneStillRendersNotice()
+    public async Task InputsLoadFailingAfterStandardsStillRendersNotice()
     {
-        // Standards and scopes succeed, but the organisation load throws: the page reads its org list
-        // directly, so its own read failing raises the notice - it does not take the resolver's
-        // degraded empty list and render a healthy empty table.
+        // The standards read succeeds, but the Statement-of-Applicability inputs read (which carries
+        // the organisation list) throws: the page reads its organisations from its own inputs read,
+        // so that read failing raises the notice - it does not take the layout resolver's degraded
+        // empty list and render a healthy empty table.
         var store = ScopedStore();
         using var factory = Factory(new FakeComplianceStore
         {

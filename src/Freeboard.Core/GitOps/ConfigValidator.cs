@@ -4,9 +4,10 @@ namespace Freeboard.Core.GitOps;
 /// Validates a loaded <see cref="GitOpsConfig"/>. Collects every error as a
 /// <see cref="Diagnostic"/>; never throws and never writes output. Owns: required
 /// fields, apiVersion value, unique id per kind, reference resolution, the organisation
-/// tree (acyclic, resolvable parents), and the scope mapping (resolvable references,
-/// disposition enum, unique organisation/standard pair). Does NOT re-check kind (the
-/// loader owns kind-routing).
+/// tree (acyclic, resolvable parents), the scope mapping (resolvable references,
+/// disposition enum, unique organisation/standard pair), and the requirement-scope mapping
+/// (resolvable references, disposition enum, unique organisation/requirement pair). Does NOT
+/// re-check kind (the loader owns kind-routing).
 /// </summary>
 public static class ConfigValidator
 {
@@ -37,6 +38,7 @@ public static class ConfigValidator
         ValidateControls(config, requirementIds, diagnostics);
         var organisationIds = ValidateOrganisations(config, diagnostics);
         ValidateScopes(config, organisationIds, standardIds, diagnostics);
+        ValidateRequirementScopes(config, organisationIds, requirementIds, diagnostics);
 
         return diagnostics;
     }
@@ -329,6 +331,70 @@ public static class ConfigValidator
                 {
                     Message = $"{GitOpsSchema.KindScope} maps organisation '{scope.Organisation}' to standard "
                         + $"'{scope.Standard}' more than once.",
+                });
+            }
+        }
+    }
+
+    private static void ValidateRequirementScopes(
+        GitOpsConfig config,
+        HashSet<string> organisationIds,
+        HashSet<string> requirementIds,
+        List<Diagnostic> diagnostics)
+    {
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var seenPairs = new HashSet<(string, string)>();
+
+        foreach (var requirementScope in config.RequirementScopes)
+        {
+            CheckApiVersion(requirementScope.ApiVersion, GitOpsSchema.KindRequirementScope, requirementScope.Id, diagnostics);
+            CheckRequired(requirementScope.Id, GitOpsSchema.KindRequirementScope, "id", requirementScope.Title, diagnostics);
+            CheckRequired(requirementScope.Title, GitOpsSchema.KindRequirementScope, "title", requirementScope.Id, diagnostics);
+            CheckRequired(requirementScope.Organisation, GitOpsSchema.KindRequirementScope, "organisation", requirementScope.Id, diagnostics);
+            CheckRequired(requirementScope.Requirement, GitOpsSchema.KindRequirementScope, "requirement", requirementScope.Id, diagnostics);
+            CheckRequired(requirementScope.Disposition, GitOpsSchema.KindRequirementScope, "disposition", requirementScope.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(requirementScope.Organisation) && !organisationIds.Contains(requirementScope.Organisation))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindRequirementScope} '{Describe(requirementScope.Id)}' references unknown Organisation id "
+                        + $"'{requirementScope.Organisation}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(requirementScope.Requirement) && !requirementIds.Contains(requirementScope.Requirement))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindRequirementScope} '{Describe(requirementScope.Id)}' references unknown Requirement id "
+                        + $"'{requirementScope.Requirement}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(requirementScope.Disposition) && !TryParseDisposition(requirementScope.Disposition, out _))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindRequirementScope} '{Describe(requirementScope.Id)}' has unknown disposition "
+                        + $"'{requirementScope.Disposition}'. Expected '{nameof(ScopeDisposition.In)}' or "
+                        + $"'{nameof(ScopeDisposition.Out)}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(requirementScope.Id) && !seenIds.Add(requirementScope.Id))
+            {
+                diagnostics.Add(Dup(GitOpsSchema.KindRequirementScope, requirementScope.Id));
+            }
+
+            if (!string.IsNullOrEmpty(requirementScope.Organisation)
+                && !string.IsNullOrEmpty(requirementScope.Requirement)
+                && !seenPairs.Add((requirementScope.Organisation, requirementScope.Requirement)))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindRequirementScope} maps organisation '{requirementScope.Organisation}' to requirement "
+                        + $"'{requirementScope.Requirement}' more than once.",
                 });
             }
         }

@@ -1,8 +1,5 @@
-# compliance-write Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change redefine-scope-org-standard. Update Purpose after archive.
-## Requirements
 ### Requirement: App-managed writes for organisations and scope dispositions
 
 When the instance is not in GitOps read-only mode, the web app SHALL allow
@@ -90,4 +87,3 @@ auth endpoints and SHALL NOT be exempt.
   endpoint (organisation, scope, or requirement-scope)
 - **THEN** the request is rejected with HTTP 409 and the read-only problem body, and
   the store is not changed
-

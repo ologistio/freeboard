@@ -106,14 +106,34 @@ public static class ComplianceEndpoints
             }
         });
 
+        reads.MapGet("/requirement-scopes", async (IComplianceStore store, CancellationToken ct) =>
+        {
+            try
+            {
+                var rows = await store.GetRequirementScopesAsync(ct);
+                return Results.Ok(rows.Select(r => new
+                {
+                    id = r.Id,
+                    title = r.Title,
+                    organisation = r.Organisation,
+                    requirement = r.Requirement,
+                    disposition = r.Disposition,
+                }));
+            }
+            catch (Exception ex) when (IsStoreFailure(ex))
+            {
+                return Unreachable();
+            }
+        });
+
         reads.MapGet("/statement-of-applicability/{standardId}",
             async (string standardId, IComplianceStore store, CancellationToken ct) =>
             {
                 try
                 {
-                    var organisations = await store.GetOrganisationsAsync(ct);
-                    var scopes = await store.GetScopesAsync(ct);
-                    var nodes = StatementOfApplicability.Resolve(organisations, scopes, standardId);
+                    var inputs = await store.GetStatementOfApplicabilityInputsAsync(ct);
+                    var nodes = StatementOfApplicability.Resolve(
+                        inputs.Organisations, inputs.Scopes, inputs.Requirements, inputs.RequirementScopes, standardId);
                     return Results.Ok(new
                     {
                         standard = standardId,
@@ -125,6 +145,12 @@ public static class ComplianceEndpoints
                             parent = n.Parent,
                             disposition = n.Disposition,
                             resolution = n.Resolution.ToWireValue(),
+                            requirements = n.Requirements.Select(r => new
+                            {
+                                requirement = r.Requirement,
+                                disposition = r.Disposition,
+                                resolution = r.Resolution.ToWireValue(),
+                            }),
                         }),
                     });
                 }
@@ -148,6 +174,7 @@ public static class ComplianceEndpoints
                         requirements = (int?)counts.Requirements,
                         organisations = (int?)counts.Organisations,
                         scopes = (int?)counts.Scopes,
+                        requirementScopes = (int?)counts.RequirementScopes,
                     },
                 });
             }
@@ -163,6 +190,7 @@ public static class ComplianceEndpoints
                         requirements = (int?)null,
                         organisations = (int?)null,
                         scopes = (int?)null,
+                        requirementScopes = (int?)null,
                     },
                 });
             }

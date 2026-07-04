@@ -17,17 +17,19 @@ reconciling apply, soft-delete on removal, and drift detection are not built yet
 
 Freeboard borrows Fleet's structure but renames the nouns for compliance:
 
-| Fleet    | Freeboard     | Meaning                                                   |
-| -------- | ------------- | --------------------------------------------------------- |
-| (n/a)    | organisations | the tree of entities being assessed (company/department)  |
-| labels   | scopes        | maps an organisation to a standard with a disposition     |
-| policies | checks        | executable conformance checks (deferred, not built)       |
-| (n/a)    | controls      | an implemented control mapped to one or more requirements |
-| (n/a)    | requirements  | a standard's published normative statements               |
-| (n/a)    | standards     | a compliance standard in scope                            |
+| Fleet    | Freeboard          | Meaning                                                   |
+| -------- | ------------------ | --------------------------------------------------------- |
+| (n/a)    | organisations      | the tree of entities being assessed (company/department)  |
+| labels   | scopes             | maps an organisation to a standard with a disposition     |
+| (n/a)    | requirement-scopes | maps an organisation to a requirement with a disposition  |
+| policies | checks             | executable conformance checks (deferred, not built)       |
+| (n/a)    | controls           | an implemented control mapped to one or more requirements |
+| (n/a)    | requirements       | a standard's published normative statements               |
+| (n/a)    | standards          | a compliance standard in scope                            |
 
-This increment ships `standards`, `requirements`, `controls`, `organisations`, and
-`scopes`. `checks` are named for the trajectory but are not built.
+This increment ships `standards`, `requirements`, `controls`, `organisations`,
+`scopes`, and `requirement-scopes`. `checks` are named for the trajectory but are
+not built.
 
 ## Format
 
@@ -35,7 +37,8 @@ A config directory holds one or more `.yaml` files. Each file is a stream of one
 or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.io/v1alpha1`.
-- `kind` - one of `Standard`, `Requirement`, `Control`, `Organisation`, or `Scope`.
+- `kind` - one of `Standard`, `Requirement`, `Control`, `Organisation`, `Scope`,
+  or `RequirementScope`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -142,6 +145,31 @@ Dispositions are sparse: a node with no scope for a standard inherits its neares
 ancestor's disposition. A node with no such ancestor is undetermined. The
 Statement of Applicability (below) resolves this per node.
 
+### RequirementScope
+
+A requirement-scope maps one `Organisation` to one `Requirement` with a
+`disposition` (`In` or `Out`). At most one requirement-scope may exist per
+`(organisation, requirement)` pair. There is no `standard` field: the requirement
+fixes the standard.
+
+```yaml
+apiVersion: freeboard.io/v1alpha1
+kind: RequirementScope
+id: rs-products-firewalls-01-out
+title: Exclude firewall-on-every-device company-wide
+organisation: ologist-products
+requirement: req-ce-plus-firewalls-01
+disposition: Out
+```
+
+Requirement-scopes sit under the standard-level scope. For a node and a
+requirement (owned by standard S): if the node's disposition for S resolves `Out`
+or `Undetermined`, the requirement follows the standard and requirement-scopes are
+not consulted; only where S resolves `In` does the requirement layer apply. Within
+an `In` standard, requirement-scopes inherit by the same nearest-ancestor rule as
+scopes, and a child re-includes (`In`) a requirement an ancestor excluded (`Out`).
+A requirement-level `In` cannot re-include a requirement whose standard is `Out`.
+
 ## Validation
 
 Validation collects every error in one pass (not just the first). It fails when:
@@ -161,6 +189,10 @@ Validation collects every error in one pass (not just the first). It fails when:
 - a `Scope.organisation` or `Scope.standard` names an id that does not exist;
 - a `Scope.disposition` is not `In` or `Out`;
 - two scopes name the same `(organisation, standard)` pair;
+- a `RequirementScope.organisation` or `RequirementScope.requirement` names an id
+  that does not exist;
+- a `RequirementScope.disposition` is not `In` or `Out`;
+- two requirement-scopes name the same `(organisation, requirement)` pair;
 - `apiVersion` is not exactly `freeboard.io/v1alpha1`.
 
 A missing or unknown `kind`, and malformed YAML, are reported as diagnostics by
@@ -189,15 +221,18 @@ into it.
 
 ### Schema
 
-Five domain tables (`standards`, `requirements`, `controls`, `organisations`,
-`scopes`), each keyed on `id` with `api_version`, `title`, `created_at`, and
-`updated_at`. `standards` also carries nullable `version`, `authority`,
-`publisher`, and `source_url` metadata columns. `requirements` has a `standard_id`
-foreign key (`ON DELETE RESTRICT`), a `theme`, a `statement`, nullable `guidance`,
-and `citation_label`/`citation_url`. `organisations` has a nullable
-self-referential `parent_id` foreign key and a `kind` column. `scopes` has
-`organisation_id` and `standard_id` foreign keys, a `disposition` column, and a
-unique key on `(organisation_id, standard_id)`. One relation table
+Six domain tables (`standards`, `requirements`, `controls`, `organisations`,
+`scopes`, `requirement_scopes`), each keyed on `id` with `api_version`, `title`,
+`created_at`, and `updated_at`. `standards` also carries nullable `version`,
+`authority`, `publisher`, and `source_url` metadata columns. `requirements` has a
+`standard_id` foreign key (`ON DELETE RESTRICT`), a `theme`, a `statement`,
+nullable `guidance`, and `citation_label`/`citation_url`. `organisations` has a
+nullable self-referential `parent_id` foreign key and a `kind` column. `scopes`
+has `organisation_id` and `standard_id` foreign keys, a `disposition` column, and
+a unique key on `(organisation_id, standard_id)`. `requirement_scopes` has
+`organisation_id` and `requirement_id` foreign keys (both `ON DELETE RESTRICT`, no
+`standard_id`: the standard is derived from the requirement), a `disposition`
+column, and a unique key on `(organisation_id, requirement_id)`. One relation table
 (`control_requirements` for `Control.maps_to`) with a composite primary key and
 `ON DELETE CASCADE` foreign keys. One migration-tracking table
 (`schema_migrations`) bootstrapped by the migration runner.
@@ -265,32 +300,42 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
   `kind`, resolved `parent`, null for a root).
 - `GET /api/v1/freeboard/scopes` - persisted scopes (`id`, `title`,
   `organisation`, `standard`, `disposition`).
+- `GET /api/v1/freeboard/requirement-scopes` - persisted requirement-scopes
+  (`id`, `title`, `organisation`, `requirement`, `disposition`).
 - `GET /api/v1/freeboard/statement-of-applicability/{standardId}` - the SoA
   projection for a standard: every organisation node with its resolved
   `disposition` and whether that value is `Explicit`, `Inherited`, or
-  `Undetermined`.
+  `Undetermined`, plus a `requirements` list of the per-requirement deviations for
+  nodes whose standard resolves `In` (each with its `requirement`, resolved
+  `disposition`, and `Explicit`/`Inherited` resolution; a requirement not listed
+  follows the node's standard disposition). Nodes resolving `Out`/`Undetermined`
+  carry an empty `requirements` list.
 - `GET /api/v1/freeboard/compliance/status` - a `persisted` object of per-kind
   counts.
 
 Resources are ordered by `id`; relation arrays are ordered by id. When the store
 is unreachable, the read endpoints return HTTP 503 with an RFC 7807 problem body,
 and `/api/v1/freeboard/compliance/status` returns HTTP 200 with
-`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null } }`
+`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null } }`
 (`null` marks the count as unknown, not zero). `GET /api/v1/freeboard/gitops/status`
 is unchanged and does not depend on the store.
 
 ### App-managed writes
 
-When the instance is NOT in GitOps read-only mode, organisations and scope
-dispositions can be written through the API, enforcing the same invariants as
-import:
+When the instance is NOT in GitOps read-only mode, organisations, scope
+dispositions, and requirement-scope dispositions can be written through the API,
+enforcing the same invariants as import:
 
 - `PUT /api/v1/freeboard/organisations/{id}` - create or update an organisation.
 - `DELETE /api/v1/freeboard/organisations/{id}` - delete an organisation (fails if
-  it still has children or scopes).
+  it still has children, scopes, or requirement-scopes).
 - `PUT /api/v1/freeboard/scopes/{id}` - set a scope disposition for an
   `(organisation, standard)` pair.
 - `DELETE /api/v1/freeboard/scopes/{id}` - delete a scope disposition.
+- `PUT /api/v1/freeboard/requirement-scopes/{id}` - set a requirement-scope
+  disposition for an `(organisation, requirement)` pair.
+- `DELETE /api/v1/freeboard/requirement-scopes/{id}` - delete a requirement-scope
+  disposition.
 
 An invalid write returns an RFC 7807 problem body and changes nothing. In GitOps
 read-only mode these endpoints are rejected with HTTP 409 by the read-only

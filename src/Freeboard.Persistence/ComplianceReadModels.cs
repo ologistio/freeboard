@@ -37,5 +37,22 @@ public sealed record OrganisationRow(string Id, string Title, string Kind, strin
 /// </summary>
 public sealed record ScopeRow(string Id, string Title, string Organisation, string Standard, string Disposition);
 
+/// <summary>
+/// A persisted requirement-scope mapping one organisation to one requirement with a disposition
+/// (<c>In</c> or <c>Out</c>). The owning standard is derived from the requirement.
+/// </summary>
+public sealed record RequirementScopeRow(string Id, string Title, string Organisation, string Requirement, string Disposition);
+
+/// <summary>
+/// The four inputs the Statement of Applicability projection needs, read together in one
+/// repeatable-read snapshot so they cannot straddle a concurrent importer commit.
+/// </summary>
+public sealed record SoaInputs(
+    IReadOnlyList<OrganisationRow> Organisations,
+    IReadOnlyList<ScopeRow> Scopes,
+    IReadOnlyList<RequirementRow> Requirements,
+    IReadOnlyList<RequirementScopeRow> RequirementScopes);
+
 /// <summary>Per-kind row counts for the status summary.</summary>
-public sealed record ComplianceCounts(int Standards, int Controls, int Requirements, int Organisations, int Scopes);
+public sealed record ComplianceCounts(
+    int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes);
