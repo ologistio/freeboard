@@ -63,6 +63,89 @@ public sealed class ComplianceWriteEndpointTests
     }
 
     [Fact]
+    public async Task SetRequirementScopeDispositionAllowedOffReadOnlyMode()
+    {
+        var writes = new FakeComplianceWriteStore();
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/requirement-scopes/rs-a",
+            new { title = "RS A", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("rs-a", writes.LastRequirementScopeId);
+    }
+
+    [Fact]
+    public async Task DuplicateRequirementScopePairPreCheckReturns422()
+    {
+        // A plain duplicate the write-store pre-check catches returns 422 (WriteResult.Fail).
+        var writes = new FakeComplianceWriteStore
+        {
+            RequirementScopeResult = WriteResult.Fail(
+                "A requirement-scope already maps organisation 'org-a' to requirement 'req-a'."),
+        };
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/requirement-scopes/rs-b",
+            new { title = "RS B", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Null(writes.LastRequirementScopeId);
+    }
+
+    [Fact]
+    public async Task ConcurrentRequirementScopeDuplicateKeyReturns409()
+    {
+        // A duplicate that races the pre-check hits the unique key; the driver raises SQLSTATE 23000.
+        var writes = new FakeComplianceWriteStore { Throw = new FakeDbException("Duplicate entry", "23000") };
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/requirement-scopes/rs-a",
+            new { title = "RS A", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task RequirementScopeWriteBlockedWith409InReadOnlyMode()
+    {
+        var writes = new FakeComplianceWriteStore();
+        using var factory = new WriteFactory(writes, readOnly: true);
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/requirement-scopes/rs-a",
+            new { title = "RS A", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Null(writes.LastRequirementScopeId);
+    }
+
+    [Fact]
+    public async Task DeleteOrganisationReferencedByRequirementScopeRejectedWithProblem()
+    {
+        var writes = new FakeComplianceWriteStore
+        {
+            OrganisationResult = WriteResult.Fail("Cannot delete an organisation that still has requirement-scopes."),
+        };
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.DeleteAsync("/api/v1/freeboard/organisations/org-a");
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
     public async Task UnauthenticatedWriteRejectedOffReadOnlyMode()
     {
         var writes = new FakeComplianceWriteStore();
@@ -183,12 +266,16 @@ public sealed class ComplianceWriteEndpointTests
 
         public WriteResult ScopeResult { get; init; } = WriteResult.Success;
 
+        public WriteResult RequirementScopeResult { get; init; } = WriteResult.Success;
+
         /// <summary>When set, every write throws it, simulating a store failure past the pre-checks.</summary>
         public Exception? Throw { get; init; }
 
         public string? LastOrganisationId { get; private set; }
 
         public string? LastScopeId { get; private set; }
+
+        public string? LastRequirementScopeId { get; private set; }
 
         public Task<WriteResult> UpsertOrganisationAsync(
             string id, string title, string kind, string? parent, CancellationToken cancellationToken = default)
@@ -228,6 +315,26 @@ public sealed class ComplianceWriteEndpointTests
 
         public Task<WriteResult> DeleteScopeAsync(string id, CancellationToken cancellationToken = default) =>
             Throw is not null ? throw Throw : Task.FromResult(ScopeResult);
+
+        public Task<WriteResult> UpsertRequirementScopeDispositionAsync(
+            string id, string title, string organisation, string requirement, string disposition,
+            CancellationToken cancellationToken = default)
+        {
+            if (Throw is not null)
+            {
+                throw Throw;
+            }
+
+            if (RequirementScopeResult.Ok)
+            {
+                LastRequirementScopeId = id;
+            }
+
+            return Task.FromResult(RequirementScopeResult);
+        }
+
+        public Task<WriteResult> DeleteRequirementScopeAsync(string id, CancellationToken cancellationToken = default) =>
+            Throw is not null ? throw Throw : Task.FromResult(RequirementScopeResult);
     }
 
     /// <summary>A concrete <see cref="DbException"/> with a settable SQLSTATE for the mapping tests.</summary>

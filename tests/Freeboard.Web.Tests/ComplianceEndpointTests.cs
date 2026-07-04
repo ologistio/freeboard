@@ -20,6 +20,7 @@ public sealed class ComplianceEndpointTests
         "/api/v1/freeboard/controls",
         "/api/v1/freeboard/organisations",
         "/api/v1/freeboard/scopes",
+        "/api/v1/freeboard/requirement-scopes",
         "/api/v1/freeboard/statement-of-applicability/std-a",
     ];
 
@@ -42,6 +43,11 @@ public sealed class ComplianceEndpointTests
             new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
         ],
         Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+        RequirementScopes =
+        [
+            new RequirementScopeRow("rs-a", "Exclude req-a", "org-a", "req-a", "Out"),
+            new RequirementScopeRow("rs-b", "Exclude req-b", "org-a", "req-b", "Out"),
+        ],
     };
 
     private static AuthWebFactory Factory(FakeComplianceStore store, bool readOnly = false)
@@ -156,6 +162,34 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
+    public async Task RequirementScopesEndpointReturnsMappingOrderedById()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/requirement-scopes");
+
+        Assert.Equal(2, json.GetArrayLength());
+        // Ordered by id: rs-a before rs-b.
+        Assert.Equal("rs-a", json[0].GetProperty("id").GetString());
+        Assert.Equal("org-a", json[0].GetProperty("organisation").GetString());
+        Assert.Equal("req-a", json[0].GetProperty("requirement").GetString());
+        Assert.Equal("Out", json[0].GetProperty("disposition").GetString());
+        Assert.Equal("rs-b", json[1].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task RequirementScopesReadServedInReadOnlyModeToAuthenticatedUser()
+    {
+        using var factory = Factory(PopulatedStore(), readOnly: true);
+        using var client = MemberClient(factory);
+
+        var response = await client.GetAsync("/api/v1/freeboard/requirement-scopes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task StatementOfApplicabilityResolvesInheritanceOrderedById()
     {
         using var factory = Factory(PopulatedStore());
@@ -174,6 +208,30 @@ public sealed class ComplianceEndpointTests
         Assert.Equal("org-eng", nodes[1].GetProperty("id").GetString());
         Assert.Equal("In", nodes[1].GetProperty("disposition").GetString());
         Assert.Equal("inherited", nodes[1].GetProperty("resolution").GetString());
+    }
+
+    [Fact]
+    public async Task StatementOfApplicabilityProjectsPerRequirementDeviations()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/statement-of-applicability/std-a");
+
+        var nodes = json.GetProperty("nodes");
+        // org-a is In and excludes req-a and req-b; org-eng inherits both. Ordered by requirement id.
+        var orgA = nodes.EnumerateArray().Single(n => n.GetProperty("id").GetString() == "org-a");
+        var requirements = orgA.GetProperty("requirements").EnumerateArray().ToList();
+        Assert.Equal(2, requirements.Count);
+        Assert.Equal("req-a", requirements[0].GetProperty("requirement").GetString());
+        Assert.Equal("Out", requirements[0].GetProperty("disposition").GetString());
+        Assert.Equal("explicit", requirements[0].GetProperty("resolution").GetString());
+        Assert.Equal("req-b", requirements[1].GetProperty("requirement").GetString());
+
+        var orgEng = nodes.EnumerateArray().Single(n => n.GetProperty("id").GetString() == "org-eng");
+        var inherited = orgEng.GetProperty("requirements").EnumerateArray().ToList();
+        Assert.Equal(2, inherited.Count);
+        Assert.All(inherited, r => Assert.Equal("inherited", r.GetProperty("resolution").GetString()));
     }
 
     [Fact]
@@ -213,6 +271,7 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(2, persisted.GetProperty("requirements").GetInt32());
         Assert.Equal(2, persisted.GetProperty("organisations").GetInt32());
         Assert.Equal(1, persisted.GetProperty("scopes").GetInt32());
+        Assert.Equal(2, persisted.GetProperty("requirementScopes").GetInt32());
     }
 
     [Fact]
@@ -250,6 +309,7 @@ public sealed class ComplianceEndpointTests
                      "/api/v1/freeboard/controls",
                      "/api/v1/freeboard/organisations",
                      "/api/v1/freeboard/scopes",
+                     "/api/v1/freeboard/requirement-scopes",
                  })
         {
             var response = await client.GetAsync(path);
@@ -281,6 +341,7 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("requirements").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("organisations").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("scopes").ValueKind);
+        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("requirementScopes").ValueKind);
     }
 
     [Fact]

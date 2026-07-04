@@ -45,6 +45,18 @@ public sealed class ImportPlanTests
                 Disposition = "In",
             },
         ],
+        RequirementScopes =
+        [
+            new RequirementScope
+            {
+                Id = "rs-a",
+                ApiVersion = "v1",
+                Title = "RequirementScope A",
+                Organisation = "org-a",
+                Requirement = "req-a",
+                Disposition = "Out",
+            },
+        ],
     };
 
     [Fact]
@@ -56,6 +68,7 @@ public sealed class ImportPlanTests
         Assert.Equal("ctrl-a", Assert.Single(plan.Controls).Id);
         Assert.Equal("org-a", Assert.Single(plan.Organisations).Id);
         Assert.Equal("scope-a", Assert.Single(plan.Scopes).Id);
+        Assert.Equal("rs-a", Assert.Single(plan.RequirementScopes).Id);
     }
 
     [Fact]
@@ -75,6 +88,34 @@ public sealed class ImportPlanTests
         Assert.Equal("org-a", row.Organisation);
         Assert.Equal("std-a", row.Standard);
         Assert.Equal("In", row.Disposition);
+    }
+
+    [Fact]
+    public void RequirementScopeRowCarriesOrganisationRequirementAndDisposition()
+    {
+        var row = Assert.Single(ImportPlan.From(SampleConfig()).RequirementScopes);
+
+        Assert.Equal("org-a", row.Organisation);
+        Assert.Equal("req-a", row.Requirement);
+        Assert.Equal("Out", row.Disposition);
+    }
+
+    [Fact]
+    public void RequirementScopesFlattenInConfigOrder()
+    {
+        var config = new GitOpsConfig
+        {
+            RequirementScopes =
+            [
+                new RequirementScope { Id = "rs-b", ApiVersion = "v1", Title = "B", Organisation = "org-a", Requirement = "req-b", Disposition = "Out" },
+                new RequirementScope { Id = "rs-a", ApiVersion = "v1", Title = "A", Organisation = "org-a", Requirement = "req-a", Disposition = "In" },
+            ],
+        };
+
+        var rows = ImportPlan.From(config).RequirementScopes;
+
+        Assert.Equal(["rs-b", "rs-a"], rows.Select(r => r.Id).ToArray());
+        Assert.Equal(["rs-b", "rs-a"], ImportPlan.From(config).RequirementScopeIds.ToArray());
     }
 
     [Fact]
@@ -224,5 +265,6 @@ public sealed class ImportPlanTests
         Assert.Equal(["ctrl-a"], plan.ControlIds);
         Assert.Equal(["org-a"], plan.OrganisationIds);
         Assert.Equal(["scope-a"], plan.ScopeIds);
+        Assert.Equal(["rs-a"], plan.RequirementScopeIds);
     }
 }

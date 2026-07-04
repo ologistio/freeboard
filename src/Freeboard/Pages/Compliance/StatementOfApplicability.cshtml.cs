@@ -38,9 +38,9 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store) : Page
                 return;
             }
 
-            var organisations = await store.GetOrganisationsAsync(ct).ConfigureAwait(false);
-            var scopes = await store.GetScopesAsync(ct).ConfigureAwait(false);
-            Nodes = global::Freeboard.Compliance.StatementOfApplicability.Resolve(organisations, scopes, StandardId);
+            var inputs = await store.GetStatementOfApplicabilityInputsAsync(ct).ConfigureAwait(false);
+            Nodes = global::Freeboard.Compliance.StatementOfApplicability.Resolve(
+                inputs.Organisations, inputs.Scopes, inputs.Requirements, inputs.RequirementScopes, StandardId);
         }
         catch (Exception ex) when (IsStoreFailure(ex))
         {

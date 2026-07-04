@@ -12,15 +12,21 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <!-- A test-support library, not a test project: it carries shared fixtures and the
-         RequiresEnvVar/category helpers, so it references xunit but contains no tests.
-         Keep `dotnet test` from trying to run it as a test assembly. -->
-    <IsTestProject>false</IsTestProject>
   </PropertyGroup>
 
+  <!--
+    This is a shared test-support library, not a test suite: it holds the MySQL fixture and
+    the SkippableFact-derived RequiresEnvVar attributes, so it must reference xunit. C# Dev
+    Kit's Test Explorer discovers any xunit-referencing project as a test source and does not
+    honour IsTestProject=false (microsoft/vscode-dotnettools#2474); without a real test host
+    that discovery aborts for the whole solution. Carry the standard test SDK and adapter so
+    discovery succeeds and simply finds zero tests here.
+  -->
   <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="MySqlConnector" Version="2.6.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
   </ItemGroup>
 

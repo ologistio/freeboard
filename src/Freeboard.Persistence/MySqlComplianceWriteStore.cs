@@ -8,8 +8,9 @@ namespace Freeboard.Persistence;
 /// MySQL-backed <see cref="IComplianceWriteStore"/>. Each write runs in one transaction and
 /// checks the domain invariants against the current rows before committing; a violated
 /// invariant rolls back so the store is never left in a half-written state. The database keys
-/// (self-FK, the unique <c>(organisation_id, standard_id)</c> key) are the backstop, but the
-/// checks here return a clear error instead of a raw driver exception.
+/// (self-FK, the unique <c>(organisation_id, standard_id)</c> and
+/// <c>(organisation_id, requirement_id)</c> keys) are the backstop, but the checks here return a
+/// clear error instead of a raw driver exception.
 /// </summary>
 public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFactory) : IComplianceWriteStore
 {
@@ -93,6 +94,14 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         if (scopeCount > 0)
         {
             return WriteResult.Fail("Cannot delete an organisation that still has scopes.");
+        }
+
+        var requirementScopeCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM requirement_scopes WHERE organisation_id = @Id;",
+            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (requirementScopeCount > 0)
+        {
+            return WriteResult.Fail("Cannot delete an organisation that still has requirement-scopes.");
         }
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -179,6 +188,86 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await connection.ExecuteAsync(new CommandDefinition(
             "DELETE FROM scopes WHERE id = @Id;",
+            new { Id = id }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return WriteResult.Success;
+    }
+
+    public async Task<WriteResult> UpsertRequirementScopeDispositionAsync(
+        string id,
+        string title,
+        string organisation,
+        string requirement,
+        string disposition,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return WriteResult.Fail("RequirementScope id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return WriteResult.Fail("RequirementScope title is required.");
+        }
+
+        if (!ConfigValidator.TryParseDisposition(disposition, out _))
+        {
+            return WriteResult.Fail($"Disposition must be '{nameof(ScopeDisposition.In)}' or '{nameof(ScopeDisposition.Out)}'.");
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await ExistsAsync(connection, transaction, "organisations", organisation, cancellationToken).ConfigureAwait(false))
+        {
+            return WriteResult.Fail($"Organisation '{organisation}' does not exist.");
+        }
+
+        if (!await ExistsAsync(connection, transaction, "requirements", requirement, cancellationToken).ConfigureAwait(false))
+        {
+            return WriteResult.Fail($"Requirement '{requirement}' does not exist.");
+        }
+
+        // At most one requirement-scope per (organisation, requirement). A row for the pair under a
+        // DIFFERENT id is a duplicate mapping; the same id updating its own pair is fine.
+        var conflictingId = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT id FROM requirement_scopes WHERE organisation_id = @Organisation AND requirement_id = @Requirement LIMIT 1;",
+            new { Organisation = organisation, Requirement = requirement }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (conflictingId is not null && !string.Equals(conflictingId, id, StringComparison.Ordinal))
+        {
+            return WriteResult.Fail(
+                $"A requirement-scope already maps organisation '{organisation}' to requirement '{requirement}'.");
+        }
+
+        var now = DateTime.UtcNow;
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now) "
+            + "ON DUPLICATE KEY UPDATE "
+            + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
+            + "requirement_id = VALUES(requirement_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);",
+            new
+            {
+                Id = id,
+                ApiVersion = GitOpsSchema.ApiVersion,
+                Title = title,
+                Organisation = organisation,
+                Requirement = requirement,
+                Disposition = disposition,
+                Now = now,
+            },
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return WriteResult.Success;
+    }
+
+    public async Task<WriteResult> DeleteRequirementScopeAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM requirement_scopes WHERE id = @Id;",
             new { Id = id }, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return WriteResult.Success;
     }

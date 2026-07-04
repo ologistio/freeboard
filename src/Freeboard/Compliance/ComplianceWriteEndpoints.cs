@@ -6,7 +6,8 @@ using Freeboard.Persistence;
 namespace Freeboard.Compliance;
 
 /// <summary>
-/// App-managed write endpoints for organisations and scope dispositions. Behind the admin
+/// App-managed write endpoints for organisations, scope dispositions, and requirement-scope
+/// dispositions. Behind the admin
 /// authorization policy, mirroring the admin write surface. Deliberately NOT marked as auth
 /// endpoints, so the GitOps read-only middleware 409s them when the instance is in read-only mode
 /// (that middleware runs before authentication, so read-only 409 takes precedence over a 401). Off
@@ -23,6 +24,8 @@ public static class ComplianceWriteEndpoints
     public sealed record OrganisationInput(string Id, string Title, string Kind, string? Parent);
 
     public sealed record ScopeInput(string Id, string Title, string Organisation, string Standard, string Disposition);
+
+    public sealed record RequirementScopeInput(string Id, string Title, string Organisation, string Requirement, string Disposition);
 
     public static void MapComplianceWriteEndpoints(this WebApplication app)
     {
@@ -44,6 +47,15 @@ public static class ComplianceWriteEndpoints
         writes.MapDelete("/scopes/{id}",
             (string id, IComplianceWriteStore store, CancellationToken ct) =>
                 RunAsync(() => store.DeleteScopeAsync(id, ct)));
+
+        writes.MapPut("/requirement-scopes/{id}",
+            (string id, RequirementScopeInput input, IComplianceWriteStore store, CancellationToken ct) =>
+                RunAsync(() => store.UpsertRequirementScopeDispositionAsync(
+                    id, input.Title, input.Organisation, input.Requirement, input.Disposition, ct)));
+
+        writes.MapDelete("/requirement-scopes/{id}",
+            (string id, IComplianceWriteStore store, CancellationToken ct) =>
+                RunAsync(() => store.DeleteRequirementScopeAsync(id, ct)));
     }
 
     private static async Task<IResult> RunAsync(Func<Task<WriteResult>> write)
@@ -55,8 +67,10 @@ public static class ComplianceWriteEndpoints
         }
         catch (DbException ex) when (ex.SqlState == IntegrityConstraintSqlState)
         {
-            // A concurrent write took the (organisation, standard) pair between the pre-check and the
-            // insert; the unique key rejected it. Report the same conflict the pre-check would have.
+            // A concurrent write took a unique pair (scope's (organisation, standard) or
+            // requirement-scope's (organisation, requirement)) between the pre-check and the insert;
+            // the unique key rejected it. RunAsync serves every write route, so the conflict detail
+            // must stay kind-neutral.
             return Conflict();
         }
         catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
@@ -75,7 +89,7 @@ public static class ComplianceWriteEndpoints
 
     private static IResult Conflict() => Results.Problem(
         title: "Conflicting compliance write",
-        detail: "The write conflicts with an existing record. A scope already maps this organisation and standard.",
+        detail: "The write conflicts with an existing record.",
         statusCode: StatusCodes.Status409Conflict,
         type: "https://freeboard.io/problems/conflict");
 

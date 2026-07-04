@@ -19,5 +19,14 @@ public interface IComplianceStore
 
     Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the four Statement of Applicability inputs (organisations, scopes, requirements,
+    /// requirement-scopes) together in one repeatable-read snapshot so they cannot straddle a
+    /// concurrent importer commit.
+    /// </summary>
+    Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default);
+
     Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default);
 }
