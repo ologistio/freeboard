@@ -93,7 +93,7 @@ public sealed class AuthzIntegrationTests
         await InsertOrgAsync(conn, "child1", "root1");
 
         // Re-run the migration file so its backfills apply to the now-seeded rows (idempotent).
-        var raw = await new MySqlConnection(db.ConnectionString).ReadMigration010Async();
+        var raw = await conn.ReadMigration010Async();
         await conn.ExecuteAsync(raw);
 
         var superAdmins = (await conn.QueryAsync<string>(
@@ -120,7 +120,7 @@ public sealed class AuthzIntegrationTests
 
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
-        var raw = await new MySqlConnection(db.ConnectionString).ReadMigration010Async();
+        var raw = await conn.ReadMigration010Async();
         // Applying the file a second time must not throw or duplicate seed rows.
         await conn.ExecuteAsync(raw);
 

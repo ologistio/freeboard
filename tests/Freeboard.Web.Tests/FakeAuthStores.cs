@@ -224,7 +224,7 @@ internal sealed class FakeUserStore : IUserStore
 
     public Task<DisableUserOutcome> TryDisableUserAsync(string id, CancellationToken cancellationToken = default)
     {
-        if (!_byId.ContainsKey(id))
+        if (!_byId.TryGetValue(id, out var existing))
         {
             return Task.FromResult(DisableUserOutcome.NotFound);
         }
@@ -234,7 +234,7 @@ internal sealed class FakeUserStore : IUserStore
             return Task.FromResult(DisableUserOutcome.LastSuperAdmin);
         }
 
-        _byId[id] = _byId[id] with { Enabled = false };
+        _byId[id] = existing with { Enabled = false };
         UsableSuperAdmins.Remove(id);
         return Task.FromResult(DisableUserOutcome.Disabled);
     }

@@ -74,13 +74,12 @@ public static class ComplianceWriteEndpoints
         // filter already authorized the base org.write on the org itself (for a plain update by an
         // owner of the org or an ancestor); these two checks add the parent-side authorization a
         // reparent needs so an owner of a child cannot detach it or promote it to a root.
-        if (existing is not null && !string.Equals(existing.Parent, input.Parent, StringComparison.Ordinal))
+        if (existing is not null
+            && !string.Equals(existing.Parent, input.Parent, StringComparison.Ordinal)
+            && (!await AuthorizeParentAsync(authorizer, user, existing.Parent, ct)
+                || !await AuthorizeParentAsync(authorizer, user, input.Parent, ct)))
         {
-            if (!await AuthorizeParentAsync(authorizer, user, existing.Parent, ct)
-                || !await AuthorizeParentAsync(authorizer, user, input.Parent, ct))
-            {
-                return Forbidden();
-            }
+            return Forbidden();
         }
 
         // Pass the current parent the reparent authorization bound to so the write locks the org row and

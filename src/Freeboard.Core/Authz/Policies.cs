@@ -74,15 +74,10 @@ public sealed class OrgRbacPolicy : IAuthzPolicy
         }
 
         var ancestrySet = new HashSet<string>(ancestry, StringComparer.Ordinal);
-        foreach (var grant in request.Principal.OrgGrants)
-        {
-            if (string.Equals(grant.PermissionKey, request.Action, StringComparison.Ordinal)
-                && ancestrySet.Contains(grant.OrganisationId))
-            {
-                return AuthzPolicyOutcome.Permit;
-            }
-        }
+        var permitted = request.Principal.OrgGrants.Any(grant =>
+            string.Equals(grant.PermissionKey, request.Action, StringComparison.Ordinal)
+            && ancestrySet.Contains(grant.OrganisationId));
 
-        return AuthzPolicyOutcome.NotApplicable;
+        return permitted ? AuthzPolicyOutcome.Permit : AuthzPolicyOutcome.NotApplicable;
     }
 }
