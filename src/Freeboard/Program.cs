@@ -4,6 +4,8 @@ using Freeboard.Auth;
 using Freeboard.Authz;
 using Freeboard.Compliance;
 using Freeboard.Core.Authz;
+using Freeboard.Core.Enterprise;
+using Freeboard.Entitlements;
 using Freeboard.GitOps;
 using Freeboard.Persistence;
 using Freeboard.Web;
@@ -89,6 +91,10 @@ builder.Services.AddScoped<AuthzRequestCache>();
 builder.Services.AddScoped<IAuthzFactProvider>(sp => sp.GetRequiredService<AuthzRequestCache>());
 builder.Services.AddScoped<IAuthorizer, Authorizer>();
 builder.Services.AddScoped<AuthzPageGuard>();
+
+// Enterprise entitlement gate. Config-backed and default-off; the documented extension point is to
+// swap this single registration for a license-key provider.
+builder.Services.AddSingleton<IEnterpriseEntitlements, ConfigurationEnterpriseEntitlements>();
 
 // Organisation selector: the accessibility seam (authz-backed) and the request-scoped resolver that
 // serves the layout selector. The resolver reads the cookie and user via IHttpContextAccessor.
