@@ -1,20 +1,21 @@
 using System.Data.Common;
+using System.Security.Claims;
 using Freeboard.Api;
 using Freeboard.Auth;
+using Freeboard.Authz;
+using Freeboard.Core.Authz;
 using Freeboard.Persistence;
 
 namespace Freeboard.Compliance;
 
 /// <summary>
 /// App-managed write endpoints for organisations, scope dispositions, and requirement-scope
-/// dispositions. Behind the admin
-/// authorization policy, mirroring the admin write surface. Deliberately NOT marked as auth
-/// endpoints, so the GitOps read-only middleware 409s them when the instance is in read-only mode
-/// (that middleware runs before authentication, so read-only 409 takes precedence over a 401). Off
-/// read-only mode they persist through <see cref="IComplianceWriteStore"/>, which enforces the same
-/// invariants as import; an invalid write returns an RFC 7807 problem and changes nothing. A driver
-/// failure that slips past the pre-checks maps to a problem body too: a unique-key violation (a
-/// concurrent duplicate racing the pre-check) is a 409, any other store failure is a 503.
+/// dispositions. Each route is gated by <c>RequirePermission(..., alwaysEnforce: true)</c> so a deny
+/// blocks in every rollout mode (the admin gate they replace blocked in every mode too). Because a PUT
+/// upsert can MOVE a row across organisations, a PUT on an existing scope/requirement-scope also
+/// authorizes the STORED owning org in-handler; an organisation reparent additionally authorizes the
+/// new parent. Deliberately NOT marked as auth endpoints, so the GitOps read-only middleware 409s them
+/// in read-only mode.
 /// </summary>
 public static class ComplianceWriteEndpoints
 {
@@ -29,33 +30,212 @@ public static class ComplianceWriteEndpoints
 
     public static void MapComplianceWriteEndpoints(this WebApplication app)
     {
-        var writes = app.MapGroup(ApiRoutes.ApiRoutePrefix).RequireAuthorization(GlobalRoles.AdminPolicy);
+        // RequireAuthorization keeps the 401 for an anonymous caller (the read-only middleware still
+        // 409s these in read-only mode, since they are not marked auth endpoints); the per-route
+        // RequirePermission filter then adds the org-scoped permission gate (403).
+        var writes = app.MapGroup(ApiRoutes.ApiRoutePrefix).RequireAuthorization();
 
-        writes.MapPut("/organisations/{id}",
-            (string id, OrganisationInput input, IComplianceWriteStore store, CancellationToken ct) =>
-                RunAsync(() => store.UpsertOrganisationAsync(id, input.Title, input.Kind, input.Parent, ct)));
+        writes.MapPut("/organisations/{id}", UpsertOrganisationAsync)
+            .RequirePermission(AuthzActions.OrgWrite, OrganisationPutSelector, alwaysEnforce: true);
 
         writes.MapDelete("/organisations/{id}",
-            (string id, IComplianceWriteStore store, CancellationToken ct) =>
-                RunAsync(() => store.DeleteOrganisationAsync(id, ct)));
+                (string id, IComplianceWriteStore store, CancellationToken ct) =>
+                    RunAsync(() => store.DeleteOrganisationAsync(id, ct)))
+            .RequirePermission(AuthzActions.OrgWrite, RouteOrgSelector("organisation"), alwaysEnforce: true);
 
-        writes.MapPut("/scopes/{id}",
-            (string id, ScopeInput input, IComplianceWriteStore store, CancellationToken ct) =>
-                RunAsync(() => store.UpsertScopeDispositionAsync(
-                    id, input.Title, input.Organisation, input.Standard, input.Disposition, ct)));
+        writes.MapPut("/scopes/{id}", UpsertScopeAsync)
+            .RequirePermission(AuthzActions.ComplianceScopeWrite, BodyOrgSelector<ScopeInput>("scope", i => i.Organisation), alwaysEnforce: true);
 
         writes.MapDelete("/scopes/{id}",
-            (string id, IComplianceWriteStore store, CancellationToken ct) =>
-                RunAsync(() => store.DeleteScopeAsync(id, ct)));
+                (string id, IComplianceWriteStore store, CancellationToken ct) =>
+                    RunAsync(() => store.DeleteScopeAsync(id, ct)))
+            .RequirePermission(AuthzActions.ComplianceScopeWrite, StoredScopeOrgSelector, alwaysEnforce: true);
 
-        writes.MapPut("/requirement-scopes/{id}",
-            (string id, RequirementScopeInput input, IComplianceWriteStore store, CancellationToken ct) =>
-                RunAsync(() => store.UpsertRequirementScopeDispositionAsync(
-                    id, input.Title, input.Organisation, input.Requirement, input.Disposition, ct)));
+        writes.MapPut("/requirement-scopes/{id}", UpsertRequirementScopeAsync)
+            .RequirePermission(AuthzActions.ComplianceRequirementScopeWrite, BodyOrgSelector<RequirementScopeInput>("requirement_scope", i => i.Organisation), alwaysEnforce: true);
 
         writes.MapDelete("/requirement-scopes/{id}",
-            (string id, IComplianceWriteStore store, CancellationToken ct) =>
-                RunAsync(() => store.DeleteRequirementScopeAsync(id, ct)));
+                (string id, IComplianceWriteStore store, CancellationToken ct) =>
+                    RunAsync(() => store.DeleteRequirementScopeAsync(id, ct)))
+            .RequirePermission(AuthzActions.ComplianceRequirementScopeWrite, StoredRequirementScopeOrgSelector, alwaysEnforce: true);
+    }
+
+    private static async Task<IResult> UpsertOrganisationAsync(
+        string id, OrganisationInput input, IComplianceStore reads, IComplianceWriteStore store,
+        IAuthorizer authorizer, IAuthzFactProvider facts, IAuthzAdministrationStore authzAdmin,
+        ClaimsPrincipal user, ILoggerFactory loggerFactory, CancellationToken ct)
+    {
+        var existing = (await reads.GetOrganisationsAsync(ct)).FirstOrDefault(o => string.Equals(o.Id, id, StringComparison.Ordinal));
+
+        // Reparenting an existing org is a structural change to BOTH the current parent's and the new
+        // parent's child set, so it authorizes org.write on the current (stored) parent AND the new
+        // parent. A null parent means root: creating/moving to root - and detaching a root - requires
+        // system.admin, so the check must run even when input.Parent is null (do not skip it). The
+        // filter already authorized the base org.write on the org itself (for a plain update by an
+        // owner of the org or an ancestor); these two checks add the parent-side authorization a
+        // reparent needs so an owner of a child cannot detach it or promote it to a root.
+        if (existing is not null && !string.Equals(existing.Parent, input.Parent, StringComparison.Ordinal))
+        {
+            if (!await AuthorizeParentAsync(authorizer, user, existing.Parent, ct)
+                || !await AuthorizeParentAsync(authorizer, user, input.Parent, ct))
+            {
+                return Forbidden();
+            }
+        }
+
+        // Pass the current parent the reparent authorization bound to so the write locks the org row and
+        // rejects a concurrent reparent (the current parent is re-checked under the write lock, closing
+        // the TOCTOU). expectExisting distinguishes an update from a create, since a null parent is a root.
+        var result = await RunAsync(() => store.UpsertOrganisationAsync(
+            id, input.Title, input.Kind, input.Parent, existing is not null, existing?.Parent, ct));
+
+        // On a successful CREATE, grant the creator org-owner on the new org unless it is a super-admin.
+        if (existing is null && result is IStatusCodeHttpResult { StatusCode: StatusCodes.Status204NoContent })
+        {
+            await GrantCreatorOwnerAsync(facts, authzAdmin, user, id, loggerFactory, ct);
+        }
+
+        return result;
+    }
+
+    private static async Task<IResult> UpsertScopeAsync(
+        string id, ScopeInput input, IComplianceStore reads, IComplianceWriteStore store,
+        IAuthorizer authorizer, ClaimsPrincipal user, CancellationToken ct)
+    {
+        var storedOrg = (await reads.GetScopesAsync(ct))
+            .FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal))?.Organisation;
+        if (storedOrg is not null
+            && !string.Equals(storedOrg, input.Organisation, StringComparison.Ordinal)
+            && !await AuthorizeOrgAsync(authorizer, user, AuthzActions.ComplianceScopeWrite, storedOrg, ct))
+        {
+            // The row currently belongs to an org the caller cannot write; moving it is a cross-org move.
+            return Forbidden();
+        }
+
+        // Pass the authorized stored owner so the write locks the row and rejects a concurrent cross-org
+        // move (the current owner is re-checked under the write lock, closing the TOCTOU).
+        return await RunAsync(() => store.UpsertScopeDispositionAsync(
+            id, input.Title, input.Organisation, input.Standard, input.Disposition, storedOrg, ct));
+    }
+
+    private static async Task<IResult> UpsertRequirementScopeAsync(
+        string id, RequirementScopeInput input, IComplianceStore reads, IComplianceWriteStore store,
+        IAuthorizer authorizer, ClaimsPrincipal user, CancellationToken ct)
+    {
+        var storedOrg = (await reads.GetRequirementScopesAsync(ct))
+            .FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal))?.Organisation;
+        if (storedOrg is not null
+            && !string.Equals(storedOrg, input.Organisation, StringComparison.Ordinal)
+            && !await AuthorizeOrgAsync(authorizer, user, AuthzActions.ComplianceRequirementScopeWrite, storedOrg, ct))
+        {
+            return Forbidden();
+        }
+
+        return await RunAsync(() => store.UpsertRequirementScopeDispositionAsync(
+            id, input.Title, input.Organisation, input.Requirement, input.Disposition, storedOrg, ct));
+    }
+
+    // ---- selectors ----
+
+    private static async ValueTask<AuthzResource?> OrganisationPutSelector(EndpointFilterInvocationContext context)
+    {
+        var id = (string)context.HttpContext.Request.RouteValues["id"]!;
+        var input = context.Arguments.OfType<OrganisationInput>().First();
+        var reads = context.HttpContext.RequestServices.GetRequiredService<IComplianceStore>();
+        var exists = (await reads.GetOrganisationsAsync(context.HttpContext.RequestAborted))
+            .Any(o => string.Equals(o.Id, id, StringComparison.Ordinal));
+
+        // Update: authorize the org itself (its ancestry includes the current parent). Create-child:
+        // authorize the parent. Create-root: authorize the new id, on which no grant exists, so only a
+        // super-admin passes.
+        var orgForAuth = exists ? id : input.Parent ?? id;
+        return new AuthzResource("organisation", id, orgForAuth, []);
+    }
+
+    private static AuthzResourceSelector RouteOrgSelector(string type)
+        => context =>
+        {
+            var id = (string)context.HttpContext.Request.RouteValues["id"]!;
+            return ValueTask.FromResult<AuthzResource?>(new AuthzResource(type, id, id, []));
+        };
+
+    private static AuthzResourceSelector BodyOrgSelector<TInput>(string type, Func<TInput, string> orgOf)
+        => context =>
+        {
+            var input = context.Arguments.OfType<TInput>().First();
+            var org = orgOf(input);
+            return ValueTask.FromResult<AuthzResource?>(new AuthzResource(type, null, org, []));
+        };
+
+    private static async ValueTask<AuthzResource?> StoredScopeOrgSelector(EndpointFilterInvocationContext context)
+    {
+        var id = (string)context.HttpContext.Request.RouteValues["id"]!;
+        var reads = context.HttpContext.RequestServices.GetRequiredService<IComplianceStore>();
+        var org = (await reads.GetScopesAsync(context.HttpContext.RequestAborted))
+            .FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal))?.Organisation;
+        return org is null ? null : new AuthzResource("scope", id, org, []);
+    }
+
+    private static async ValueTask<AuthzResource?> StoredRequirementScopeOrgSelector(EndpointFilterInvocationContext context)
+    {
+        var id = (string)context.HttpContext.Request.RouteValues["id"]!;
+        var reads = context.HttpContext.RequestServices.GetRequiredService<IComplianceStore>();
+        var org = (await reads.GetRequirementScopesAsync(context.HttpContext.RequestAborted))
+            .FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal))?.Organisation;
+        return org is null ? null : new AuthzResource("requirement_scope", id, org, []);
+    }
+
+    // ---- helpers ----
+
+    private static async Task<bool> AuthorizeOrgAsync(
+        IAuthorizer authorizer, ClaimsPrincipal user, string action, string orgId, CancellationToken ct)
+    {
+        var decision = await authorizer.AuthorizeAsync(
+            user, action, new AuthzResource("organisation", orgId, orgId, []), alwaysEnforce: true, ct);
+        return decision.IsPermitted;
+    }
+
+    /// <summary>
+    /// Authorizes the parent side of an organisation structural change: a null parent is the root, which
+    /// requires <c>system.admin</c>; a non-null parent requires <c>org.write</c> on that parent.
+    /// </summary>
+    private static Task<bool> AuthorizeParentAsync(
+        IAuthorizer authorizer, ClaimsPrincipal user, string? parent, CancellationToken ct)
+        => parent is null
+            ? AuthorizeSystemAdminAsync(authorizer, user, ct)
+            : AuthorizeOrgAsync(authorizer, user, AuthzActions.OrgWrite, parent, ct);
+
+    private static async Task<bool> AuthorizeSystemAdminAsync(
+        IAuthorizer authorizer, ClaimsPrincipal user, CancellationToken ct)
+    {
+        var decision = await authorizer.AuthorizeAsync(
+            user, AuthzActions.SystemAdmin, new AuthzResource("system", null, null, []), alwaysEnforce: true, ct);
+        return decision.IsPermitted;
+    }
+
+    private static async Task GrantCreatorOwnerAsync(
+        IAuthzFactProvider facts, IAuthzAdministrationStore authzAdmin, ClaimsPrincipal user, string orgId,
+        ILoggerFactory loggerFactory, CancellationToken ct)
+    {
+        var userId = user.FindFirst(AuthClaims.UserId)?.Value;
+        if (userId is null)
+        {
+            return;
+        }
+
+        var loaded = await facts.LoadFactsAsync(userId, ct);
+        if (loaded.SystemPermissions.Contains(AuthzActions.SystemAdmin))
+        {
+            return; // super-admin already reaches everything; no per-org grant needed.
+        }
+
+        await authzAdmin.AssignOrganisationRoleAsync(userId, AuthzRoles.OrgOwner, orgId, ct);
+        await AuthzMutationAudit.AppendAsync(
+            authzAdmin, loggerFactory.CreateLogger(AuthzMutationAudit.LoggerCategory),
+            new AuthzAuditEvent(
+                "authz.assignment.write", userId, AuthzActions.AuthzAssignmentWrite, "organisation", userId, orgId,
+                "Permit", "org create grants creator org-owner"),
+            ct);
     }
 
     private static async Task<IResult> RunAsync(Func<Task<WriteResult>> write)
@@ -63,20 +243,19 @@ public static class ComplianceWriteEndpoints
         try
         {
             var result = await write();
-            return result.Ok ? Results.NoContent() : Invalid(result.Error!);
+            if (result.Ok)
+            {
+                return Results.NoContent();
+            }
+
+            return result.IsConflict ? Conflict() : Invalid(result.Error!);
         }
         catch (DbException ex) when (ex.SqlState == IntegrityConstraintSqlState)
         {
-            // A concurrent write took a unique pair (scope's (organisation, standard) or
-            // requirement-scope's (organisation, requirement)) between the pre-check and the insert;
-            // the unique key rejected it. RunAsync serves every write route, so the conflict detail
-            // must stay kind-neutral.
             return Conflict();
         }
         catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
         {
-            // A lazily-opened connection can surface a store failure as a non-DbException (the web app
-            // permits an empty connection string at startup). Map the same failures the read path does.
             return Unreachable();
         }
     }
@@ -92,6 +271,12 @@ public static class ComplianceWriteEndpoints
         detail: "The write conflicts with an existing record.",
         statusCode: StatusCodes.Status409Conflict,
         type: "https://freeboard.io/problems/conflict");
+
+    private static IResult Forbidden() => Results.Problem(
+        title: "Forbidden",
+        detail: "You do not have permission to perform this action.",
+        statusCode: StatusCodes.Status403Forbidden,
+        type: "https://freeboard.io/problems/forbidden");
 
     private static IResult Unreachable() => Results.Problem(
         title: "Compliance store unreachable",

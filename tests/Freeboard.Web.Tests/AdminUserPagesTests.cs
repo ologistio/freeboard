@@ -387,6 +387,30 @@ public sealed class AdminUserPagesTests
     }
 
     [Fact]
+    public async Task PageDisableOfLastUsableSuperAdminIsRejectedWithGuardMessage()
+    {
+        using var factory = new AuthWebFactory();
+        // The acting admin holds user.manage (passes the page guard) but is not itself a usable
+        // super-admin, so the target below is the last usable one and the store guard must reject it.
+        var actor = AuthWebFactory.MakeUser("acting-admin", role: "admin");
+        var token = factory.SeedSession(actor);
+        factory.Users.UsableSuperAdmins.Clear();
+        var target = factory.Users.Add(AuthWebFactory.MakeUser("sole-sa", role: "admin"));
+        factory.Users.UsableSuperAdmins.Add(target.Id); // the sole usable super-admin
+        using var client = NoRedirectClient(factory);
+
+        var disable = await AuthFormTestHelpers.PostFormAsync(
+            client, $"{UsersPath}?handler=Disable", [new("id", target.Id)],
+            extraCookies: SessionCookieFor(token).ToList(), getPath: UsersPath);
+
+        Assert.Equal(HttpStatusCode.OK, disable.StatusCode);
+        // The atomic last-usable-super-admin guard (via TryDisableUserAsync) rejects it; the page must
+        // not disable and must surface the guard message rather than bypassing the store.
+        Assert.Contains("usable super-admin must remain", await disable.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.True((await factory.Users.GetByIdAsync(target.Id))!.Enabled);
+    }
+
+    [Fact]
     public async Task AdminCannotDisableOwnAccount()
     {
         using var factory = new AuthWebFactory();

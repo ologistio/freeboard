@@ -181,8 +181,8 @@ public sealed class OrgSelectEndpointTests
 
     private sealed class EmptyOrgAccess : IOrgAccess
     {
-        public IReadOnlySet<string> AccessibleOrgIds(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations)
-            => new HashSet<string>(StringComparer.Ordinal);
+        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<IReadOnlySet<string>>(new HashSet<string>(StringComparer.Ordinal));
     }
 }

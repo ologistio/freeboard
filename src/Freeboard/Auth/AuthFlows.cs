@@ -534,23 +534,36 @@ internal static class AuthFlows
         // email configured silently falls back to the temp-password path rather than failing.
         var emailService = sp.GetService<AuthEmailService>();
         var invite = handoff == CreateUserHandoff.EmailInvite && emailService is not null;
-
-        UserRow user;
-        try
-        {
-            user = await users.CreateAsync(new NewUser(email!, name!, role), ct).ConfigureAwait(false);
-        }
-        catch (MySqlConnector.MySqlException ex) when (ex.ErrorCode == MySqlConnector.MySqlErrorCode.DuplicateKeyEntry)
-        {
-            return new CreateUserResult.DuplicateEmail();
-        }
+        var isAdmin = string.Equals(role, GlobalRoles.Admin, StringComparison.Ordinal);
+        var newUser = new NewUser(email!, name!, role);
+        var secretVersion = CurrentSecretVersion(sp);
 
         if (invite)
         {
-            // The row is created first (with force_password_reset and NO password credential), then
-            // the invite is provisioned. Until the invite is accepted the account cannot log in.
-            await users.SetForcePasswordResetAsync(user.Id, true, ct).ConfigureAwait(false);
-            var invited = user with { ForcePasswordReset = true };
+            // The row is created with force_password_reset and NO password credential; until the invite
+            // is accepted the account cannot log in. For an admin, the user row, the force-reset flag,
+            // and the super-admin assignment commit as ONE unit (no credential yet), so no orphan
+            // super-admin is left and the invited admin is not counted as a usable super-admin.
+            UserRow invitedUser;
+            try
+            {
+                if (isAdmin)
+                {
+                    invitedUser = await users.CreateAdminAsync(
+                        newUser, passwordHash: null, secretVersion, forcePasswordReset: true, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    invitedUser = await users.CreateAsync(newUser, ct).ConfigureAwait(false);
+                    await users.SetForcePasswordResetAsync(invitedUser.Id, true, ct).ConfigureAwait(false);
+                }
+            }
+            catch (MySqlConnector.MySqlException ex) when (ex.ErrorCode == MySqlConnector.MySqlErrorCode.DuplicateKeyEntry)
+            {
+                return new CreateUserResult.DuplicateEmail();
+            }
+
+            var invited = invitedUser with { ForcePasswordReset = true };
 
             // Token mint + send are ONE invite-provisioning step: a throw from either leaves the row
             // present (recoverable via reset-password) and surfaces as InviteSendFailed, not a 500.
@@ -558,8 +571,8 @@ internal static class AuthFlows
             // admin action, independent of the public self-serve forgot-password toggle.
             try
             {
-                var minted = await resets.CreateAsync(user.Id, DateTime.UtcNow + InviteLifetime, ct).ConfigureAwait(false);
-                await emailService!.SendInviteAsync(user.Email, minted.Token, ct).ConfigureAwait(false);
+                var minted = await resets.CreateAsync(invited.Id, DateTime.UtcNow + InviteLifetime, ct).ConfigureAwait(false);
+                await emailService!.SendInviteAsync(invited.Email, minted.Token, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -569,11 +582,29 @@ internal static class AuthFlows
             return new CreateUserResult.Invited(invited);
         }
 
-        // Temp-password path: a random ONE-TIME temp password; store only its hash; force a reset.
+        // Temp-password path: a random ONE-TIME temp password; store only its hash; force a reset. For
+        // an admin, the user row, credential, force-reset flag, and super-admin assignment commit
+        // atomically, so a failed credential write rolls the whole create back (no orphan super-admin).
         var tempPassword = TempPassword.Generate();
-        await credentials.SetAsync(
-            user.Id, hasher.Hash(tempPassword), CurrentSecretVersion(sp), ct).ConfigureAwait(false);
-        await users.SetForcePasswordResetAsync(user.Id, true, ct).ConfigureAwait(false);
+        UserRow user;
+        try
+        {
+            if (isAdmin)
+            {
+                user = await users.CreateAdminAsync(
+                    newUser, hasher.Hash(tempPassword), secretVersion, forcePasswordReset: true, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                user = await users.CreateAsync(newUser, ct).ConfigureAwait(false);
+                await credentials.SetAsync(user.Id, hasher.Hash(tempPassword), secretVersion, ct).ConfigureAwait(false);
+                await users.SetForcePasswordResetAsync(user.Id, true, ct).ConfigureAwait(false);
+            }
+        }
+        catch (MySqlConnector.MySqlException ex) when (ex.ErrorCode == MySqlConnector.MySqlErrorCode.DuplicateKeyEntry)
+        {
+            return new CreateUserResult.DuplicateEmail();
+        }
 
         return new CreateUserResult.Success(user with { ForcePasswordReset = true }, tempPassword);
     }

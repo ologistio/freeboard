@@ -19,6 +19,14 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         var admin = E2EAppFixture.MakeUser(id, role: "admin");
         App.Users.Add(admin);
         App.Credentials.SetAsync(admin.Id, App.Hasher.Hash(password), 1).GetAwaiter().GetResult();
+
+        // A real bootstrapped admin holds the super-admin system assignment (written in the same
+        // transaction as the user row by TryBootstrapAdminAsync/CreateAdminAsync), which is the sole
+        // system power - the legacy global_role claim grants nothing. Mirror that here so the admin can
+        // reach the user-management pages, whose in-handler guard requires user.manage via system.admin.
+        App.Authz.GrantSuperAdmin(admin.Id);
+        App.AuthzAdmin.SeedSuperAdmin(admin.Id);
+        App.Users.UsableSuperAdmins.Add(admin.Id);
     }
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]

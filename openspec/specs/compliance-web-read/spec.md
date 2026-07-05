@@ -25,6 +25,16 @@ Requirement-scopes SHALL include their `organisation` id, `requirement` id, and
 SHALL register `IComplianceStore` and SHALL NOT register the GitOps import or the
 migration runner abstractions.
 
+The org-scoped reads SHALL be narrowed to the caller's accessible organisation set
+(as defined by the authorization enforcement capability): `organisations` filtered
+by id, and `scopes` and `requirement-scopes` filtered by owning organisation. When a
+returned organisation's `parent` is not in the caller's accessible set, its `parent`
+id SHALL be nulled in the response, so the read does not disclose the existence of an
+inaccessible ancestor; such a node reads as a root, consistent with how the selector
+already treats it. The non-tenant catalog reads `standards`, `controls`, and
+`requirements` are shared reference data with no confidentiality boundary and SHALL
+NOT be narrowed; they remain authenticated-only.
+
 Responses SHALL be deterministically ordered: resources SHALL be ordered by `id`
 and each relation id array SHALL be ordered by id, using ordinal/binary order
 consistent with the identifier identity semantics.
@@ -49,23 +59,33 @@ consistent with the identifier identity semantics.
   owning `standard` id, `theme`, `statement`, `guidance` (null when unset), and a
   `citation` object of `{ label, url }`, ordered by `id`
 
-#### Scenario: Organisations endpoint returns the tree
+#### Scenario: Organisations endpoint returns the accessible tree
 
 - **WHEN** a client requests `GET /api/v1/freeboard/organisations`
-- **THEN** the response lists the persisted organisations with `id`, `title`,
-  `kind`, and resolved `parent` id (null for a root)
+- **THEN** the response lists the persisted organisations in the caller's
+  accessible set with `id`, `title`, `kind`, and resolved `parent` id (null for a
+  root)
 
-#### Scenario: Scopes endpoint returns the mapping
+#### Scenario: Inaccessible parent id is not disclosed
+
+- **WHEN** a caller reads `GET /api/v1/freeboard/organisations` and an accessible
+  organisation's parent is not in the caller's accessible set
+- **THEN** that organisation's `parent` id is null in the response rather than
+  disclosing the inaccessible ancestor
+
+#### Scenario: Scopes endpoint returns the accessible mapping
 
 - **WHEN** a client requests `GET /api/v1/freeboard/scopes`
-- **THEN** the response lists the persisted scopes with `id`, `title`,
-  `organisation` id, `standard` id, and `disposition`
+- **THEN** the response lists the scopes owned by organisations in the caller's
+  accessible set with `id`, `title`, `organisation` id, `standard` id, and
+  `disposition`
 
-#### Scenario: Requirement-scopes endpoint returns the mapping
+#### Scenario: Requirement-scopes endpoint returns the accessible mapping
 
 - **WHEN** a client requests `GET /api/v1/freeboard/requirement-scopes`
-- **THEN** the response lists the persisted requirement-scopes with `id`, `title`,
-  `organisation` id, `requirement` id, and `disposition`, ordered by `id`
+- **THEN** the response lists the requirement-scopes owned by organisations in the
+  caller's accessible set with `id`, `title`, `organisation` id, `requirement` id,
+  and `disposition`, ordered by `id`
 
 #### Scenario: Read responses are ordered by id
 

@@ -1,8 +1,9 @@
+@inject Freeboard.Core.Authz.IAuthzFactProvider AuthzFacts
 @{
     var name = User.FindFirst(AuthClaims.Name)?.Value;
     var email = User.FindFirst(AuthClaims.Email)?.Value;
     var role = User.FindFirst(AuthClaims.Role)?.Value;
-    var isAdmin = string.Equals(role, GlobalRoles.Admin, StringComparison.OrdinalIgnoreCase);
+    var isAdmin = await Freeboard.Authz.AuthzViewHelpers.CanReachAdminAsync(AuthzFacts, User, Context.RequestAborted);
     var displayName = string.IsNullOrWhiteSpace(name) ? "Account" : name;
     var initials = Initials(name);
 }

@@ -202,6 +202,42 @@ internal sealed class FakeUserStore : IUserStore
         _byId[id] = row;
         return Task.FromResult<UserRow?>(row);
     }
+
+    public Task<UserRow> CreateAdminAsync(
+        NewUser user, string? passwordHash, int secretVersion, bool forcePasswordReset,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = IUserStore.Normalize(user.Email);
+        var id = $"user-{++_seq:D4}";
+        var now = DateTime.UtcNow;
+        var row = new UserRow(
+            id, user.Email.Trim(), normalized, user.Name, user.GlobalRole, true, forcePasswordReset, false, now, now);
+        _byId[id] = row;
+        return Task.FromResult(row);
+    }
+
+    /// <summary>
+    /// Ids that count as usable super-admins for the disable guard. Tests seed this to mirror the real
+    /// store's enabled+super-admin+credential join.
+    /// </summary>
+    public HashSet<string> UsableSuperAdmins { get; } = new(StringComparer.Ordinal);
+
+    public Task<DisableUserOutcome> TryDisableUserAsync(string id, CancellationToken cancellationToken = default)
+    {
+        if (!_byId.ContainsKey(id))
+        {
+            return Task.FromResult(DisableUserOutcome.NotFound);
+        }
+
+        if (UsableSuperAdmins.Contains(id) && UsableSuperAdmins.Count == 1)
+        {
+            return Task.FromResult(DisableUserOutcome.LastSuperAdmin);
+        }
+
+        _byId[id] = _byId[id] with { Enabled = false };
+        UsableSuperAdmins.Remove(id);
+        return Task.FromResult(DisableUserOutcome.Disabled);
+    }
 }
 
 /// <summary>

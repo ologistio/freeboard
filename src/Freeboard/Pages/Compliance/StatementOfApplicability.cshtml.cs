@@ -51,7 +51,7 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAc
             // Derive the whole scope from the page's own reads, never from the layout resolver: the
             // resolver degrades a failed org load to an empty list and "All Organisations", which would
             // silently drop this page's cookie-selected subtree or hide a real outage.
-            var accessibleIds = orgAccess.AccessibleOrgIds(User, inputs.Organisations);
+            var accessibleIds = await orgAccess.AccessibleOrgIdsAsync(User, inputs.Organisations, ct).ConfigureAwait(false);
             var selectedId = OrgSelection.Resolve(OrgSelection.ReadCandidate(HttpContext), accessibleIds);
             var inScope = OrgScope.InScopeIds(inputs.Organisations, accessibleIds, selectedId);
 

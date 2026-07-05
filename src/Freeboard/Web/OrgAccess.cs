@@ -11,18 +11,27 @@ namespace Freeboard.Web;
 /// </summary>
 public interface IOrgAccess
 {
-    IReadOnlySet<string> AccessibleOrgIds(ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations);
+    /// <summary>
+    /// The subset of the supplied organisations the user may access. Async because the authz-backed
+    /// default reads the principal's grants; the accessible set is memoized per request alongside the
+    /// fact load.
+    /// </summary>
+    ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
+        ClaimsPrincipal user,
+        IReadOnlyList<OrganisationRow> organisations,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// The v1 default: every authenticated user may access every organisation in the supplied list,
-/// matching today's model where any authenticated user reads the whole compliance domain. The
-/// <paramref name="user"/> is intentionally unused so a future membership model can narrow by user
-/// without a signature change.
+/// Grants every authenticated user access to every supplied organisation. Retained as a unit-test
+/// double for the selection/resolver logic; the app default is <c>AuthzOrgAccess</c> (see Program.cs).
 /// </summary>
 public sealed class AllOrgAccess : IOrgAccess
 {
-    public IReadOnlySet<string> AccessibleOrgIds(
-        ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations)
-        => organisations.Select(o => o.Id).ToHashSet(StringComparer.Ordinal);
+    public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
+        ClaimsPrincipal user,
+        IReadOnlyList<OrganisationRow> organisations,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<IReadOnlySet<string>>(
+            organisations.Select(o => o.Id).ToHashSet(StringComparer.Ordinal));
 }

@@ -83,7 +83,7 @@ public sealed class OrgSelectionResolver(
         {
             var organisations = await store.GetOrganisationsAsync(cancellationToken).ConfigureAwait(false);
             var user = http?.User ?? new ClaimsPrincipal();
-            var accessibleIds = access.AccessibleOrgIds(user, organisations);
+            var accessibleIds = await access.AccessibleOrgIdsAsync(user, organisations, cancellationToken).ConfigureAwait(false);
             var candidate = http is null ? null : OrgSelection.ReadCandidate(http);
             var selectedId = OrgSelection.Resolve(candidate, accessibleIds);
             return _state = new OrgSelectionState(organisations, accessibleIds, selectedId);

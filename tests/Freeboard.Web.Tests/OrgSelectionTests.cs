@@ -100,9 +100,9 @@ public sealed class OrgSelectionTests
 
     private sealed class RestrictedOrgAccess(IReadOnlySet<string> accessible) : IOrgAccess
     {
-        public IReadOnlySet<string> AccessibleOrgIds(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations)
-            => accessible;
+        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<IReadOnlySet<string>>(accessible);
     }
 
     private sealed class CountingComplianceStore : IComplianceStore

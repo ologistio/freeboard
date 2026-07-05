@@ -278,7 +278,8 @@ public sealed class ComplianceWriteEndpointTests
         public string? LastRequirementScopeId { get; private set; }
 
         public Task<WriteResult> UpsertOrganisationAsync(
-            string id, string title, string kind, string? parent, CancellationToken cancellationToken = default)
+            string id, string title, string kind, string? parent,
+            bool expectExisting = false, string? expectedCurrentParent = null, CancellationToken cancellationToken = default)
         {
             if (Throw is not null)
             {
@@ -298,7 +299,7 @@ public sealed class ComplianceWriteEndpointTests
 
         public Task<WriteResult> UpsertScopeDispositionAsync(
             string id, string title, string organisation, string standard, string disposition,
-            CancellationToken cancellationToken = default)
+            string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
         {
             if (Throw is not null)
             {
@@ -318,7 +319,7 @@ public sealed class ComplianceWriteEndpointTests
 
         public Task<WriteResult> UpsertRequirementScopeDispositionAsync(
             string id, string title, string organisation, string requirement, string disposition,
-            CancellationToken cancellationToken = default)
+            string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
         {
             if (Throw is not null)
             {

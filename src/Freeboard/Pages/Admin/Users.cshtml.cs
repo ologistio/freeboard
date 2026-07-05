@@ -1,4 +1,7 @@
 using Freeboard.Auth;
+using Freeboard.Authz;
+using Freeboard.Core.Authz;
+using Freeboard.Persistence;
 using Freeboard.Persistence.Auth;
 using Freeboard.Web;
 using Microsoft.AspNetCore.Mvc;
@@ -12,8 +15,9 @@ namespace Freeboard.Pages.Admin;
 /// create and reset-password go through the shared <see cref="AuthFlows"/> helpers; enable, disable,
 /// and list call the stores directly, matching the endpoint.
 ///
-/// Authentication is the /admin folder authorize policy (page challenge scheme); the admin-role gate
-/// is enforced in-page at the top of every handler via <see cref="AdminGuard"/>. The page carries no
+/// Authentication is the /admin folder authorize policy (page challenge scheme); the super-admin gate
+/// is enforced in-page at the top of every handler via <see cref="Freeboard.Authz.AuthzPageGuard"/>
+/// for <c>user.manage</c> (reachable only via <c>system.admin</c>). The page carries no
 /// limited-session-allowed marker, so a force-reset-limited session is funnelled to
 /// /account/complete-reset before any handler runs.
 /// </summary>
@@ -24,6 +28,9 @@ public sealed class UsersModel(
     IPasswordHasher hasher,
     IPasswordResetStore resets,
     TempPasswordDisplayStore tempPasswords,
+    AuthzPageGuard pageGuard,
+    IAuthzAdministrationStore authzAdmin,
+    ILogger<UsersModel> logger,
     IServiceProvider serviceProvider) : PageModel
 {
     public IReadOnlyList<UserRow> Users { get; private set; } = [];
@@ -42,7 +49,7 @@ public sealed class UsersModel(
 
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
-        if (AdminGuard.Check(User) is { } denied)
+        if (await pageGuard.CheckAsync(User, AuthzActions.UserManage, AuthzResource.ForUser(null), ct) is { } denied)
         {
             return denied;
         }
@@ -54,7 +61,7 @@ public sealed class UsersModel(
     public async Task<IActionResult> OnPostCreateAsync(
         string? email, string? name, string? global_role, string? handoff, CancellationToken ct)
     {
-        if (AdminGuard.Check(User) is { } denied)
+        if (await pageGuard.CheckAsync(User, AuthzActions.UserManage, AuthzResource.ForUser(null), ct) is { } denied)
         {
             return denied;
         }
@@ -70,12 +77,17 @@ public sealed class UsersModel(
         switch (result)
         {
             case AuthFlows.CreateUserResult.Success success:
+                await AuditAsync("user.admin.create", success.User.Id, ct).ConfigureAwait(false);
                 var target = tempPasswords.StashAndRedirectTarget(Response, success.TemporaryPassword);
                 return Redirect(target);
             case AuthFlows.CreateUserResult.Invited invited:
+                await AuditAsync("user.admin.create", invited.User.Id, ct).ConfigureAwait(false);
                 InvitedEmail = invited.User.Email;
                 break;
             case AuthFlows.CreateUserResult.InviteSendFailed failed:
+                // The user row was created; only the invite email failed. Audit the create that happened
+                // so the trail records it even though the invite could not be provisioned.
+                await AuditAsync("user.admin.create", failed.User.Id, ct).ConfigureAwait(false);
                 InviteFailedEmail = failed.User.Email;
                 break;
             case AuthFlows.CreateUserResult.Invalid invalid:
@@ -99,7 +111,7 @@ public sealed class UsersModel(
 
     public async Task<IActionResult> OnPostResetPasswordAsync(string id, CancellationToken ct)
     {
-        if (AdminGuard.Check(User) is { } denied)
+        if (await pageGuard.CheckAsync(User, AuthzActions.UserManage, AuthzResource.ForUser(null), ct) is { } denied)
         {
             return denied;
         }
@@ -118,6 +130,7 @@ public sealed class UsersModel(
 
         if (result is AuthFlows.ResetUserPasswordResult.Success success)
         {
+            await AuditAsync("user.admin.reset", id, ct).ConfigureAwait(false);
             var target = tempPasswords.StashAndRedirectTarget(Response, success.TemporaryPassword);
             return Redirect(target);
         }
@@ -129,7 +142,7 @@ public sealed class UsersModel(
 
     public async Task<IActionResult> OnPostDisableAsync(string id, CancellationToken ct)
     {
-        if (AdminGuard.Check(User) is { } denied)
+        if (await pageGuard.CheckAsync(User, AuthzActions.UserManage, AuthzResource.ForUser(null), ct) is { } denied)
         {
             return denied;
         }
@@ -143,15 +156,22 @@ public sealed class UsersModel(
             return Page();
         }
 
-        if (await users.GetByIdAsync(id, ct).ConfigureAwait(false) is null)
+        // Route through the same atomically guarded store the API uses, so the last-usable-super-admin
+        // guard cannot be bypassed by the page's direct SetEnabledAsync call.
+        var outcome = await users.TryDisableUserAsync(id, ct).ConfigureAwait(false);
+        switch (outcome)
         {
-            Notice = "That user no longer exists.";
-        }
-        else
-        {
-            await users.SetEnabledAsync(id, false, ct).ConfigureAwait(false);
-            // Disabling revokes the user's sessions so an in-flight token cannot keep acting.
-            await sessions.DeleteAllForUserAsync(id, ct).ConfigureAwait(false);
+            case DisableUserOutcome.NotFound:
+                Notice = "That user no longer exists.";
+                break;
+            case DisableUserOutcome.LastSuperAdmin:
+                Notice = "At least one usable super-admin must remain.";
+                break;
+            default:
+                // Disabling revokes the user's sessions so an in-flight token cannot keep acting.
+                await sessions.DeleteAllForUserAsync(id, ct).ConfigureAwait(false);
+                await AuditAsync("user.admin.disable", id, ct).ConfigureAwait(false);
+                break;
         }
 
         await LoadAsync(ct).ConfigureAwait(false);
@@ -160,7 +180,7 @@ public sealed class UsersModel(
 
     public async Task<IActionResult> OnPostEnableAsync(string id, CancellationToken ct)
     {
-        if (AdminGuard.Check(User) is { } denied)
+        if (await pageGuard.CheckAsync(User, AuthzActions.UserManage, AuthzResource.ForUser(null), ct) is { } denied)
         {
             return denied;
         }
@@ -172,6 +192,7 @@ public sealed class UsersModel(
         else
         {
             await users.SetEnabledAsync(id, true, ct).ConfigureAwait(false);
+            await AuditAsync("user.admin.enable", id, ct).ConfigureAwait(false);
         }
 
         await LoadAsync(ct).ConfigureAwait(false);
@@ -181,6 +202,12 @@ public sealed class UsersModel(
     /// <summary>True when the target id is the signed-in admin's own user id.</summary>
     private bool IsSelf(string id)
         => string.Equals(id, User.FindFirst(AuthClaims.UserId)?.Value, StringComparison.Ordinal);
+
+    private Task AuditAsync(string action, string targetUserId, CancellationToken ct)
+        => AuthzMutationAudit.AppendAsync(
+            authzAdmin, logger,
+            new AuthzAuditEvent(action, User.FindFirst(AuthClaims.UserId)?.Value, AuthzActions.UserManage, "user", targetUserId, null, "Permit", "user-admin mutation"),
+            ct);
 
     private async Task LoadAsync(CancellationToken ct)
     {

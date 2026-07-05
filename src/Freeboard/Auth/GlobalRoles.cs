@@ -9,9 +9,6 @@ public static class GlobalRoles
     public const string Admin = "admin";
     public const string Member = "member";
 
-    /// <summary>The authorization policy name requiring the admin role.</summary>
-    public const string AdminPolicy = "RequireAdmin";
-
     /// <summary>The known roles a created user may be assigned.</summary>
     public static bool IsValid(string? role) => role is Admin or Member;
 }

@@ -1,7 +1,8 @@
 @page "/home"
+@inject Freeboard.Core.Authz.IAuthzFactProvider AuthzFacts
 @{
     ViewData["Title"] = "Home";
-    var isAdmin = string.Equals(User.FindFirst(AuthClaims.Role)?.Value, GlobalRoles.Admin, StringComparison.OrdinalIgnoreCase);
+    var isAdmin = await Freeboard.Authz.AuthzViewHelpers.CanReachAdminAsync(AuthzFacts, User, HttpContext.RequestAborted);
 }
 <div class="mb-8">
     <h1 class="text-2xl font-bold">Home</h1>
