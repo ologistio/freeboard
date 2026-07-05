@@ -1,0 +1,52 @@
+@page "/admin/role-assignments"
+@model Freeboard.Pages.Admin.RoleAssignmentsModel
+@{
+    ViewData["Title"] = "Role assignments";
+}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Role assignments</h1>
+    <p class="mt-1 text-sm text-neutral-600">Grant and revoke organisation roles.</p>
+</div>
+
+@if (Model.Notice is not null)
+{
+    <p class="notice mb-4 max-w-2xl">@Model.Notice</p>
+}
+
+<form method="get" class="mb-6 flex gap-2">
+    <input type="text" name="orgId" value="@Model.OrgId" placeholder="Organisation id" class="border px-2 py-1" />
+    <button type="submit" class="app-button">Load</button>
+</form>
+
+@if (!string.IsNullOrEmpty(Model.OrgId))
+{
+    <table class="mb-6 w-full max-w-3xl text-left">
+        <thead>
+            <tr><th>User</th><th>Role</th><th></th></tr>
+        </thead>
+        <tbody>
+        @foreach (var a in Model.Assignments)
+        {
+            <tr>
+                <td>@a.UserId</td>
+                <td>@a.RoleKey</td>
+                <td>
+                    <form method="post" asp-page-handler="Revoke">
+                        <input type="hidden" name="orgId" value="@Model.OrgId" />
+                        <input type="hidden" name="userId" value="@a.UserId" />
+                        <input type="hidden" name="roleKey" value="@a.RoleKey" />
+                        <button type="submit" class="app-button">Revoke</button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+
+    <form method="post" asp-page-handler="Grant" class="flex gap-2">
+        <input type="hidden" name="orgId" value="@Model.OrgId" />
+        <input type="text" name="userId" placeholder="User id" class="border px-2 py-1" />
+        <input type="text" name="roleKey" placeholder="Role key" class="border px-2 py-1" />
+        <button type="submit" class="app-button">Grant</button>
+    </form>
+}

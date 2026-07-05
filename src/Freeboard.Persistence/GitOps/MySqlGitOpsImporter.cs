@@ -52,7 +52,12 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         // 4. Replace all control->requirement join rows for the imported set (whole-set delete+insert).
         await ReplaceControlRequirementsAsync(connection, transaction, plan, cancellationToken).ConfigureAwait(false);
 
-        // 5. Hard-remove remaining domain rows whose id is absent, FK-safe order (organisations
+        // 5. Prune org-scoped role assignments for absent organisations before the org delete: the
+        //    organisation FK is ON DELETE RESTRICT, so a stale assignment would wedge the delete. The
+        //    importer needs no role semantics, only the prune, mirroring how it prunes absent scopes.
+        await DeleteAbsentOrganisationAssignmentsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
+
+        // 6. Hard-remove remaining domain rows whose id is absent, FK-safe order (organisations
         //    child-before-parent; controls; requirements before standards; standards). OrganisationIds
         //    is parent-before-child, so reversing it deletes children first. Requirements reference
         //    standards with ON DELETE RESTRICT, so a removed standard's requirements must clear first.
@@ -258,6 +263,20 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         var sql = keepIds.Count == 0
             ? $"DELETE FROM {table};"
             : $"DELETE FROM {table} WHERE id NOT IN @KeepIds;";
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            sql, new { KeepIds = keepIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+    }
+
+    private static async Task DeleteAbsentOrganisationAssignmentsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<string> keepIds,
+        CancellationToken cancellationToken)
+    {
+        var sql = keepIds.Count == 0
+            ? "DELETE FROM authz_organisation_role_assignments;"
+            : "DELETE FROM authz_organisation_role_assignments WHERE organisation_id NOT IN @KeepIds;";
 
         await connection.ExecuteAsync(new CommandDefinition(
             sql, new { KeepIds = keepIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);

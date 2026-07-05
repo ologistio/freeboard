@@ -153,8 +153,8 @@ public sealed class OrgSelectorViewComponentTests
 
     private sealed class SubsetOrgAccess(IReadOnlySet<string> accessible) : IOrgAccess
     {
-        public IReadOnlySet<string> AccessibleOrgIds(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations)
-            => accessible;
+        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<IReadOnlySet<string>>(accessible);
     }
 }

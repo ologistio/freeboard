@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using Freeboard.Api;
 using Freeboard.Persistence;
+using Freeboard.Web;
 
 namespace Freeboard.Compliance;
 
@@ -73,12 +75,22 @@ public static class ComplianceEndpoints
             }
         });
 
-        reads.MapGet("/organisations", async (IComplianceStore store, CancellationToken ct) =>
+        reads.MapGet("/organisations", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
                 var rows = await store.GetOrganisationsAsync(ct);
-                return Results.Ok(rows.Select(r => new { id = r.Id, title = r.Title, kind = r.Kind, parent = r.Parent }));
+                var accessible = await access.AccessibleOrgIdsAsync(user, rows, ct);
+                // Narrow to the accessible set, and null a parent id the caller cannot access so an
+                // inaccessible organisation's existence is not disclosed (the selector treats a node
+                // with a null parent as a root).
+                return Results.Ok(rows.Where(r => accessible.Contains(r.Id)).Select(r => new
+                {
+                    id = r.Id,
+                    title = r.Title,
+                    kind = r.Kind,
+                    parent = r.Parent is not null && accessible.Contains(r.Parent) ? r.Parent : null,
+                }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
             {
@@ -86,12 +98,13 @@ public static class ComplianceEndpoints
             }
         });
 
-        reads.MapGet("/scopes", async (IComplianceStore store, CancellationToken ct) =>
+        reads.MapGet("/scopes", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
                 var rows = await store.GetScopesAsync(ct);
-                return Results.Ok(rows.Select(r => new
+                var accessible = await access.AccessibleOrgIdsAsync(user, await store.GetOrganisationsAsync(ct), ct);
+                return Results.Ok(rows.Where(r => accessible.Contains(r.Organisation)).Select(r => new
                 {
                     id = r.Id,
                     title = r.Title,
@@ -106,12 +119,13 @@ public static class ComplianceEndpoints
             }
         });
 
-        reads.MapGet("/requirement-scopes", async (IComplianceStore store, CancellationToken ct) =>
+        reads.MapGet("/requirement-scopes", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
                 var rows = await store.GetRequirementScopesAsync(ct);
-                return Results.Ok(rows.Select(r => new
+                var accessible = await access.AccessibleOrgIdsAsync(user, await store.GetOrganisationsAsync(ct), ct);
+                return Results.Ok(rows.Where(r => accessible.Contains(r.Organisation)).Select(r => new
                 {
                     id = r.Id,
                     title = r.Title,
@@ -127,13 +141,18 @@ public static class ComplianceEndpoints
         });
 
         reads.MapGet("/statement-of-applicability/{standardId}",
-            async (string standardId, IComplianceStore store, CancellationToken ct) =>
+            async (string standardId, IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
             {
                 try
                 {
                     var inputs = await store.GetStatementOfApplicabilityInputsAsync(ct);
+                    // Resolve over the FULL tree first (so inherited dispositions survive), then filter
+                    // the node list to the accessible subtree.
+                    var accessible = await access.AccessibleOrgIdsAsync(user, inputs.Organisations, ct);
                     var nodes = StatementOfApplicability.Resolve(
-                        inputs.Organisations, inputs.Scopes, inputs.Requirements, inputs.RequirementScopes, standardId);
+                            inputs.Organisations, inputs.Scopes, inputs.Requirements, inputs.RequirementScopes, standardId)
+                        .Where(n => accessible.Contains(n.Id))
+                        .ToList();
                     return Results.Ok(new
                     {
                         standard = standardId,
@@ -142,7 +161,7 @@ public static class ComplianceEndpoints
                             id = n.Id,
                             title = n.Title,
                             kind = n.Kind,
-                            parent = n.Parent,
+                            parent = n.Parent is not null && accessible.Contains(n.Parent) ? n.Parent : null,
                             disposition = n.Disposition,
                             resolution = n.Resolution.ToWireValue(),
                             requirements = n.Requirements.Select(r => new

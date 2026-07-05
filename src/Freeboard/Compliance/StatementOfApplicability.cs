@@ -97,11 +97,14 @@ public static class StatementOfApplicability
         var nodes = new List<SoaNode>(organisations.Count);
         foreach (var organisation in organisations)
         {
-            var (disposition, resolution) = ResolveNode(organisation, byId, explicitByOrg);
+            // Build the node's inclusive ancestry ONCE via the shared helper, then consume it for both
+            // the standard-level and requirement-level nearest-ancestor lookups.
+            var ancestry = OrgAncestry.InclusiveAncestors(organisation.Id, byId);
+            var (disposition, resolution) = ResolveNode(organisation.Id, ancestry, explicitByOrg);
 
             // Requirement-scopes apply only under a standard that resolves In at this node.
             var requirementResolutions = string.Equals(disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal)
-                ? ResolveRequirements(organisation, byId, standardRequirementIds, requirementScopeByOrg)
+                ? ResolveRequirements(organisation.Id, ancestry, standardRequirementIds, requirementScopeByOrg)
                 : [];
 
             nodes.Add(new SoaNode(
@@ -118,33 +121,27 @@ public static class StatementOfApplicability
     }
 
     private static IReadOnlyList<SoaRequirementResolution> ResolveRequirements(
-        OrganisationRow node,
-        IReadOnlyDictionary<string, OrganisationRow> byId,
+        string nodeId,
+        IReadOnlyList<string> ancestry,
         IReadOnlyList<string> standardRequirementIds,
         IReadOnlyDictionary<string, Dictionary<string, string>> requirementScopeByOrg)
     {
         var results = new List<SoaRequirementResolution>();
         foreach (var requirementId in standardRequirementIds)
         {
-            // Own requirement-scope wins (explicit); else the nearest ancestor's (inherited); else
-            // the requirement is not a deviation and follows the node's standard disposition (In).
-            if (TryGetRequirementDisposition(node.Id, requirementId, requirementScopeByOrg, out var own))
+            // Walk the inclusive ancestry [node, parent, ..., root]: the node's own requirement-scope
+            // wins (explicit); else the nearest ancestor's (inherited); else the requirement is not a
+            // deviation and follows the node's standard disposition (In).
+            foreach (var orgId in ancestry)
             {
-                results.Add(new SoaRequirementResolution(requirementId, own, SoaResolution.Explicit));
-                continue;
-            }
-
-            var visited = new HashSet<string>(StringComparer.Ordinal) { node.Id };
-            var current = node.Parent;
-            while (current is not null && byId.TryGetValue(current, out var parent) && visited.Add(current))
-            {
-                if (TryGetRequirementDisposition(parent.Id, requirementId, requirementScopeByOrg, out var inherited))
+                if (TryGetRequirementDisposition(orgId, requirementId, requirementScopeByOrg, out var found))
                 {
-                    results.Add(new SoaRequirementResolution(requirementId, inherited, SoaResolution.Inherited));
+                    var resolution = string.Equals(orgId, nodeId, StringComparison.Ordinal)
+                        ? SoaResolution.Explicit
+                        : SoaResolution.Inherited;
+                    results.Add(new SoaRequirementResolution(requirementId, found, resolution));
                     break;
                 }
-
-                current = parent.Parent;
             }
         }
 
@@ -169,27 +166,20 @@ public static class StatementOfApplicability
     }
 
     private static (string? Disposition, SoaResolution Resolution) ResolveNode(
-        OrganisationRow node,
-        IReadOnlyDictionary<string, OrganisationRow> byId,
+        string nodeId,
+        IReadOnlyList<string> ancestry,
         IReadOnlyDictionary<string, string> explicitByOrg)
     {
-        // Explicit disposition on the node itself wins.
-        if (explicitByOrg.TryGetValue(node.Id, out var own))
+        // Walk the inclusive ancestry to the first node with an explicit disposition: the node itself
+        // is Explicit, any ancestor is Inherited; none on the path is Undetermined.
+        foreach (var orgId in ancestry)
         {
-            return (own, SoaResolution.Explicit);
-        }
-
-        // Otherwise walk ancestors to the first that has an explicit disposition.
-        var visited = new HashSet<string>(StringComparer.Ordinal) { node.Id };
-        var current = node.Parent;
-        while (current is not null && byId.TryGetValue(current, out var parent) && visited.Add(current))
-        {
-            if (explicitByOrg.TryGetValue(parent.Id, out var inherited))
+            if (explicitByOrg.TryGetValue(orgId, out var found))
             {
-                return (inherited, SoaResolution.Inherited);
+                return string.Equals(orgId, nodeId, StringComparison.Ordinal)
+                    ? (found, SoaResolution.Explicit)
+                    : (found, SoaResolution.Inherited);
             }
-
-            current = parent.Parent;
         }
 
         return (null, SoaResolution.Undetermined);

@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Dapper;
 using Freeboard.Core.GitOps;
+using MySqlConnector;
 
 namespace Freeboard.Persistence;
 
@@ -19,6 +20,8 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         string title,
         string kind,
         string? parent,
+        bool expectExisting = false,
+        string? expectedCurrentParent = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -37,9 +40,15 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         }
 
         var parentId = string.IsNullOrEmpty(parent) ? null : parent;
+        var expectedParentId = string.IsNullOrEmpty(expectedCurrentParent) ? null : expectedCurrentParent;
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (await LockedParentChangedAsync(connection, transaction, id, expectExisting, expectedParentId, cancellationToken).ConfigureAwait(false))
+        {
+            return WriteResult.Conflict("The organisation's parent changed concurrently; re-authorize and retry.");
+        }
 
         if (parentId is not null)
         {
@@ -61,15 +70,27 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         }
 
         var now = DateTime.UtcNow;
-        await connection.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Kind, @Parent, @Now, @Now) "
-            + "ON DUPLICATE KEY UPDATE "
-            + "api_version = VALUES(api_version), title = VALUES(title), kind = VALUES(kind), "
-            + "parent_id = VALUES(parent_id), updated_at = VALUES(updated_at);",
-            new { Id = id, ApiVersion = GitOpsSchema.ApiVersion, Title = title, Kind = kind, Parent = parentId, Now = now },
-            transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        var parameters = new { Id = id, ApiVersion = GitOpsSchema.ApiVersion, Title = title, Kind = kind, Parent = parentId, Now = now };
+        try
+        {
+            // Create is INSERT-only so a row inserted concurrently between the lock and this write
+            // surfaces as a conflict, not a silent last-write-wins overwrite. Update stays an upsert
+            // keyed on the row the caller was authorized for and already re-locked above.
+            var sql = expectExisting
+                ? "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Kind, @Parent, @Now, @Now) "
+                    + "ON DUPLICATE KEY UPDATE "
+                    + "api_version = VALUES(api_version), title = VALUES(title), kind = VALUES(kind), "
+                    + "parent_id = VALUES(parent_id), updated_at = VALUES(updated_at);"
+                : "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Kind, @Parent, @Now, @Now);";
+            await connection.ExecuteAsync(new CommandDefinition(
+                sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+        {
+            return WriteResult.Conflict("An organisation with that id already exists.");
+        }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return WriteResult.Success;
@@ -104,6 +125,13 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             return WriteResult.Fail("Cannot delete an organisation that still has requirement-scopes.");
         }
 
+        // Prune the org's role assignments before the delete: the organisation FK is ON DELETE
+        // RESTRICT, so an existing assignment would otherwise wedge the delete. Same prune-before-
+        // delete pattern the pre-counts above rely on for scopes.
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM authz_organisation_role_assignments WHERE organisation_id = @Id;",
+            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
         await connection.ExecuteAsync(new CommandDefinition(
             "DELETE FROM organisations WHERE id = @Id;",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -118,6 +146,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         string organisation,
         string standard,
         string disposition,
+        string? expectedCurrentOrganisation = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -137,6 +166,11 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (await LockedOwnerChangedAsync(connection, transaction, "scopes", id, expectedCurrentOrganisation, cancellationToken).ConfigureAwait(false))
+        {
+            return WriteResult.Conflict("The scope's owning organisation changed concurrently; re-authorize and retry.");
+        }
 
         if (!await ExistsAsync(connection, transaction, "organisations", organisation, cancellationToken).ConfigureAwait(false))
         {
@@ -160,24 +194,37 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         }
 
         var now = DateTime.UtcNow;
-        await connection.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO scopes (id, api_version, title, organisation_id, standard_id, disposition, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Standard, @Disposition, @Now, @Now) "
-            + "ON DUPLICATE KEY UPDATE "
-            + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
-            + "standard_id = VALUES(standard_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);",
-            new
-            {
-                Id = id,
-                ApiVersion = GitOpsSchema.ApiVersion,
-                Title = title,
-                Organisation = organisation,
-                Standard = standard,
-                Disposition = disposition,
-                Now = now,
-            },
-            transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        var parameters = new
+        {
+            Id = id,
+            ApiVersion = GitOpsSchema.ApiVersion,
+            Title = title,
+            Organisation = organisation,
+            Standard = standard,
+            Disposition = disposition,
+            Now = now,
+        };
+        try
+        {
+            // A null expected owner is a create: INSERT-only so a row inserted concurrently between the
+            // lock and this write conflicts rather than silently overwriting. An expected owner is an
+            // update on the row the caller was authorized for and already re-locked above.
+            var isCreate = expectedCurrentOrganisation is null;
+            var sql = isCreate
+                ? "INSERT INTO scopes (id, api_version, title, organisation_id, standard_id, disposition, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Standard, @Disposition, @Now, @Now);"
+                : "INSERT INTO scopes (id, api_version, title, organisation_id, standard_id, disposition, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Standard, @Disposition, @Now, @Now) "
+                    + "ON DUPLICATE KEY UPDATE "
+                    + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
+                    + "standard_id = VALUES(standard_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);";
+            await connection.ExecuteAsync(new CommandDefinition(
+                sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+        {
+            return WriteResult.Conflict("A scope with that id already exists.");
+        }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return WriteResult.Success;
@@ -198,6 +245,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         string organisation,
         string requirement,
         string disposition,
+        string? expectedCurrentOrganisation = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -217,6 +265,11 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (await LockedOwnerChangedAsync(connection, transaction, "requirement_scopes", id, expectedCurrentOrganisation, cancellationToken).ConfigureAwait(false))
+        {
+            return WriteResult.Conflict("The requirement-scope's owning organisation changed concurrently; re-authorize and retry.");
+        }
 
         if (!await ExistsAsync(connection, transaction, "organisations", organisation, cancellationToken).ConfigureAwait(false))
         {
@@ -240,24 +293,37 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         }
 
         var now = DateTime.UtcNow;
-        await connection.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now) "
-            + "ON DUPLICATE KEY UPDATE "
-            + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
-            + "requirement_id = VALUES(requirement_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);",
-            new
-            {
-                Id = id,
-                ApiVersion = GitOpsSchema.ApiVersion,
-                Title = title,
-                Organisation = organisation,
-                Requirement = requirement,
-                Disposition = disposition,
-                Now = now,
-            },
-            transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        var parameters = new
+        {
+            Id = id,
+            ApiVersion = GitOpsSchema.ApiVersion,
+            Title = title,
+            Organisation = organisation,
+            Requirement = requirement,
+            Disposition = disposition,
+            Now = now,
+        };
+        try
+        {
+            // A null expected owner is a create: INSERT-only so a row inserted concurrently between the
+            // lock and this write conflicts rather than silently overwriting. An expected owner is an
+            // update on the row the caller was authorized for and already re-locked above.
+            var isCreate = expectedCurrentOrganisation is null;
+            var sql = isCreate
+                ? "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now);"
+                : "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now) "
+                    + "ON DUPLICATE KEY UPDATE "
+                    + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
+                    + "requirement_id = VALUES(requirement_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);";
+            await connection.ExecuteAsync(new CommandDefinition(
+                sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+        {
+            return WriteResult.Conflict("A requirement-scope with that id already exists.");
+        }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return WriteResult.Success;
@@ -283,6 +349,62 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             $"SELECT COUNT(*) FROM {table} WHERE id = @Id;",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return count > 0;
+    }
+
+    /// <summary>
+    /// Locks the existing row (<c>SELECT ... FOR UPDATE</c>) and reports whether its current owning
+    /// organisation differs from the one the caller authorized. When the caller expected no existing row
+    /// (<paramref name="expectedCurrentOrganisation"/> null), a row that now exists under any org is a
+    /// change. A row absent under the lock is not a change: the upsert then inserts it afresh under the
+    /// requested org, which the caller already authorized. Closes the cross-org-move TOCTOU: the
+    /// authorized current owner cannot change between the pre-write authorization and the write.
+    /// The table name is a fixed internal constant, never caller input.
+    /// </summary>
+    private static async Task<bool> LockedOwnerChangedAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        string table,
+        string id,
+        string? expectedCurrentOrganisation,
+        CancellationToken cancellationToken)
+    {
+        var currentOwner = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+            $"SELECT organisation_id FROM {table} WHERE id = @Id FOR UPDATE;",
+            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return currentOwner is not null
+            && !string.Equals(currentOwner, expectedCurrentOrganisation, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Locks the organisation row (<c>SELECT ... FOR UPDATE</c>) and reports whether its current parent
+    /// differs from the one the caller authorized. On an update (<paramref name="expectExisting"/> true) a
+    /// row absent under the lock lost a concurrent delete (a change), and a present row is a change only
+    /// when its locked parent differs from <paramref name="expectedCurrentParent"/>. On a create
+    /// (<paramref name="expectExisting"/> false) a row now present is a concurrent create (a change) and an
+    /// absent row is inserted fresh under the authorized parent. A null parent is a legitimate root, so the
+    /// caller passes <paramref name="expectExisting"/> explicitly rather than overloading the null.
+    /// Closes the cross-parent-move TOCTOU: the authorized current parent cannot change between the
+    /// pre-write authorization and the write.
+    /// </summary>
+    private static async Task<bool> LockedParentChangedAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        string id,
+        bool expectExisting,
+        string? expectedCurrentParent,
+        CancellationToken cancellationToken)
+    {
+        var rows = (await connection.QueryAsync<string?>(new CommandDefinition(
+            "SELECT parent_id FROM organisations WHERE id = @Id FOR UPDATE;",
+            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        if (rows.Count == 0)
+        {
+            return expectExisting;
+        }
+
+        return !expectExisting
+            || !string.Equals(rows[0], expectedCurrentParent, StringComparison.Ordinal);
     }
 
     /// <summary>

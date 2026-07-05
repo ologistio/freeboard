@@ -56,6 +56,15 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// <summary>The compliance read store the app serves. Seed it to drive the read pages/endpoints.</summary>
     public FakeComplianceStore Compliance { get; init; } = new();
 
+    /// <summary>The in-memory authz read store. Seed grants to drive authorization decisions.</summary>
+    public FakeAuthzStore Authz { get; init; } = new();
+
+    /// <summary>The in-memory authz write/audit store. Assert its <c>Events</c> for the audit trail.</summary>
+    public FakeAuthzAdministrationStore AuthzAdmin { get; init; } = new();
+
+    /// <summary>Overrides <c>Authz:Mode</c> (Observe|Compat|Enforce). Null leaves the app default (Compat).</summary>
+    public string? AuthzMode { get; init; }
+
     /// <summary>
     /// When set, replaces the default all-access <see cref="IOrgAccess"/> so a test can inject a
     /// restricted seam returning a strict subset of the supplied organisation list.
@@ -117,6 +126,10 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
             "Auth:PasswordResetEnabled", (PasswordResetEnabled ?? RegisterEmailSender) ? "true" : "false");
         builder.UseSetting("Auth:WebAuthn:RpId", "localhost");
         builder.UseSetting("Auth:WebAuthn:Origins:0", "https://localhost");
+        if (AuthzMode is not null)
+        {
+            builder.UseSetting("Authz:Mode", AuthzMode);
+        }
 
         builder.ConfigureLogging(logging => logging.AddProvider(Logs));
 
@@ -124,6 +137,11 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IComplianceStore>();
             services.AddSingleton<IComplianceStore>(Compliance);
+
+            services.RemoveAll<IAuthzStore>();
+            services.AddSingleton<IAuthzStore>(Authz);
+            services.RemoveAll<IAuthzAdministrationStore>();
+            services.AddSingleton<IAuthzAdministrationStore>(AuthzAdmin);
 
             if (OrgAccess is not null)
             {
@@ -186,9 +204,10 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// returns a client whose Authorization header carries the session's bearer token.
     /// </summary>
     public HttpClient CreateAuthenticatedClient(
-        UserRow user, SessionAuthState authState = SessionAuthState.Full, string password = "password")
+        UserRow user, SessionAuthState authState = SessionAuthState.Full, string password = "password",
+        bool grantRoleAuthz = true)
     {
-        var token = SeedSession(user, authState, password);
+        var token = SeedSession(user, authState, password, grantRoleAuthz: grantRoleAuthz);
         var client = CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
@@ -200,11 +219,21 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// </summary>
     public string SeedSession(
         UserRow user, SessionAuthState authState = SessionAuthState.Full, string password = "password",
-        DateTime? expiresAt = null)
+        DateTime? expiresAt = null, bool grantRoleAuthz = true)
     {
         Users.Add(user);
         Credentials.SetAsync(user.Id, Hasher.Hash(password), 1).GetAwaiter().GetResult();
         var credentialVersion = Credentials.GetAsync(user.Id).GetAwaiter().GetResult()!.CredentialVersion;
+
+        // Mirror the migration backfill: a legacy global-admin becomes a super-admin authz holder, so
+        // the existing admin-based tests keep passing. Pass grantRoleAuthz:false to seed an admin that
+        // holds ONLY the legacy claim (for the tests proving the claim now grants nothing).
+        if (grantRoleAuthz && string.Equals(user.GlobalRole, GlobalRoles.Admin, StringComparison.Ordinal))
+        {
+            Authz.GrantSuperAdmin(user.Id);
+            AuthzAdmin.SeedSuperAdmin(user.Id);
+            Users.UsableSuperAdmins.Add(user.Id);
+        }
 
         var hasher = Services.GetRequiredService<ITokenHasher>();
         var minted = hasher.MintPrefixed();

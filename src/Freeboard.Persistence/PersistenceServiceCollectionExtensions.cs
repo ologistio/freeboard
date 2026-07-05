@@ -38,6 +38,22 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory and the authz store pair (<see cref="IAuthzStore"/> read,
+    /// <see cref="IAuthzAdministrationStore"/> write) as singletons through the shared connection
+    /// factory, beside <see cref="AddAuth"/>. The administration store needs an
+    /// <see cref="Auth.IUlidFactory"/> for audit-row ids; it is TryAdded so a co-registered
+    /// <see cref="AddAuth"/> keeps its single instance.
+    /// </summary>
+    public static IServiceCollection AddAuthz(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<Auth.IUlidFactory, Auth.UlidFactory>();
+        services.TryAddSingleton<IAuthzStore, MySqlAuthzStore>();
+        services.TryAddSingleton<IAuthzAdministrationStore, MySqlAuthzAdministrationStore>();
+        return services;
+    }
+
     /// <summary>Registers the connection factory and <see cref="IGitOpsImporter"/>.</summary>
     public static IServiceCollection AddGitOpsImport(this IServiceCollection services, string connectionString)
     {

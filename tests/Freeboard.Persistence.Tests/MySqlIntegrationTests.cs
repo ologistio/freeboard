@@ -723,6 +723,30 @@ public sealed class MySqlIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task WriteStoreCreatePathConflictsWithoutOverwritingExistingRow()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+        var writeStore = new MySqlComplianceWriteStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config([Std("std-a")], [], [Org("org-a")], [], []));
+
+        // Organisation create is INSERT-only: a second create for an id that already exists conflicts
+        // (409-mapped) instead of silently last-write-wins overwriting the stored row. expectExisting
+        // defaults to false, which is the create path.
+        Assert.True((await writeStore.UpsertOrganisationAsync("org-x", "First", "Company", null)).Ok);
+        Assert.True((await writeStore.UpsertOrganisationAsync("org-x", "Second", "Company", null)).IsConflict);
+        Assert.Equal("First", (await store.GetOrganisationsAsync()).Single(o => o.Id == "org-x").Title);
+
+        // Scope create is INSERT-only too (expectedCurrentOrganisation null is the create path).
+        Assert.True((await writeStore.UpsertScopeDispositionAsync("sc-x", "First", "org-a", "std-a", "In")).Ok);
+        Assert.True((await writeStore.UpsertScopeDispositionAsync("sc-x", "Second", "org-a", "std-a", "In")).IsConflict);
+        Assert.Equal("First", (await store.GetScopesAsync()).Single(s => s.Id == "sc-x").Title);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task GetStatementOfApplicabilityInputsMatchesIndividualReads()
     {
         await using var db = await RequireDbAsync();

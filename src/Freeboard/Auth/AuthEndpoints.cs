@@ -1,6 +1,9 @@
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Freeboard.Api;
+using Freeboard.Authz;
+using Freeboard.Core.Authz;
+using Freeboard.Persistence;
 using Freeboard.Persistence.Auth;
 
 namespace Freeboard.Auth;
@@ -26,10 +29,14 @@ public static class AuthEndpoints
         auth.MapPost("/auth/password/reset", ResetPasswordAsync).MarkAuthEndpoint();
         auth.MapPost("/account/password", AccountPasswordAsync).RequireAuthorization().MarkAuthEndpoint();
 
-        auth.MapGet("/auth/sessions/{id}", GetSessionAsync).RequireAuthorization().MarkAuthEndpoint();
-        auth.MapDelete("/auth/sessions/{id}", DeleteSessionAsync).RequireAuthorization().MarkAuthEndpoint();
-        auth.MapGet("/users/{id}/sessions", ListUserSessionsAsync).RequireAuthorization().MarkAuthEndpoint();
-        auth.MapDelete("/users/{id}/sessions", DeleteUserSessionsAsync).RequireAuthorization().MarkAuthEndpoint();
+        // These four routes serve a self-service path AND a cross-user admin branch, so they cannot
+        // carry a whole-route RequirePermission filter. The cross-user branch is force-enforced
+        // in-handler via IAuthorizer for user.manage; the metadata records the declared cross-user
+        // permission so the route-metadata test covers them.
+        auth.MapGet("/auth/sessions/{id}", GetSessionAsync).RequireAuthorization().MarkAuthEndpoint().MarkCrossUserManage();
+        auth.MapDelete("/auth/sessions/{id}", DeleteSessionAsync).RequireAuthorization().MarkAuthEndpoint().MarkCrossUserManage();
+        auth.MapGet("/users/{id}/sessions", ListUserSessionsAsync).RequireAuthorization().MarkAuthEndpoint().MarkCrossUserManage();
+        auth.MapDelete("/users/{id}/sessions", DeleteUserSessionsAsync).RequireAuthorization().MarkAuthEndpoint().MarkCrossUserManage();
 
         // First-admin bootstrap lives at /setup, not under /auth.
         auth.MapPost("/setup", BootstrapAsync).MarkAuthEndpoint();
@@ -168,34 +175,74 @@ public static class AuthEndpoints
     }
 
     private static async Task<IResult> GetSessionAsync(
-        string id, HttpContext ctx, ISessionStore sessions, CancellationToken ct)
+        string id, HttpContext ctx, ISessionStore sessions, IAuthorizer authorizer,
+        IAuthzAdministrationStore authzAdmin, CancellationToken ct)
     {
-        var session = await AuthFlows.GetSessionAsync(id, CallerUserId(ctx), IsAdmin(ctx.User), sessions, ct)
-            .ConfigureAwait(false);
+        var callerUserId = CallerUserId(ctx);
+        // The target user of a session-by-id is only known after loading it. Only the cross-user branch
+        // (target differs from the caller) force-enforces user.manage; the self path never calls the
+        // authorizer, so a normal user reading its OWN session raises no Deny audit and no DB write.
+        var target = await sessions.GetByIdAsync(id, ct).ConfigureAwait(false);
+        var isCrossUser = target is not null && !string.Equals(target.UserId, callerUserId, StringComparison.Ordinal);
+        var canManage = isCrossUser && await CanManageUsersAsync(ctx, authorizer, ct).ConfigureAwait(false);
+        var session = await AuthFlows.GetSessionAsync(id, callerUserId, canManage, sessions, ct).ConfigureAwait(false);
+        if (session is not null && isCrossUser && canManage)
+        {
+            await AuditCrossUserAsync(authzAdmin, ctx, callerUserId, session.UserId, "auth.session.read", ct).ConfigureAwait(false);
+        }
+
         return session is null ? Results.NotFound() : Results.Ok(SessionObject(session));
     }
 
     private static async Task<IResult> DeleteSessionAsync(
-        string id, HttpContext ctx, ISessionStore sessions, CancellationToken ct)
+        string id, HttpContext ctx, ISessionStore sessions, IAuthorizer authorizer,
+        IAuthzAdministrationStore authzAdmin, CancellationToken ct)
     {
-        var deleted = await AuthFlows.DeleteSessionAsync(id, CallerUserId(ctx), IsAdmin(ctx.User), sessions, ct)
-            .ConfigureAwait(false);
+        var callerUserId = CallerUserId(ctx);
+        // Load once to resolve the target owner; AuthFlows re-checks ownership on its own load.
+        var target = await sessions.GetByIdAsync(id, ct).ConfigureAwait(false);
+        var isCrossUser = target is not null && !string.Equals(target.UserId, callerUserId, StringComparison.Ordinal);
+        var canManage = isCrossUser && await CanManageUsersAsync(ctx, authorizer, ct).ConfigureAwait(false);
+        var deleted = await AuthFlows.DeleteSessionAsync(id, callerUserId, canManage, sessions, ct).ConfigureAwait(false);
+        if (deleted && isCrossUser && canManage)
+        {
+            await AuditCrossUserAsync(authzAdmin, ctx, callerUserId, target!.UserId, "auth.session.revoke", ct).ConfigureAwait(false);
+        }
+
         return deleted ? Results.Ok(new { deleted = true }) : Results.NotFound();
     }
 
     private static async Task<IResult> ListUserSessionsAsync(
-        string id, HttpContext ctx, ISessionStore sessions, CancellationToken ct)
+        string id, HttpContext ctx, ISessionStore sessions, IAuthorizer authorizer,
+        IAuthzAdministrationStore authzAdmin, CancellationToken ct)
     {
-        var rows = await AuthFlows.ListUserSessionsAsync(id, CallerUserId(ctx), IsAdmin(ctx.User), sessions, ct)
-            .ConfigureAwait(false);
+        var callerUserId = CallerUserId(ctx);
+        // The target user is the route id, so self vs cross-user is known up front. Only the cross-user
+        // branch force-enforces user.manage; the self path never calls the authorizer.
+        var isCrossUser = !string.Equals(id, callerUserId, StringComparison.Ordinal);
+        var canManage = isCrossUser && await CanManageUsersAsync(ctx, authorizer, ct).ConfigureAwait(false);
+        var rows = await AuthFlows.ListUserSessionsAsync(id, callerUserId, canManage, sessions, ct).ConfigureAwait(false);
+        if (rows is not null && isCrossUser && canManage)
+        {
+            await AuditCrossUserAsync(authzAdmin, ctx, callerUserId, id, "auth.user.sessions.list", ct).ConfigureAwait(false);
+        }
+
         return rows is null ? Results.NotFound() : Results.Ok(rows.Select(SessionObject));
     }
 
     private static async Task<IResult> DeleteUserSessionsAsync(
-        string id, HttpContext ctx, ISessionStore sessions, CancellationToken ct)
+        string id, HttpContext ctx, ISessionStore sessions, IAuthorizer authorizer,
+        IAuthzAdministrationStore authzAdmin, CancellationToken ct)
     {
-        var removed = await AuthFlows.DeleteUserSessionsAsync(id, CallerUserId(ctx), IsAdmin(ctx.User), sessions, ct)
-            .ConfigureAwait(false);
+        var callerUserId = CallerUserId(ctx);
+        var isCrossUser = !string.Equals(id, callerUserId, StringComparison.Ordinal);
+        var canManage = isCrossUser && await CanManageUsersAsync(ctx, authorizer, ct).ConfigureAwait(false);
+        var removed = await AuthFlows.DeleteUserSessionsAsync(id, callerUserId, canManage, sessions, ct).ConfigureAwait(false);
+        if (removed is not null && isCrossUser && canManage)
+        {
+            await AuditCrossUserAsync(authzAdmin, ctx, callerUserId, id, "auth.user.sessions.revoke", ct).ConfigureAwait(false);
+        }
+
         return removed is null ? Results.NotFound() : Results.Ok(new { deleted = removed.Value });
     }
 
@@ -253,8 +300,26 @@ public static class AuthEndpoints
             && state == (int)SessionAuthState.ForceResetLimited;
     }
 
-    private static bool IsAdmin(ClaimsPrincipal user)
-        => string.Equals(user.FindFirst(AuthClaims.Role)?.Value, GlobalRoles.Admin, StringComparison.Ordinal);
+    /// <summary>
+    /// The cross-user session capability, force-enforced (blocks in every mode). Derives from an
+    /// <c>IAuthorizer</c> <c>user.manage</c> decision - reachable only via <c>system.admin</c> - so the
+    /// legacy <c>freeboard:role=admin</c> claim grants NOTHING here. The decision is target-independent
+    /// (a user resource carries no org), so one check governs all four routes.
+    /// </summary>
+    private static async Task<bool> CanManageUsersAsync(HttpContext ctx, IAuthorizer authorizer, CancellationToken ct)
+    {
+        var decision = await authorizer
+            .AuthorizeAsync(ctx.User, AuthzActions.UserManage, AuthzResource.ForUser(CallerUserId(ctx)), alwaysEnforce: true, ct)
+            .ConfigureAwait(false);
+        return decision.IsPermitted;
+    }
+
+    private static Task AuditCrossUserAsync(
+        IAuthzAdministrationStore authzAdmin, HttpContext ctx, string? actorUserId, string targetUserId, string action, CancellationToken ct)
+        => Freeboard.Authz.AuthzMutationAudit.AppendAsync(
+            authzAdmin, Freeboard.Authz.AuthzMutationAudit.Logger(ctx.RequestServices),
+            new AuthzAuditEvent(action, actorUserId, AuthzActions.UserManage, "user", targetUserId, null, "Permit", "cross-user session action"),
+            ct);
 
     private static string? CallerUserId(HttpContext ctx) => ctx.User.FindFirst(AuthClaims.UserId)?.Value;
 

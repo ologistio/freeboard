@@ -1,3 +1,5 @@
+using Freeboard.Authz;
+using Freeboard.Core.Authz;
 using Freeboard.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -13,14 +15,14 @@ namespace Freeboard.Pages.Admin;
 /// the one-time entry: the guard returns 403 before the value is claimed, leaving it for the admin's
 /// own visit. The plaintext never travels in a URL, a client-readable field, or a client-held cookie.
 /// </summary>
-public sealed class UserCredentialModel(TempPasswordDisplayStore display) : PageModel
+public sealed class UserCredentialModel(TempPasswordDisplayStore display, AuthzPageGuard pageGuard) : PageModel
 {
     /// <summary>The temp password to show once, or null when the nonce is absent/expired/already shown.</summary>
     public string? TemporaryPassword { get; private set; }
 
-    public IActionResult OnGet()
+    public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
-        if (AdminGuard.Check(User) is { } denied)
+        if (await pageGuard.CheckAsync(User, AuthzActions.UserManage, AuthzResource.ForUser(null), ct) is { } denied)
         {
             return denied;
         }

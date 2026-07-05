@@ -1,7 +1,9 @@
 using Fido2NetLib;
 using Freeboard.Api;
 using Freeboard.Auth;
+using Freeboard.Authz;
 using Freeboard.Compliance;
+using Freeboard.Core.Authz;
 using Freeboard.GitOps;
 using Freeboard.Persistence;
 using Freeboard.Web;
@@ -72,10 +74,26 @@ if (trustForwardedHeaders)
     });
 }
 
-// Organisation selector: the accessibility seam (all-access in v1) and the request-scoped resolver
-// that serves the layout selector. The resolver reads the cookie and user via IHttpContextAccessor.
+// Per-org authorization. The read/write authz stores; the pure Core engine and its ordered policy
+// pipeline (singletons, I/O-free); and the request-scoped seam: ONE shared fact/grant cache, the
+// authorizer, and the authz-backed IOrgAccess are SCOPED so per-user grants load once per request and
+// never leak across requests. Authz:Mode drives read narrowing (default Compat).
+builder.Services.AddAuthz(freeboardConnectionString);
+builder.Services.AddSingleton<IAuthzPolicy>(new SessionGuardPolicy());
+builder.Services.AddSingleton<IAuthzPolicy>(new SystemAdminPolicy());
+builder.Services.AddSingleton<IAuthzPolicy>(new SelfAccessPolicy());
+builder.Services.AddSingleton<IAuthzPolicy>(new OrgRbacPolicy());
+builder.Services.AddSingleton<IAuthorizationEngine, PolicyAuthorizationEngine>();
+builder.Services.AddSingleton(new AuthzRuntimeOptions { Mode = AuthzRuntimeOptions.Parse(builder.Configuration["Authz:Mode"]) });
+builder.Services.AddScoped<AuthzRequestCache>();
+builder.Services.AddScoped<IAuthzFactProvider>(sp => sp.GetRequiredService<AuthzRequestCache>());
+builder.Services.AddScoped<IAuthorizer, Authorizer>();
+builder.Services.AddScoped<AuthzPageGuard>();
+
+// Organisation selector: the accessibility seam (authz-backed) and the request-scoped resolver that
+// serves the layout selector. The resolver reads the cookie and user via IHttpContextAccessor.
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddSingleton<Freeboard.Web.IOrgAccess, Freeboard.Web.AllOrgAccess>();
+builder.Services.AddScoped<Freeboard.Web.IOrgAccess, AuthzOrgAccess>();
 builder.Services.AddScoped<Freeboard.Web.OrgSelectionResolver>();
 
 builder.Services.AddSingleton<AuthRateLimiter>();
@@ -146,12 +164,6 @@ builder.Services.AddAuthorizationBuilder()
         policy.RequireAuthenticatedUser();
         policy.AddRequirements(new RequireSudoModeRequirement());
     })
-    .AddPolicy(GlobalRoles.AdminPolicy, policy =>
-    {
-        policy.AddAuthenticationSchemes(AuthClaims.Scheme);
-        policy.RequireAuthenticatedUser();
-        policy.RequireClaim(AuthClaims.Role, GlobalRoles.Admin);
-    })
     // The named page policy: an authenticated user via the page challenge scheme. A failed challenge
     // on a page route 302s to /login (the scheme), not a bare 401. Bound to /account below.
     .AddPolicy(Freeboard.Web.PageChallengeScheme.PolicyName, policy =>
@@ -207,7 +219,7 @@ builder.Services.AddRazorPages(options =>
                  "/Login/Mfa/Passkey", "/Account/Mfa/Passkey", "/Account/Mfa/PasskeyRemove",
                  "/Account/Mfa/Totp", "/Account/Mfa/TotpRemove", "/Account/Mfa/Recovery", "/Account/Sudo",
                  "/Account/SessionsRevoke", "/Setup",
-                 "/Admin/Users",
+                 "/Admin/Users", "/Admin/RoleAssignments",
              })
     {
         options.Conventions.AddPageMetadata(page, new Freeboard.Api.AuthEndpoint());
@@ -288,6 +300,7 @@ app.MapGet(ApiRoutes.ApiRoutePrefix + "/gitops/status", (IOptions<GitOpsOptions>
 
 app.MapAuthEndpoints();
 app.MapUserAdminEndpoints();
+app.MapRoleAssignmentEndpoints();
 app.MapMfaLoginEndpoints();
 app.MapMfaEnrollmentEndpoints();
 app.MapSudoEndpoints();
