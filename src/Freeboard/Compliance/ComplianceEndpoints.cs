@@ -161,7 +161,7 @@ public static class ComplianceEndpoints
                             id = n.Id,
                             title = n.Title,
                             kind = n.Kind,
-                            parent = n.Parent,
+                            parent = n.Parent is not null && accessible.Contains(n.Parent) ? n.Parent : null,
                             disposition = n.Disposition,
                             resolution = n.Resolution.ToWireValue(),
                             requirements = n.Requirements.Select(r => new

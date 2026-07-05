@@ -36,9 +36,13 @@ public sealed class AuthzOrgAccess(
             return all;
         }
 
-        // Observe: reads are not narrowed, so behaviour is unchanged while decisions are observed.
+        // Observe: reads are not narrowed, so behaviour is unchanged while decisions are observed. Log
+        // the would-be Enforce narrowing so operators can see what Enforce would restrict before flipping.
+        // Log-only (not a persisted row per read) to avoid flooding the audit table - consistent with
+        // ordinary reads being ILogger-only.
         if (options.Mode == AuthzMode.Observe)
         {
+            LogObserveReadNarrowing(userId, facts, organisations, all);
             return all;
         }
 
@@ -52,6 +56,18 @@ public sealed class AuthzOrgAccess(
         // Grant-holder (Compat or Enforce) and a zero-grant Enforce caller: the read-subtree union,
         // which is empty when the caller holds no read grant.
         return ReadSubtreeUnion(facts, organisations);
+    }
+
+    private void LogObserveReadNarrowing(
+        string? userId, AuthzPrincipalFacts facts, IReadOnlyList<OrganisationRow> organisations, IReadOnlySet<string> all)
+    {
+        var wouldBe = ReadSubtreeUnion(facts, organisations);
+        if (wouldBe.Count < all.Count)
+        {
+            logger.LogInformation(
+                "Authz observe: read for {Actor} would narrow from {Full} to {Restricted} organisations under Enforce.",
+                userId, all.Count, wouldBe.Count);
+        }
     }
 
     private static IReadOnlySet<string> ReadSubtreeUnion(

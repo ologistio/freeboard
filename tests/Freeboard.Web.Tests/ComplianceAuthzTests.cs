@@ -213,6 +213,34 @@ public sealed class ComplianceAuthzTests
     }
 
     [Fact]
+    public async Task SoaNullsInaccessibleParentForANarrowedReader()
+    {
+        var compliance = new FakeComplianceStore
+        {
+            Organisations =
+            [
+                new OrganisationRow("org-a", "A", "Company", null),
+                new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+            ],
+            Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+            Requirements = [new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do it.", null, "Src", "https://e/a")],
+        };
+
+        // Reader on the CHILD only: under Enforce the parent org-a is not accessible, so the returned
+        // org-eng node must not disclose its inaccessible parent id (matches the /organisations behaviour).
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-eng");
+        using var factory = Build(new RecordingWriteStore(), authz, compliance, mode: "Enforce");
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var json = await client.GetStringAsync("/api/v1/freeboard/statement-of-applicability/std-a");
+        using var doc = JsonDocument.Parse(json);
+        var nodes = doc.RootElement.GetProperty("nodes").EnumerateArray().ToList();
+        var eng = nodes.Single(n => n.GetProperty("id").GetString() == "org-eng");
+        Assert.Equal(JsonValueKind.Null, eng.GetProperty("parent").ValueKind);
+        Assert.DoesNotContain(nodes, n => n.GetProperty("id").GetString() == "org-a");
+    }
+
+    [Fact]
     public async Task OrgOwnerOnChildCannotPromoteChildToRoot()
     {
         var writes = new RecordingWriteStore();
