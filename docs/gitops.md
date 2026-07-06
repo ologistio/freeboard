@@ -36,7 +36,7 @@ not built.
 A config directory holds one or more `.yaml` files. Each file is a stream of one
 or more documents separated by `---`. Every document declares:
 
-- `apiVersion` - must be exactly `freeboard.io/v1alpha1`.
+- `apiVersion` - must be exactly `freeboard.dev/v1alpha1`.
 - `kind` - one of `Standard`, `Requirement`, `Control`, `Organisation`, `Scope`,
   or `RequirementScope`.
 
@@ -57,7 +57,7 @@ are optional; omit them (or leave them blank) when they do not apply. `source_ur
 when present, must be an absolute `http`/`https` URL.
 
 ```yaml
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Standard
 id: std-cyber-essentials-plus
 title: Cyber Essentials Plus
@@ -77,7 +77,7 @@ is the full normative text. `guidance` is optional. The citation is two fields:
 link to the published source).
 
 ```yaml
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-04
 title: Multi-factor authentication
@@ -95,7 +95,7 @@ control satisfies. A control's standard is derived from those requirements, so
 `maps_to` no longer names `Standard` ids.
 
 ```yaml
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Control
 id: ctrl-mfa
 title: Multi-factor authentication enforced
@@ -112,13 +112,13 @@ authored under `type` so the two do not collide. It persists and reads back as
 the organisation's `kind`.
 
 ```yaml
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Organisation
 id: ologist-products
 title: Ologist Products Ltd
 type: Company
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Organisation
 id: ologist-products-eng
 title: Engineering
@@ -132,7 +132,7 @@ A scope maps one `Organisation` to one `Standard` with a `disposition` (`In` or
 `Out`). At most one scope may exist per `(organisation, standard)` pair.
 
 ```yaml
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-ce
 title: Ologist Products - Cyber Essentials
@@ -153,7 +153,7 @@ A requirement-scope maps one `Organisation` to one `Requirement` with a
 fixes the standard.
 
 ```yaml
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: RequirementScope
 id: rs-products-firewalls-01-out
 title: Exclude firewall-on-every-device company-wide
@@ -193,7 +193,7 @@ Validation collects every error in one pass (not just the first). It fails when:
   that does not exist;
 - a `RequirementScope.disposition` is not `In` or `Out`;
 - two requirement-scopes name the same `(organisation, requirement)` pair;
-- `apiVersion` is not exactly `freeboard.io/v1alpha1`.
+- `apiVersion` is not exactly `freeboard.dev/v1alpha1`.
 
 A missing or unknown `kind`, and malformed YAML, are reported as diagnostics by
 the loader rather than throwing.

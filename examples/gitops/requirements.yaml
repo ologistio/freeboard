@@ -1,7 +1,7 @@
 # Cyber Essentials Plus technical control requirements (scheme version 3.3).
 # Freeboard-authored paraphrases of the five technical control themes, each citing the
 # official NCSC/IASME source. Example content, not a certification claim.
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-01
 title: Firewall on every in-scope device
@@ -11,7 +11,7 @@ statement: Protect every in-scope device with a correctly configured firewall, o
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-02
 title: Change default firewall passwords
@@ -21,7 +21,7 @@ statement: Change default administrative passwords on firewalls to strong, uniqu
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-03
 title: Restrict the firewall admin interface from the internet
@@ -31,7 +31,7 @@ statement: Block access to the firewall administrative interface from the intern
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-04
 title: Block unauthenticated inbound connections
@@ -41,7 +41,7 @@ statement: Block unauthenticated inbound connections by default.
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-05
 title: Approve and document inbound firewall rules
@@ -51,7 +51,7 @@ statement: Ensure each inbound firewall rule is approved and documented by an au
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-06
 title: Remove unneeded firewall rules
@@ -61,7 +61,7 @@ statement: Remove or disable firewall rules once they are no longer needed.
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-07
 title: Software firewall on untrusted networks
@@ -71,7 +71,7 @@ statement: Use a software firewall on devices used on untrusted networks such as
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Firewalls
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-01
 title: Remove unnecessary user accounts
@@ -81,7 +81,7 @@ statement: Remove or disable unnecessary user accounts, including guest accounts
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-02
 title: Change default account passwords
@@ -91,7 +91,7 @@ statement: Change default or easily guessed account passwords before a device or
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-03
 title: Remove unnecessary software
@@ -101,7 +101,7 @@ statement: Remove or disable unnecessary software, including applications, syste
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-04
 title: Disable auto-run
@@ -111,7 +111,7 @@ statement: Disable auto-run features that execute files without user authorisati
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-05
 title: Authenticate before access
@@ -121,7 +121,7 @@ statement: Authenticate users before granting them access to organisational data
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-06
 title: Require a device-unlocking credential
@@ -131,7 +131,7 @@ statement: Require a device-unlocking credential (biometric, password, or PIN) b
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-07
 title: Throttle or lock device-unlocking attempts
@@ -141,7 +141,7 @@ statement: Protect device-unlocking authentication against brute force by thrott
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-secure-configuration-08
 title: Enforce device-unlocking credential quality
@@ -151,7 +151,7 @@ statement: "Enforce device-unlocking credential quality: at least six characters
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Secure Configuration
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-security-update-management-01
 title: Use licensed, supported software
@@ -161,7 +161,7 @@ statement: Ensure all in-scope software is licensed and supported by the vendor.
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-security-update-management-02
 title: Remove or isolate unsupported software
@@ -171,7 +171,7 @@ statement: Remove unsupported software from in-scope devices, or move it out of 
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-security-update-management-03
 title: Enable automatic updates
@@ -181,7 +181,7 @@ statement: Enable automatic updates where the vendor provides them.
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-security-update-management-04
 title: Patch high-risk vulnerabilities within 14 days
@@ -191,7 +191,7 @@ statement: Apply updates for vendor-declared critical or high-risk vulnerabiliti
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-security-update-management-05
 title: Patch within 14 days when severity is unstated
@@ -201,7 +201,7 @@ statement: Apply updates within 14 days of release when the vendor gives no vuln
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Security Update Management
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-01
 title: Documented account creation process
@@ -211,7 +211,7 @@ statement: Operate a documented process to create and approve user accounts.
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-02
 title: Unique credentials before access
@@ -221,7 +221,7 @@ statement: Authenticate users with unique credentials before granting access to 
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-03
 title: Remove accounts no longer required
@@ -231,7 +231,7 @@ statement: Remove or disable user accounts when they are no longer required, suc
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-04
 title: Multi-factor authentication
@@ -241,7 +241,7 @@ statement: Implement multi-factor authentication where available, and always for
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-05
 title: Separate administrative accounts
@@ -251,7 +251,7 @@ statement: Use separate accounts for administrative activities only, keeping ema
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-06
 title: Remove unneeded special privileges
@@ -261,7 +261,7 @@ statement: Remove or disable special access privileges when they are no longer r
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-07
 title: Protect passwords against brute force
@@ -271,7 +271,7 @@ statement: Protect passwords against brute-force guessing using at least one of 
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-08
 title: Manage password quality
@@ -281,7 +281,7 @@ statement: Manage password quality using at least one of multi-factor authentica
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-09
 title: Support users choosing unique passwords
@@ -291,7 +291,7 @@ statement: Support users in choosing unique passwords by educating them against 
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-10
 title: Minimum password length under MFA
@@ -301,7 +301,7 @@ statement: When multi-factor authentication uses a password as one factor, requi
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-user-access-control-11
 title: Change compromised passwords promptly
@@ -311,7 +311,7 @@ statement: Operate an established process to change passwords promptly whenever 
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - User Access Control
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-malware-protection-01
 title: Active malware protection on every device
@@ -321,7 +321,7 @@ statement: Ensure an active malware protection mechanism on every in-scope devic
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Malware Protection
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-malware-protection-02
 title: Keep anti-malware updated and blocking
@@ -331,7 +331,7 @@ statement: Where anti-malware software is used, keep it updated in line with ven
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Malware Protection
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-malware-protection-03
 title: Block known malicious websites
@@ -341,7 +341,7 @@ statement: Where anti-malware software is used, configure it to block connection
 citation_label: Cyber Essentials - Requirements for IT Infrastructure v3.3 - Malware Protection
 citation_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-malware-protection-04
 title: Maintain an application allow-list

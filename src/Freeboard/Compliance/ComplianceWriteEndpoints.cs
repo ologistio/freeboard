@@ -263,19 +263,19 @@ public static class ComplianceWriteEndpoints
         title: "Invalid compliance write",
         detail: detail,
         statusCode: StatusCodes.Status422UnprocessableEntity,
-        type: "https://freeboard.io/problems/validation");
+        type: "https://freeboard.dev/problems/validation");
 
     private static IResult Conflict() => Results.Problem(
         title: "Conflicting compliance write",
         detail: "The write conflicts with an existing record.",
         statusCode: StatusCodes.Status409Conflict,
-        type: "https://freeboard.io/problems/conflict");
+        type: "https://freeboard.dev/problems/conflict");
 
     private static IResult Forbidden() => Results.Problem(
         title: "Forbidden",
         detail: "You do not have permission to perform this action.",
         statusCode: StatusCodes.Status403Forbidden,
-        type: "https://freeboard.io/problems/forbidden");
+        type: "https://freeboard.dev/problems/forbidden");
 
     private static IResult Unreachable() => Results.Problem(
         title: "Compliance store unreachable",

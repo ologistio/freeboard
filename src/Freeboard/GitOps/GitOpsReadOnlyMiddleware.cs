@@ -55,7 +55,7 @@ public sealed class GitOpsReadOnlyMiddleware(RequestDelegate next, IOptions<GitO
 
         var body = new Dictionary<string, object>
         {
-            ["type"] = "https://freeboard.io/problems/gitops-read-only",
+            ["type"] = "https://freeboard.dev/problems/gitops-read-only",
             ["title"] = "GitOps read-only mode",
             ["status"] = StatusCodes.Status409Conflict,
             ["detail"] = detail,

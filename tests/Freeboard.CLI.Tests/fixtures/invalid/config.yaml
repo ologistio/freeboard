@@ -1,4 +1,4 @@
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Control
 id: ctrl-a
 title: Control A

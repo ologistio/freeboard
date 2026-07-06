@@ -164,9 +164,9 @@ public static class CustomRoleEndpoints
 
     private static IResult ValidationProblem(string detail) => Results.Problem(
         title: "Invalid custom role", detail: detail, statusCode: StatusCodes.Status422UnprocessableEntity,
-        type: "https://freeboard.io/problems/validation");
+        type: "https://freeboard.dev/problems/validation");
 
     private static IResult Conflict(string detail) => Results.Problem(
         title: "Conflicting custom role", detail: detail, statusCode: StatusCodes.Status409Conflict,
-        type: "https://freeboard.io/problems/conflict");
+        type: "https://freeboard.dev/problems/conflict");
 }

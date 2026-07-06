@@ -69,7 +69,7 @@ public sealed class AuthRateLimiter(IAuthRateLimitStore store, IOptions<WebAuthO
             title: "Too many requests",
             detail: "Rate limit exceeded. Retry later.",
             statusCode: StatusCodes.Status429TooManyRequests,
-            type: "https://freeboard.io/problems/rate-limited",
+            type: "https://freeboard.dev/problems/rate-limited",
             extensions: new Dictionary<string, object?> { ["retry_after"] = seconds });
     }
 }

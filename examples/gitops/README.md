@@ -26,7 +26,7 @@ re-includes it. A `RequirementScope` carries no `standard` (the requirement fixe
 it) and resolves only under a standard that is `In`.
 
 Kinds may be mixed in any file; the split above is a convention, not a rule.
-Every document declares `apiVersion: freeboard.io/v1alpha1`. Every resource has a
+Every document declares `apiVersion: freeboard.dev/v1alpha1`. Every resource has a
 stable `id` (its identity) and a `title` (display text that may change).
 
 ## Commands

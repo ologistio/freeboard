@@ -1,7 +1,7 @@
 # Sample scopes. Each maps one organisation to one standard with a disposition
 # (In or Out). Dispositions are sparse: a node with no scope for a standard
 # inherits its nearest ancestor's disposition.
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-ce
 title: Ologist Products - Cyber Essentials
@@ -9,7 +9,7 @@ organisation: ologist-products
 standard: std-cyber-essentials
 disposition: In
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-ce-plus
 title: Ologist Products - Cyber Essentials Plus
@@ -17,7 +17,7 @@ organisation: ologist-products
 standard: std-cyber-essentials-plus
 disposition: In
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-soc2
 title: Ologist Products - SOC 2

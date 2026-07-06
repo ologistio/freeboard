@@ -82,7 +82,7 @@ public sealed class LimitedSessionGuardMiddleware(RequestDelegate next)
     {
         var body = new Dictionary<string, object>
         {
-            ["type"] = "https://freeboard.io/problems/password-reset-required",
+            ["type"] = "https://freeboard.dev/problems/password-reset-required",
             ["title"] = "Password reset required",
             ["status"] = StatusCodes.Status403Forbidden,
             ["detail"] = "This session must set a new password before using other endpoints.",

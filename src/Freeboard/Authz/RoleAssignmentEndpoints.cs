@@ -152,11 +152,11 @@ public static class RoleAssignmentEndpoints
 
     private static IResult ValidationProblem(string detail) => Results.Problem(
         title: "Invalid role assignment", detail: detail, statusCode: StatusCodes.Status422UnprocessableEntity,
-        type: "https://freeboard.io/problems/validation");
+        type: "https://freeboard.dev/problems/validation");
 
     private static IResult Conflict(string detail) => Results.Problem(
         title: "Conflicting role assignment", detail: detail, statusCode: StatusCodes.Status409Conflict,
-        type: "https://freeboard.io/problems/conflict");
+        type: "https://freeboard.dev/problems/conflict");
 
     private static Task AuditAsync(
         IAuthzAdministrationStore admin, HttpContext ctx, string action, string targetUserId, string? orgId, CancellationToken ct)

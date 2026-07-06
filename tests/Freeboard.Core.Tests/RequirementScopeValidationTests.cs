@@ -11,7 +11,7 @@ namespace Freeboard.Core.Tests;
 public sealed class RequirementScopeValidationTests
 {
     private const string ValidStandard = """
-        apiVersion: freeboard.io/v1alpha1
+        apiVersion: freeboard.dev/v1alpha1
         kind: Standard
         id: std-a
         title: Standard A
@@ -20,7 +20,7 @@ public sealed class RequirementScopeValidationTests
         """;
 
     private const string ValidRequirement = """
-        apiVersion: freeboard.io/v1alpha1
+        apiVersion: freeboard.dev/v1alpha1
         kind: Requirement
         id: req-a
         title: Requirement A
@@ -32,7 +32,7 @@ public sealed class RequirementScopeValidationTests
         """;
 
     private const string ValidOrganisation = """
-        apiVersion: freeboard.io/v1alpha1
+        apiVersion: freeboard.dev/v1alpha1
         kind: Organisation
         id: org-a
         title: Org A
@@ -40,7 +40,7 @@ public sealed class RequirementScopeValidationTests
         """;
 
     private const string ValidRequirementScope = """
-        apiVersion: freeboard.io/v1alpha1
+        apiVersion: freeboard.dev/v1alpha1
         kind: RequirementScope
         id: rs-a
         title: Exclude req-a
@@ -82,7 +82,7 @@ public sealed class RequirementScopeValidationTests
     public void UnknownOrganisationFails()
     {
         using var dir = TempConfig.Create(("all.yaml", ValidSet("""
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-a
             title: Exclude req-a
@@ -101,7 +101,7 @@ public sealed class RequirementScopeValidationTests
     public void UnknownRequirementFails()
     {
         using var dir = TempConfig.Create(("all.yaml", ValidSet("""
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-a
             title: Exclude req-a
@@ -120,7 +120,7 @@ public sealed class RequirementScopeValidationTests
     public void MissingRequirementFieldFails()
     {
         using var dir = TempConfig.Create(("all.yaml", ValidSet("""
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-a
             title: Exclude req-a
@@ -149,7 +149,7 @@ public sealed class RequirementScopeValidationTests
     public void BadDispositionFails()
     {
         using var dir = TempConfig.Create(("all.yaml", ValidSet("""
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-a
             title: Exclude req-a
@@ -174,7 +174,7 @@ public sealed class RequirementScopeValidationTests
             ---
             {ValidOrganisation}
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-a
             title: Exclude req-a
@@ -182,7 +182,7 @@ public sealed class RequirementScopeValidationTests
             requirement: req-a
             disposition: Out
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-b
             title: Re-include req-a
@@ -207,7 +207,7 @@ public sealed class RequirementScopeValidationTests
             ---
             {ValidRequirement}
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Requirement
             id: req-b
             title: Requirement B
@@ -219,7 +219,7 @@ public sealed class RequirementScopeValidationTests
             ---
             {ValidOrganisation}
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-a
             title: Exclude req-a
@@ -227,7 +227,7 @@ public sealed class RequirementScopeValidationTests
             requirement: req-a
             disposition: Out
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: RequirementScope
             id: rs-a
             title: Exclude req-b
