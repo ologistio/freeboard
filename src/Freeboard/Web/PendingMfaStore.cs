@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Freeboard.Web;
@@ -28,7 +27,7 @@ public sealed class PendingMfaStore(IMemoryCache cache)
     /// </summary>
     public string Stash(string mfaToken, string? returnUrl)
     {
-        var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var nonce = OpaqueHandle.New();
         cache.Set(Key(nonce), new Pending(mfaToken, returnUrl), Ttl);
         return nonce;
     }

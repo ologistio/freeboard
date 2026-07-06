@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -26,7 +25,7 @@ public sealed class RecoveryCodeDisplayStore(IMemoryCache cache)
     /// <summary>Stashes the codes and returns the nonce to put in the client cookie.</summary>
     public string Stash(IReadOnlyList<string> codes)
     {
-        var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var nonce = OpaqueHandle.New();
         // A StrongBox lets Take claim the codes with a single atomic Interlocked.Exchange, so two
         // concurrent same-nonce reads cannot both walk away with the one-time codes.
         cache.Set(Key(nonce), new StrongBox<IReadOnlyList<string>?>(codes), Ttl);

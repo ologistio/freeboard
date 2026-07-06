@@ -143,7 +143,8 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
     {
         try
         {
-            var root = JsonDocument.Parse(content).RootElement;
+            using var document = JsonDocument.Parse(content);
+            var root = document.RootElement;
             if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
             {
                 var messages = errors.EnumerateObject()
