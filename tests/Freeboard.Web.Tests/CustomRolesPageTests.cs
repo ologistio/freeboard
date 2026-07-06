@@ -100,5 +100,6 @@ public sealed class CustomRolesPageTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("btn-primary", html);
         Assert.DoesNotContain("app-button", html);
+        Assert.Contains("https://freeboardhq.com/docs/custom-roles", html);
     }
 }
