@@ -1,11 +1,16 @@
 @page "/admin/custom-roles"
+@using System.Linq
+@using Freeboard.Core.Authz
 @model Freeboard.Pages.Admin.CustomRolesModel
 @{
     ViewData["Title"] = "Custom roles";
 }
-<div class="mb-6">
-    <h1 class="text-2xl font-bold">Custom roles</h1>
-    <p class="mt-1 text-sm text-neutral-600">Design organisation-scoped roles from the allowed permissions.</p>
+<div class="mb-6 flex items-start justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-bold">Custom roles</h1>
+        <p class="mt-1 text-sm text-neutral-600">Organisation-scoped roles built from the allowed permissions.</p>
+    </div>
+    <a href="/admin/custom-roles/designer" class="btn-primary">Create custom role</a>
 </div>
 
 @if (Model.Notice is not null)
@@ -13,74 +18,88 @@
     <p class="notice mb-4 max-w-2xl">@Model.Notice</p>
 }
 
-<section class="mb-8 max-w-2xl">
-    <h2 class="mb-4 text-lg font-semibold">New role</h2>
-    <form method="post" asp-page-handler="Create" class="card space-y-4">
-        <div class="space-y-1.5">
-            <label class="form-label" for="roleKey">Role key</label>
-            <input class="form-input" type="text" id="roleKey" name="roleKey" placeholder="custom:auditor" />
-        </div>
-        <div class="space-y-1.5">
-            <label class="form-label" for="title">Title</label>
-            <input class="form-input" type="text" id="title" name="title" />
-        </div>
-        <div class="space-y-1.5">
-            <label class="form-label" for="description">Description</label>
-            <input class="form-input" type="text" id="description" name="description" />
-        </div>
-        <fieldset class="space-y-2 rounded-md border border-neutral-200 p-4">
-            <legend class="px-1 text-sm font-semibold">Permissions</legend>
-            @foreach (var option in Model.PermissionOptions)
+@if (Model.Roles.Count == 0)
+{
+    <div class="card">
+        <p class="text-sm text-neutral-600">No custom roles yet. Create one to get started.</p>
+    </div>
+}
+else
+{
+    <div class="card max-w-4xl overflow-x-auto p-0">
+        <table class="w-full text-sm">
+            <thead class="border-b border-neutral-200 text-left text-neutral-600">
+                <tr>
+                    <th class="px-4 py-3 font-medium">Role key</th>
+                    <th class="px-4 py-3 font-medium">Name</th>
+                    <th class="px-4 py-3 font-medium">Permissions</th>
+                    <th class="px-4 py-3 font-medium text-right">Actions</th>
+                </tr>
+            </thead>
+            @foreach (var role in Model.Roles)
             {
-                <label class="flex items-center gap-2 text-sm">
-                    <input type="checkbox" name="permissionKeys" value="@option.PermissionKey" class="accent-brand" />
-                    <span>@option.Label <span class="text-neutral-500">(@option.Group)</span></span>
-                </label>
+                var key = role.Role.RoleKey;
+                var slug = key.StartsWith(AuthzCustomRoles.CustomRoleKeyPrefix, StringComparison.Ordinal)
+                    ? key[AuthzCustomRoles.CustomRoleKeyPrefix.Length..]
+                    : key;
+                var granted = Model.PermissionOptions
+                    .Where(o => role.PermissionKeys.Contains(o.PermissionKey))
+                    .GroupBy(o => o.Group)
+                    .ToList();
+                <tbody x-data="{ open: false }" class="border-b border-neutral-100 last:border-0">
+                    <tr class="cursor-pointer hover:bg-neutral-50" @@click="open = !open">
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <svg class="h-4 w-4 shrink-0 text-neutral-400 transition-transform" :class="open ? 'rotate-90' : ''"
+                                     viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clip-rule="evenodd" />
+                                </svg>
+                                <span class="font-mono">@key</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">@role.Role.Title</td>
+                        <td class="px-4 py-3 text-neutral-600">@role.PermissionKeys.Count</td>
+                        <td class="px-4 py-3">
+                            <div class="flex justify-end gap-2">
+                                <a href="/admin/custom-roles/designer/@slug" class="btn-secondary btn-sm" @@click.stop>Edit</a>
+                                <form method="post" asp-page-handler="Delete" @@click.stop>
+                                    <input type="hidden" name="roleKey" value="@key" />
+                                    <button type="submit" class="btn-danger btn-sm">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr x-show="open" x-cloak>
+                        <td colspan="4" class="bg-neutral-50 px-4 py-4">
+                            @if (!string.IsNullOrWhiteSpace(role.Role.Description))
+                            {
+                                <p class="mb-3 text-sm text-neutral-600">@role.Role.Description</p>
+                            }
+                            @if (granted.Count == 0)
+                            {
+                                <p class="text-sm text-neutral-500">No permissions granted.</p>
+                            }
+                            else
+                            {
+                                <div class="border-l-2 border-neutral-200 pl-4">
+                                    @foreach (var group in granted)
+                                    {
+                                        <div class="mb-3 last:mb-0">
+                                            <p class="text-sm font-medium">@group.Key</p>
+                                            <ul class="mt-1 space-y-1 border-l-2 border-neutral-200 pl-4">
+                                                @foreach (var option in group)
+                                                {
+                                                    <li class="text-sm text-neutral-700">@option.Label</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                </tbody>
             }
-        </fieldset>
-        <button class="btn-primary" type="submit">Create role</button>
-    </form>
-</section>
-
-<section class="max-w-3xl">
-    <h2 class="mb-4 text-lg font-semibold">Existing roles</h2>
-    @if (Model.Roles.Count == 0)
-    {
-        <p class="text-sm text-neutral-600">No custom roles yet.</p>
-    }
-    @foreach (var role in Model.Roles)
-    {
-        <div class="card mb-6">
-            <form method="post" asp-page-handler="Update" class="space-y-4">
-                <input type="hidden" name="roleKey" value="@role.Role.RoleKey" />
-                <p class="font-mono text-sm">@role.Role.RoleKey</p>
-                <div class="space-y-1.5">
-                    <label class="form-label">Title
-                        <input class="form-input mt-1" type="text" name="title" value="@role.Role.Title" />
-                    </label>
-                </div>
-                <div class="space-y-1.5">
-                    <label class="form-label">Description
-                        <input class="form-input mt-1" type="text" name="description" value="@role.Role.Description" />
-                    </label>
-                </div>
-                <fieldset class="space-y-2 rounded-md border border-neutral-200 p-4">
-                    <legend class="px-1 text-sm font-semibold">Permissions</legend>
-                    @foreach (var option in Model.PermissionOptions)
-                    {
-                        <label class="flex items-center gap-2 text-sm">
-                            <input type="checkbox" name="permissionKeys" value="@option.PermissionKey" class="accent-brand"
-                                   checked="@(role.PermissionKeys.Contains(option.PermissionKey))" />
-                            <span>@option.Label <span class="text-neutral-500">(@option.Group)</span></span>
-                        </label>
-                    }
-                </fieldset>
-                <button class="btn-primary" type="submit">Save</button>
-            </form>
-            <form method="post" asp-page-handler="Delete" class="mt-3">
-                <input type="hidden" name="roleKey" value="@role.Role.RoleKey" />
-                <button class="btn-danger" type="submit">Delete</button>
-            </form>
-        </div>
-    }
-</section>
+        </table>
+    </div>
+}

@@ -6,9 +6,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace Freeboard.Web.Tests;
 
 /// <summary>
-/// The custom-role designer page: the entitlement gate (404 when off), the in-page super-admin gate
-/// (403 for a non-admin), a page create that writes an audit event through the shared store, and the
-/// GitOps read-only 409 on its POST (the page carries no AuthEndpoint exemption).
+/// The custom-role LIST page (/admin/custom-roles): the entitlement gate (404 when off), the in-page
+/// super-admin gate (403 for a non-admin), an expandable table of roles with an Edit link into the
+/// designer, and an inline Delete that writes an audit event through the shared store. Create and edit
+/// live on the designer page (see <see cref="CustomRoleDesignerPageTests"/>).
 /// </summary>
 public sealed class CustomRolesPageTests
 {
@@ -20,16 +21,21 @@ public sealed class CustomRolesPageTests
     private static IEnumerable<KeyValuePair<string, string>> SessionCookieFor(string token)
         => [new KeyValuePair<string, string>(SessionCookie.Name, token)];
 
+    private static async Task<HttpResponseMessage> GetAsync(AuthWebFactory factory, HttpClient client, string token, string path)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
+        return await client.SendAsync(request);
+    }
+
     [Fact]
     public async Task NonAdminGetIsForbidden()
     {
         using var factory = new AuthWebFactory { CustomPoliciesEntitled = true };
         var token = factory.SeedSession(AuthWebFactory.MakeUser("member1", role: "member"));
         using var client = NoRedirectClient(factory);
-        using var request = new HttpRequestMessage(HttpMethod.Get, Path);
-        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
 
-        var response = await client.SendAsync(request);
+        var response = await GetAsync(factory, client, token, Path);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -40,100 +46,59 @@ public sealed class CustomRolesPageTests
         using var factory = new AuthWebFactory { CustomPoliciesEntitled = false };
         var token = factory.SeedSession(AuthWebFactory.MakeUser("admin1", role: "admin"));
         using var client = NoRedirectClient(factory);
-        using var request = new HttpRequestMessage(HttpMethod.Get, Path);
-        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
 
-        var response = await client.SendAsync(request);
+        var response = await GetAsync(factory, client, token, Path);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
-    public async Task SuperAdminCreateViaPageWritesAuditEvent()
+    public async Task TableRendersSeededRoleWithEditLink()
     {
         using var factory = new AuthWebFactory { CustomPoliciesEntitled = true };
         var token = factory.SeedSession(AuthWebFactory.MakeUser("admin1", role: "admin"));
         using var client = NoRedirectClient(factory);
+        // Seed after the host is built: ShareRolesWith rebinds the roles dictionary on host build.
+        factory.AuthzAdmin.SeedCustomRole("custom:auditor", AuthzActions.OrgRead);
 
-        var response = await AuthFormTestHelpers.PostFormAsync(
-            client, $"{Path}?handler=Create",
-            [
-                new("roleKey", "custom:auditor"),
-                new("title", "Auditor"),
-                new("description", "Read-only auditor."),
-                new("permissionKeys", AuthzActions.OrgRead),
-            ],
-            extraCookies: SessionCookieFor(token).ToList(), getPath: Path);
+        var response = await GetAsync(factory, client, token, Path);
+        var html = await response.Content.ReadAsStringAsync();
 
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Contains(factory.AuthzAdmin.Events, e => e.EventType == "authz.role.create" && e.ResourceId == "custom:auditor");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("custom:auditor", html);
+        Assert.Contains("/admin/custom-roles/designer/auditor", html);
     }
 
     [Fact]
-    public async Task NoticeSurvivesRedirectAfterCreate()
+    public async Task DeleteRemovesRoleAndWritesAuditEvent()
     {
         using var factory = new AuthWebFactory { CustomPoliciesEntitled = true };
         var token = factory.SeedSession(AuthWebFactory.MakeUser("admin1", role: "admin"));
         using var client = NoRedirectClient(factory);
+        factory.AuthzAdmin.SeedCustomRole("custom:auditor", AuthzActions.OrgRead);
 
-        var post = await AuthFormTestHelpers.PostFormAsync(
-            client, $"{Path}?handler=Create",
-            [
-                new("roleKey", "custom:auditor"),
-                new("title", "Auditor"),
-                new("description", "Read-only auditor."),
-                new("permissionKeys", AuthzActions.OrgRead),
-            ],
+        var response = await AuthFormTestHelpers.PostFormAsync(
+            client, $"{Path}?handler=Delete",
+            [new("roleKey", "custom:auditor")],
             extraCookies: SessionCookieFor(token).ToList(), getPath: Path);
-        Assert.Equal(HttpStatusCode.Redirect, post.StatusCode);
 
-        // Follow the redirect carrying the session plus the TempData cookie the POST set.
-        var followCookies = SessionCookieFor(token).ToList();
-        followCookies.AddRange(AuthFormTestHelpers.ParseSetCookies(post));
-        using var getRequest = new HttpRequestMessage(HttpMethod.Get, Path);
-        getRequest.Headers.Add("Cookie", string.Join("; ", followCookies.Select(c => $"{c.Key}={c.Value}")));
-        var get = await client.SendAsync(getRequest);
-
-        var html = await get.Content.ReadAsStringAsync();
-        Assert.Contains("Role created.", html);
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Contains(factory.AuthzAdmin.Events, e => e.EventType == "authz.role.delete" && e.ResourceId == "custom:auditor");
     }
 
     [Fact]
     public async Task PageUsesSharedButtonComponentNotUndefinedClass()
     {
-        // Guards against the buttons reverting to the nonexistent .app-button class, which renders
-        // them unstyled. They must use the shared btn-* component classes defined in app.css.
+        // Guards against buttons reverting to the nonexistent .app-button class (which renders unstyled).
         using var factory = new AuthWebFactory { CustomPoliciesEntitled = true };
         var token = factory.SeedSession(AuthWebFactory.MakeUser("admin1", role: "admin"));
         using var client = NoRedirectClient(factory);
-        using var request = new HttpRequestMessage(HttpMethod.Get, Path);
-        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
 
-        var response = await client.SendAsync(request);
+        var response = await GetAsync(factory, client, token, Path);
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("btn-primary", html);
         Assert.DoesNotContain("app-button", html);
-    }
-
-    [Fact]
-    public async Task PagePostUnderReadOnlyReturns409()
-    {
-        using var factory = new AuthWebFactory { ReadOnly = true, CustomPoliciesEntitled = true };
-        var token = factory.SeedSession(AuthWebFactory.MakeUser("admin1", role: "admin"));
-        using var client = NoRedirectClient(factory);
-
-        var response = await AuthFormTestHelpers.PostFormAsync(
-            client, $"{Path}?handler=Create",
-            [
-                new("roleKey", "custom:auditor"),
-                new("title", "Auditor"),
-                new("description", ""),
-                new("permissionKeys", AuthzActions.OrgRead),
-            ],
-            extraCookies: SessionCookieFor(token).ToList(), getPath: Path);
-
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 }

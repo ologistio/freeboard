@@ -1,0 +1,155 @@
+@page "/admin/custom-roles/designer/{slug?}"
+@using System.Linq
+@model Freeboard.Pages.Admin.CustomRoleDesignerModel
+@{
+    ViewData["Title"] = Model.IsEdit ? "Edit custom role" : "Create custom role";
+    var selected = Model.SelectedPermissions.ToHashSet(StringComparer.Ordinal);
+    var groups = Model.PermissionOptions.GroupBy(o => o.Group).ToList();
+}
+
+<div class="mb-6 max-w-2xl">
+    <a href="/admin/custom-roles" class="link text-sm">&larr; Back to all roles</a>
+    <h1 class="mt-2 text-2xl font-bold">@(Model.IsEdit ? "Edit custom role" : "Create custom role")</h1>
+    <p class="mt-1 text-sm text-neutral-600">
+        @(Model.Step == 1
+            ? "Design an organisation-scoped role from the allowed permissions."
+            : "Verify the permissions this role will grant, then save.")
+    </p>
+</div>
+
+@if (Model.Step == 1)
+{
+    <form method="post" class="max-w-2xl space-y-6">
+        <partial name="_ErrorSummary" model="ModelState" />
+
+        <div class="space-y-1.5">
+            <label class="form-label" for="KeyInput">Role key</label>
+            <p class="text-sm text-neutral-600">A stable identifier. The <span class="font-mono">custom:</span> namespace is reserved.</p>
+            @if (Model.IsEdit)
+            {
+                <div class="flex items-center gap-3">
+                    <span class="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm text-neutral-700">@Model.RoleKey</span>
+                    <span class="text-xs text-neutral-500">Role key cannot be changed.</span>
+                </div>
+            }
+            else
+            {
+                <div class="flex items-stretch rounded-md border border-neutral-300 shadow-sm focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/30">
+                    <select aria-label="Role key namespace" class="rounded-l-md border-0 border-r border-neutral-300 bg-neutral-50 px-2 text-sm text-neutral-600 focus:outline-none">
+                        <option>custom</option>
+                    </select>
+                    <span class="flex select-none items-center bg-neutral-50 pr-1 pl-1 font-mono text-sm text-neutral-500">:</span>
+                    <input type="text" id="KeyInput" name="KeyInput" value="@Model.KeyInput" placeholder="auditor" autocomplete="off"
+                           class="w-full rounded-r-md border-0 px-2 py-2 text-sm text-neutral-900 focus:ring-0 focus:outline-none" />
+                </div>
+            }
+        </div>
+
+        <div class="space-y-1.5">
+            <label class="form-label" for="Title">Name</label>
+            <input class="form-input" type="text" id="Title" name="Title" value="@Model.Title" placeholder="Auditor" autocomplete="off" />
+        </div>
+
+        <div class="space-y-1.5">
+            <label class="form-label" for="Description">Description</label>
+            <input class="form-input" type="text" id="Description" name="Description" value="@Model.Description" placeholder="What this role is for." autocomplete="off" />
+        </div>
+
+        <fieldset class="space-y-4 rounded-md border border-neutral-200 p-4">
+            <legend class="px-1 text-sm font-semibold">Permissions</legend>
+            @foreach (var group in groups)
+            {
+                <div class="space-y-2">
+                    <p class="text-xs font-semibold tracking-wider text-neutral-500 uppercase">@group.Key</p>
+                    @foreach (var option in group)
+                    {
+                        <label class="flex items-start gap-2 text-sm">
+                            <input type="checkbox" name="SelectedPermissions" value="@option.PermissionKey" class="mt-0.5 accent-brand"
+                                   checked="@(selected.Contains(option.PermissionKey))" />
+                            <span>
+                                @option.Label
+                                <span class="block text-xs text-neutral-500">@option.Description</span>
+                            </span>
+                        </label>
+                    }
+                </div>
+            }
+        </fieldset>
+
+        <fieldset class="space-y-2 rounded-md border border-neutral-200 bg-neutral-50 p-4 opacity-70">
+            <legend class="px-1 text-sm font-semibold">Organisation assignments <span class="font-normal text-neutral-500">- Not yet available</span></legend>
+            <select class="form-input" disabled>
+                <option>All organisations</option>
+            </select>
+        </fieldset>
+
+        <fieldset class="space-y-2 rounded-md border border-neutral-200 bg-neutral-50 p-4 opacity-70">
+            <legend class="px-1 text-sm font-semibold">Client IP address filtering <span class="font-normal text-neutral-500">- Not yet available</span></legend>
+            <input class="form-input" type="text" placeholder="e.g. 192.168.1.88" disabled />
+        </fieldset>
+
+        <fieldset class="space-y-2 rounded-md border border-neutral-200 bg-neutral-50 p-4 opacity-70">
+            <legend class="px-1 text-sm font-semibold">TTL <span class="font-normal text-neutral-500">- Not yet available</span></legend>
+            <input class="form-input" type="text" placeholder="Start date -> End date" disabled />
+        </fieldset>
+
+        <div class="flex items-center gap-2 border-t border-neutral-200 pt-4">
+            <a href="/admin/custom-roles" class="btn-secondary">Cancel</a>
+            <button class="btn-primary" type="submit" asp-page-handler="Continue">Continue to verify</button>
+        </div>
+    </form>
+}
+else
+{
+    <div class="max-w-2xl space-y-6">
+        <div class="card">
+            <p class="text-sm text-neutral-600">This role will grant the permissions below.</p>
+            <div class="mt-4 space-y-1">
+                <p class="font-semibold">@Model.Title <span class="font-mono text-sm font-normal text-neutral-500">@Model.RoleKey</span></p>
+                @if (!string.IsNullOrWhiteSpace(Model.Description))
+                {
+                    <p class="text-sm text-neutral-600">@Model.Description</p>
+                }
+            </div>
+            <div class="mt-4 border-l-2 border-neutral-200 pl-4">
+                @{
+                    var grantedByGroup = Model.PermissionOptions
+                        .Where(o => selected.Contains(o.PermissionKey))
+                        .GroupBy(o => o.Group)
+                        .ToList();
+                }
+                @if (grantedByGroup.Count == 0)
+                {
+                    <p class="text-sm text-neutral-500">No permissions selected.</p>
+                }
+                @foreach (var group in grantedByGroup)
+                {
+                    <div class="mb-3 last:mb-0">
+                        <p class="text-sm font-medium">@group.Key</p>
+                        <ul class="mt-1 space-y-1 border-l-2 border-neutral-200 pl-4">
+                            @foreach (var option in group)
+                            {
+                                <li class="text-sm text-neutral-700">@option.Label</li>
+                            }
+                        </ul>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <form method="post" class="flex items-center gap-2">
+            @if (!Model.IsEdit)
+            {
+                <input type="hidden" name="KeyInput" value="@Model.KeyInput" />
+            }
+            <input type="hidden" name="Title" value="@Model.Title" />
+            <input type="hidden" name="Description" value="@Model.Description" />
+            @foreach (var key in Model.SelectedPermissions)
+            {
+                <input type="hidden" name="SelectedPermissions" value="@key" />
+            }
+            <button class="btn-secondary" type="submit" asp-page-handler="Back">Back</button>
+            <button class="btn-primary" type="submit" asp-page-handler="Save">@(Model.IsEdit ? "Save changes" : "Create role")</button>
+        </form>
+    </div>
+}
