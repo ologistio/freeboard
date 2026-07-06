@@ -35,4 +35,29 @@ public static class AuthzViewHelpers
             return false;
         }
     }
+
+    /// <summary>
+    /// True when the principal holds <c>system.admin</c>, the permission the custom-role surface
+    /// force-enforces. Gates the nav link on the same check the page and API use, so a link never leads
+    /// to a 403/404. Cosmetic and fail-safe (hidden on any error), reading the request-cached facts.
+    /// </summary>
+    public static async ValueTask<bool> CanAdministerSystemAsync(
+        IAuthzFactProvider facts, ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    {
+        var userId = user.FindFirst(AuthClaims.UserId)?.Value;
+        if (userId is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var loaded = await facts.LoadFactsAsync(userId, cancellationToken).ConfigureAwait(false);
+            return loaded.SystemPermissions.Contains(AuthzActions.SystemAdmin);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

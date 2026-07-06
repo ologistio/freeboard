@@ -29,5 +29,32 @@ public interface IAuthzAdministrationStore
         string userId, string roleKey, string organisationId, string actingUserId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates an author-defined role. The store fixes <c>scope = organisation</c> and <c>is_system = 0</c>
+    /// (never caller-settable), requires an authorable <paramref name="roleKey"/>, a non-blank title
+    /// (&lt;= 190) and non-null description (&lt;= 512), and rejects any permission key outside the Core
+    /// allow-list. The role, its permission rows, and the audit row are written in one transaction.
+    /// </summary>
+    Task<AuthzWriteResult> CreateCustomRoleAsync(
+        string roleKey, string title, string description, IReadOnlyCollection<string> permissionKeys,
+        string actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces a custom role's title, description, and permission set (never its <c>role_key</c>,
+    /// <c>scope</c>, or <c>is_system</c>). Rejects an unknown role (404) or a seeded (<c>is_system = 1</c>)
+    /// target (Invalid). The mutation and its audit row commit together.
+    /// </summary>
+    Task<AuthzWriteResult> UpdateCustomRoleAsync(
+        string roleKey, string title, string description, IReadOnlyCollection<string> permissionKeys,
+        string actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a custom role. Rejects a seeded target (Invalid) and a role with live assignments
+    /// (Conflict, race-safe: the row is locked and assignments counted inside the transaction).
+    /// An unused delete cascades the role's permission rows. The audit row commits with the delete.
+    /// </summary>
+    Task<AuthzWriteResult> DeleteCustomRoleAsync(
+        string roleKey, string actorUserId, CancellationToken cancellationToken = default);
+
     Task AppendAuditEventAsync(AuthzAuditEvent auditEvent, CancellationToken cancellationToken = default);
 }

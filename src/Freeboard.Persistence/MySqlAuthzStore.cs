@@ -65,4 +65,34 @@ public sealed class MySqlAuthzStore(IDbConnectionFactory connectionFactory) : IA
             new { OrgId = organisationId }, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
+
+    public async Task<IReadOnlyList<CustomRoleRow>> ListCustomRolesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<CustomRoleRow>(new CommandDefinition(
+            "SELECT role_key AS RoleKey, title AS Title, description AS Description, scope AS Scope, "
+            + "is_system AS IsSystem, created_at AS CreatedAt, updated_at AS UpdatedAt "
+            + "FROM authz_roles WHERE is_system = 0 ORDER BY role_key;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.ToList();
+    }
+
+    public async Task<RoleWithPermissions?> GetRoleAsync(string roleKey, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var role = await connection.QuerySingleOrDefaultAsync<CustomRoleRow>(new CommandDefinition(
+            "SELECT role_key AS RoleKey, title AS Title, description AS Description, scope AS Scope, "
+            + "is_system AS IsSystem, created_at AS CreatedAt, updated_at AS UpdatedAt "
+            + "FROM authz_roles WHERE role_key = @RoleKey;",
+            new { RoleKey = roleKey }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (role is null)
+        {
+            return null;
+        }
+
+        var permissions = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT permission_key FROM authz_role_permissions WHERE role_key = @RoleKey ORDER BY permission_key;",
+            new { RoleKey = roleKey }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+        return new RoleWithPermissions(role, permissions);
+    }
 }

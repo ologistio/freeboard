@@ -34,11 +34,11 @@ public static class RoleAssignmentEndpoints
             .RequirePermission(AuthzActions.AuthzAssignmentWrite, OrgVisibilitySelector, alwaysEnforce: true);
 
         group.MapGet("/system-role-assignments", ListSystemAssignmentsAsync)
-            .RequirePermission(AuthzActions.SystemAdmin, SystemSelector, alwaysEnforce: true);
+            .RequirePermission(AuthzActions.SystemAdmin, AuthzSelectors.System, alwaysEnforce: true);
         group.MapPut("/system-role-assignments", GrantSystemRoleAsync)
-            .RequirePermission(AuthzActions.SystemAdmin, SystemSelector, alwaysEnforce: true);
+            .RequirePermission(AuthzActions.SystemAdmin, AuthzSelectors.System, alwaysEnforce: true);
         group.MapDelete("/system-role-assignments/{userId}", RevokeSystemRoleAsync)
-            .RequirePermission(AuthzActions.SystemAdmin, SystemSelector, alwaysEnforce: true);
+            .RequirePermission(AuthzActions.SystemAdmin, AuthzSelectors.System, alwaysEnforce: true);
     }
 
     private static async Task<IResult> ListOrgAssignmentsAsync(string orgId, IAuthzStore store, CancellationToken ct)
@@ -131,9 +131,6 @@ public static class RoleAssignmentEndpoints
             context.HttpContext.User, AuthzActions.OrgRead, resource, alwaysEnforce: false, context.HttpContext.RequestAborted);
         return canRead.IsPermitted ? resource : null;
     }
-
-    private static ValueTask<AuthzResource?> SystemSelector(EndpointFilterInvocationContext context)
-        => ValueTask.FromResult<AuthzResource?>(new AuthzResource("system", null, null, []));
 
     // ---- mapping + audit ----
 

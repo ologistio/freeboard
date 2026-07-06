@@ -57,6 +57,23 @@ public sealed class EnterpriseReferenceTests
             $"{projectName} build output contains Enterprise assembly: {string.Join(", ", enterpriseAssemblies)}");
     }
 
+    [Fact]
+    public void EnterpriseCsprojReferencesOnlyCore()
+    {
+        var csproj = Path.Combine(RepoRoot(), "src", Enterprise, $"{Enterprise}.csproj");
+        Assert.True(File.Exists(csproj), $"csproj not found: {csproj}");
+
+        var references = XDocument.Load(csproj).Descendants()
+            .Where(e => e.Name.LocalName is "ProjectReference" or "Reference")
+            .Select(e => (string?)e.Attribute("Include") ?? string.Empty)
+            .ToList();
+
+        // The one-way rule forward direction: Enterprise may reference Core and nothing else (no web,
+        // no persistence), so the paid catalog cannot pull in web/persistence types.
+        var projectRef = Assert.Single(references);
+        Assert.Contains("Freeboard.Core", projectRef, StringComparison.Ordinal);
+    }
+
     // Mirror the build configuration/framework of the test assembly so the sibling
     // project output directory is found regardless of Debug/Release.
     private static string ProjectOutputDir(string projectName)

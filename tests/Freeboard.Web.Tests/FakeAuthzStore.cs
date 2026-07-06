@@ -17,6 +17,12 @@ internal sealed class FakeAuthzStore : IAuthzStore
 
     public bool Unreachable { get; init; }
 
+    /// <summary>
+    /// Custom-role rows, shared with the admin fake (wired by the factory) so a write is visible to a
+    /// later read, mirroring the two real stores over one database.
+    /// </summary>
+    public Dictionary<string, RoleWithPermissions> Roles { get; } = new(StringComparer.Ordinal);
+
     public FakeAuthzStore GrantSuperAdmin(string userId)
     {
         System(userId).Add(AuthzActions.SystemAdmin);
@@ -81,6 +87,13 @@ internal sealed class FakeAuthzStore : IAuthzStore
         string organisationId, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<OrganisationRoleAssignmentRow>>([]);
 
+    public Task<IReadOnlyList<CustomRoleRow>> ListCustomRolesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<CustomRoleRow>>(
+            Roles.Values.Where(r => !r.Role.IsSystem).Select(r => r.Role).OrderBy(r => r.RoleKey, StringComparer.Ordinal).ToList());
+
+    public Task<RoleWithPermissions?> GetRoleAsync(string roleKey, CancellationToken cancellationToken = default)
+        => Task.FromResult(Roles.TryGetValue(roleKey, out var role) ? role : null);
+
     private HashSet<string> System(string userId)
         => _system.TryGetValue(userId, out var s) ? s : _system[userId] = new HashSet<string>(StringComparer.Ordinal);
 
@@ -97,8 +110,18 @@ internal sealed class FakeAuthzAdministrationStore : IAuthzAdministrationStore
 {
     private readonly HashSet<string> _superAdmins = new(StringComparer.Ordinal);
     private readonly HashSet<(string User, string Role, string Org)> _orgAssignments = new();
+    private Dictionary<string, RoleWithPermissions> _roles = new(StringComparer.Ordinal);
 
     public ConcurrentQueue<AuthzAuditEvent> Events { get; } = new();
+
+    /// <summary>Shares the read fake's custom-role dictionary so writes here are visible to reads there.</summary>
+    public void ShareRolesWith(FakeAuthzStore store) => _roles = store.Roles;
+
+    /// <summary>Seeds a custom role directly, bypassing validation, so a test can set up an edit/delete case.</summary>
+    public void SeedCustomRole(string roleKey, params string[] permissionKeys)
+        => _roles[roleKey] = new RoleWithPermissions(
+            new CustomRoleRow(roleKey, roleKey, string.Empty, AuthzRoles.ScopeOrganisation, false, DateTime.UtcNow, DateTime.UtcNow),
+            permissionKeys.ToList());
 
     /// <summary>When true, <see cref="AppendAuditEventAsync"/> throws, so a test can prove the mutation
     /// audit is best-effort (logged, not fatal).</summary>
@@ -160,6 +183,82 @@ internal sealed class FakeAuthzAdministrationStore : IAuthzAdministrationStore
         return Task.FromResult(AuthzWriteResult.Ok);
     }
 
+    public Task<AuthzWriteResult> CreateCustomRoleAsync(
+        string roleKey, string title, string description, IReadOnlyCollection<string> permissionKeys,
+        string actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (!AuthzCustomRoles.IsAuthorableRoleKey(roleKey))
+        {
+            return Task.FromResult(AuthzWriteResult.Invalid("bad key"));
+        }
+
+        if (ValidateFields(title, description, permissionKeys) is { } invalid)
+        {
+            return Task.FromResult(invalid);
+        }
+
+        if (_roles.ContainsKey(roleKey))
+        {
+            return Task.FromResult(AuthzWriteResult.Conflict("duplicate"));
+        }
+
+        var now = DateTime.UtcNow;
+        _roles[roleKey] = new RoleWithPermissions(
+            new CustomRoleRow(roleKey, title, description, AuthzRoles.ScopeOrganisation, false, now, now),
+            permissionKeys.ToList());
+        Events.Enqueue(RoleAudit("authz.role.create", actorUserId, roleKey));
+        return Task.FromResult(AuthzWriteResult.Ok);
+    }
+
+    public Task<AuthzWriteResult> UpdateCustomRoleAsync(
+        string roleKey, string title, string description, IReadOnlyCollection<string> permissionKeys,
+        string actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (!_roles.TryGetValue(roleKey, out var existing))
+        {
+            return Task.FromResult(AuthzWriteResult.NotFound("unknown"));
+        }
+
+        if (existing.Role.IsSystem)
+        {
+            return Task.FromResult(AuthzWriteResult.Invalid("seeded"));
+        }
+
+        if (ValidateFields(title, description, permissionKeys) is { } invalid)
+        {
+            return Task.FromResult(invalid);
+        }
+
+        _roles[roleKey] = new RoleWithPermissions(
+            existing.Role with { Title = title, Description = description, UpdatedAt = DateTime.UtcNow },
+            permissionKeys.ToList());
+        Events.Enqueue(RoleAudit("authz.role.update", actorUserId, roleKey));
+        return Task.FromResult(AuthzWriteResult.Ok);
+    }
+
+    public Task<AuthzWriteResult> DeleteCustomRoleAsync(
+        string roleKey, string actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (!_roles.TryGetValue(roleKey, out var existing))
+        {
+            return Task.FromResult(AuthzWriteResult.NotFound("unknown"));
+        }
+
+        if (existing.Role.IsSystem)
+        {
+            return Task.FromResult(AuthzWriteResult.Invalid("seeded"));
+        }
+
+        if (_orgAssignments.Any(a => a.Role == roleKey))
+        {
+            return Task.FromResult(AuthzWriteResult.Conflict("in use"));
+        }
+
+        _roles.Remove(roleKey);
+        Events.Enqueue(RoleAudit("authz.role.delete", actorUserId, roleKey));
+        return Task.FromResult(AuthzWriteResult.Ok);
+    }
+
     public Task AppendAuditEventAsync(AuthzAuditEvent auditEvent, CancellationToken cancellationToken = default)
     {
         if (ThrowOnAudit)
@@ -169,5 +268,26 @@ internal sealed class FakeAuthzAdministrationStore : IAuthzAdministrationStore
 
         Events.Enqueue(auditEvent);
         return Task.CompletedTask;
+    }
+
+    private static AuthzAuditEvent RoleAudit(string eventType, string actorUserId, string roleKey)
+        => new(eventType, actorUserId, AuthzActions.SystemAdmin, "authz_role", roleKey, null, "Permit", null);
+
+    private static AuthzWriteResult? ValidateFields(
+        string title, string description, IReadOnlyCollection<string> permissionKeys)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 190)
+        {
+            return AuthzWriteResult.Invalid("title");
+        }
+
+        if (description is { Length: > 512 })
+        {
+            return AuthzWriteResult.Invalid("description");
+        }
+
+        return permissionKeys.Any(k => !AuthzCustomRoles.AuthorablePermissionKeys.Contains(k))
+            ? AuthzWriteResult.Invalid("permission")
+            : null;
     }
 }

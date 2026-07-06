@@ -307,6 +307,7 @@ app.MapGet(ApiRoutes.ApiRoutePrefix + "/gitops/status", (IOptions<GitOpsOptions>
 app.MapAuthEndpoints();
 app.MapUserAdminEndpoints();
 app.MapRoleAssignmentEndpoints();
+app.MapCustomRoleEndpoints();
 app.MapMfaLoginEndpoints();
 app.MapMfaEnrollmentEndpoints();
 app.MapSudoEndpoints();

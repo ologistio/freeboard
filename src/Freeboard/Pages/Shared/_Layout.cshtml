@@ -1,9 +1,12 @@
 @inject Freeboard.Core.Authz.IAuthzFactProvider AuthzFacts
+@inject Freeboard.Core.Enterprise.IEnterpriseEntitlements Entitlements
 @{
     var name = User.FindFirst(AuthClaims.Name)?.Value;
     var email = User.FindFirst(AuthClaims.Email)?.Value;
     var role = User.FindFirst(AuthClaims.Role)?.Value;
     var isAdmin = await Freeboard.Authz.AuthzViewHelpers.CanReachAdminAsync(AuthzFacts, User, Context.RequestAborted);
+    var canAdministerSystem = await Freeboard.Authz.AuthzViewHelpers.CanAdministerSystemAsync(AuthzFacts, User, Context.RequestAborted);
+    var customRolesEntitled = Entitlements.IsEntitled(Freeboard.Core.Enterprise.EnterpriseEntitlement.CustomPolicies);
     var displayName = string.IsNullOrWhiteSpace(name) ? "Account" : name;
     var initials = Initials(name);
 }
@@ -76,6 +79,15 @@
                     </svg>
                     Users
                 </a>
+                @if (customRolesEntitled && canAdministerSystem)
+                {
+                    <a href="/admin/custom-roles" class="@NavClass("/admin/custom-roles")">
+                        <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Custom Roles
+                    </a>
+                }
             }
         </nav>
     </aside>
