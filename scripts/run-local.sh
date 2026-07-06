@@ -190,13 +190,18 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 echo "==> Waiting for the app to listen"
-for _ in $(seq 1 60); do
-  if curl -s -o /dev/null "$http_url/compliance/statement-of-applicability"; then ready=1; break; fi
+# Bound each probe: under --watch, dotnet watch restarts the app when the asset
+# build rewrites wwwroot/, and a probe landing in that window can connect to a
+# socket that never answers. Without --max-time an untimed curl would hang here.
+for attempt in $(seq 1 60); do
+  if curl -s -o /dev/null --connect-timeout 2 --max-time 5 \
+      "$http_url/compliance/statement-of-applicability"; then ready=1; break; fi
   if ! kill -0 "$web_pid" 2>/dev/null; then
     echo "error: the web app exited during startup. Last log lines:" >&2
     tail -n 30 "$web_log" >&2
     exit 1
   fi
+  if [ "$attempt" = 15 ]; then echo "    (still starting - dotnet watch builds before it listens)"; fi
   sleep 1
 done
 if [ "${ready:-0}" != "1" ]; then
