@@ -241,7 +241,6 @@ public static class ConfigValidator
             }
         }
 
-        var reportedCycle = new HashSet<string>(StringComparer.Ordinal);
         foreach (var start in parentOf.Keys)
         {
             var walked = new HashSet<string>(StringComparer.Ordinal);
@@ -255,14 +254,12 @@ public static class ConfigValidator
 
                 if (parent == start)
                 {
-                    // start participates in a cycle. Report once per cycle member set.
-                    if (reportedCycle.Add(start))
+                    // start's parent chain loops back to itself. A multi-node cycle yields one
+                    // diagnostic per member, since each member is a distinct start in this loop.
+                    diagnostics.Add(new Diagnostic
                     {
-                        diagnostics.Add(new Diagnostic
-                        {
-                            Message = $"{GitOpsSchema.KindOrganisation} '{Describe(start)}' is part of a parent cycle.",
-                        });
-                    }
+                        Message = $"{GitOpsSchema.KindOrganisation} '{Describe(start)}' is part of a parent cycle.",
+                    });
 
                     break;
                 }
