@@ -3,7 +3,12 @@
 # Run Freeboard locally with a fresh, pre-seeded database and print login
 # credentials. One command, no extra steps:
 #
-#   scripts/run-local.sh
+#   scripts/run-local.sh            # community edition (default)
+#   scripts/run-local.sh --ee       # enterprise edition (CustomPolicies on)
+#
+# Pass --ee (or --enterprise) to start as an Enterprise install: it turns on the
+# CustomPolicies entitlement (Enterprise:CustomPolicies), which enables the
+# custom-role designer at /admin/custom-roles. Default is off (community).
 #
 # It brings up the local MySQL (the test compose stack), resets the freeboard
 # database, applies migrations, imports the sample compliance config from
@@ -22,6 +27,15 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+
+# Edition flag: --ee/--enterprise turns on the CustomPolicies entitlement.
+enterprise=false
+for arg in "$@"; do
+  case "$arg" in
+    --ee|--enterprise) enterprise=true ;;
+    *) echo "error: unknown argument: $arg (supported: --ee)" >&2; exit 1 ;;
+  esac
+done
 
 compose_file="tests/Freeboard.TestInfrastructure/docker-compose.yml"
 db_conn="Server=127.0.0.1;Port=3306;Database=freeboard;User ID=freeboard;Password=freeboard;"
@@ -100,6 +114,7 @@ ASPNETCORE_ENVIRONMENT=Development \
 ASPNETCORE_URLS="$https_url;$http_url" \
 ConnectionStrings__Freeboard="$db_conn" \
 Freeboard__GitOps__ReadOnly=false \
+Enterprise__CustomPolicies="$enterprise" \
 Auth__BootstrapSecret="$bootstrap_secret" \
 Auth__PasswordSecrets__1="$key_password" \
 Auth__CurrentPasswordSecretVersion=1 \
@@ -141,6 +156,13 @@ FREEBOARD_BOOTSTRAP_SECRET="$bootstrap_secret" \
     user bootstrap --email "$admin_email" --name "$admin_name" \
     --password "$admin_password" --api-url "$http_url" >/dev/null
 
+if [ "$enterprise" = true ]; then
+  edition_line="  Edition:   Enterprise (CustomPolicies on; custom-role
+             designer at /admin/custom-roles)"
+else
+  edition_line="  Edition:   Community (run with --ee for Enterprise)"
+fi
+
 cat <<BANNER
 
 ============================================================
@@ -148,6 +170,8 @@ cat <<BANNER
 
   URL:       $https_url
              (self-signed cert - accept the browser warning)
+
+$edition_line
 
   Admin login
     email:    $admin_email
