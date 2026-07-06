@@ -1,0 +1,89 @@
+@page "/admin/custom-roles"
+@model Freeboard.Pages.Admin.CustomRolesModel
+@{
+    ViewData["Title"] = "Custom roles";
+}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Custom roles</h1>
+    <p class="mt-1 text-sm text-neutral-600">Design organisation-scoped roles from the allowed permissions.</p>
+</div>
+
+@if (Model.Notice is not null)
+{
+    <p class="notice mb-4 max-w-2xl">@Model.Notice</p>
+}
+
+<section class="mb-8 max-w-2xl">
+    <h2 class="mb-2 text-lg font-semibold">New role</h2>
+    <form method="post" asp-page-handler="Create" class="space-y-3">
+        <div>
+            <label class="block text-sm font-medium">Role key
+                <input type="text" name="roleKey" placeholder="custom:auditor" class="mt-1 w-full border px-2 py-1" />
+            </label>
+        </div>
+        <div>
+            <label class="block text-sm font-medium">Title
+                <input type="text" name="title" class="mt-1 w-full border px-2 py-1" />
+            </label>
+        </div>
+        <div>
+            <label class="block text-sm font-medium">Description
+                <input type="text" name="description" class="mt-1 w-full border px-2 py-1" />
+            </label>
+        </div>
+        <fieldset>
+            <legend class="text-sm font-medium">Permissions</legend>
+            @foreach (var option in Model.PermissionOptions)
+            {
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="permissionKeys" value="@option.PermissionKey" />
+                    <span>@option.Label <span class="text-neutral-500">(@option.Group)</span></span>
+                </label>
+            }
+        </fieldset>
+        <button type="submit" class="app-button">Create role</button>
+    </form>
+</section>
+
+<section class="max-w-3xl">
+    <h2 class="mb-2 text-lg font-semibold">Existing roles</h2>
+    @if (Model.Roles.Count == 0)
+    {
+        <p class="text-sm text-neutral-600">No custom roles yet.</p>
+    }
+    @foreach (var role in Model.Roles)
+    {
+        <div class="mb-6 border p-4">
+            <form method="post" asp-page-handler="Update" class="space-y-3">
+                <input type="hidden" name="roleKey" value="@role.Role.RoleKey" />
+                <p class="font-mono text-sm">@role.Role.RoleKey</p>
+                <div>
+                    <label class="block text-sm font-medium">Title
+                        <input type="text" name="title" value="@role.Role.Title" class="mt-1 w-full border px-2 py-1" />
+                    </label>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">Description
+                        <input type="text" name="description" value="@role.Role.Description" class="mt-1 w-full border px-2 py-1" />
+                    </label>
+                </div>
+                <fieldset>
+                    <legend class="text-sm font-medium">Permissions</legend>
+                    @foreach (var option in Model.PermissionOptions)
+                    {
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="checkbox" name="permissionKeys" value="@option.PermissionKey"
+                                   checked="@(role.PermissionKeys.Contains(option.PermissionKey))" />
+                            <span>@option.Label <span class="text-neutral-500">(@option.Group)</span></span>
+                        </label>
+                    }
+                </fieldset>
+                <button type="submit" class="app-button">Save</button>
+            </form>
+            <form method="post" asp-page-handler="Delete" class="mt-2">
+                <input type="hidden" name="roleKey" value="@role.Role.RoleKey" />
+                <button type="submit" class="app-button">Delete</button>
+            </form>
+        </div>
+    }
+</section>

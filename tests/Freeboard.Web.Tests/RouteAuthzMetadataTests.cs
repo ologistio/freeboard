@@ -41,6 +41,9 @@ public sealed class RouteAuthzMetadataTests
     [InlineData("POST", "users/{id}/disable", AuthzActions.UserManage)]
     [InlineData("PUT", "organisations/{orgId}/role-assignments", AuthzActions.AuthzAssignmentWrite)]
     [InlineData("PUT", "system-role-assignments", AuthzActions.SystemAdmin)]
+    [InlineData("POST", "custom-roles", AuthzActions.SystemAdmin)]
+    [InlineData("PUT", "custom-roles/{roleKey}", AuthzActions.SystemAdmin)]
+    [InlineData("DELETE", "custom-roles/{roleKey}", AuthzActions.SystemAdmin)]
     public void MutatingRouteCarriesPermissionAndAlwaysEnforce(string method, string patternSuffix, string action)
     {
         var endpoint = Endpoints().FirstOrDefault(e =>

@@ -16,4 +16,10 @@ public interface IAuthzStore
 
     Task<IReadOnlyList<OrganisationRoleAssignmentRow>> ListOrganisationAssignmentsAsync(
         string organisationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Lists the author-defined (<c>is_system = 0</c>) roles for the custom-role management UI.</summary>
+    Task<IReadOnlyList<CustomRoleRow>> ListCustomRolesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Loads one role and its permission keys, or null when the role does not exist.</summary>
+    Task<RoleWithPermissions?> GetRoleAsync(string roleKey, CancellationToken cancellationToken = default);
 }

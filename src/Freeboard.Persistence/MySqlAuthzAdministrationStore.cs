@@ -203,10 +203,195 @@ public sealed class MySqlAuthzAdministrationStore(IDbConnectionFactory connectio
         return AuthzWriteResult.Ok;
     }
 
+    public async Task<AuthzWriteResult> CreateCustomRoleAsync(
+        string roleKey, string title, string description, IReadOnlyCollection<string> permissionKeys,
+        string actorUserId, CancellationToken cancellationToken = default)
+    {
+        permissionKeys ??= [];
+        description ??= string.Empty;
+        if (!AuthzCustomRoles.IsAuthorableRoleKey(roleKey))
+        {
+            return AuthzWriteResult.Invalid($"Role key '{roleKey}' is not an authorable custom-role key.");
+        }
+
+        if (ValidateRoleFields(title, description, permissionKeys) is { } invalid)
+        {
+            return invalid;
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO authz_roles (role_key, title, description, scope, is_system, created_at, updated_at) "
+                + "VALUES (@RoleKey, @Title, @Description, @Scope, 0, @Now, @Now);",
+                new { RoleKey = roleKey, Title = title, Description = description, Scope = AuthzRoles.ScopeOrganisation, Now = now },
+                transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+            await InsertPermissionsAsync(connection, transaction, roleKey, permissionKeys, cancellationToken).ConfigureAwait(false);
+            await InsertAuditEventAsync(connection, transaction, RoleAudit(RoleCreateEvent, actorUserId, roleKey), cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return AuthzWriteResult.Ok;
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+        {
+            return AuthzWriteResult.Conflict($"A role named '{roleKey}' already exists.");
+        }
+    }
+
+    public async Task<AuthzWriteResult> UpdateCustomRoleAsync(
+        string roleKey, string title, string description, IReadOnlyCollection<string> permissionKeys,
+        string actorUserId, CancellationToken cancellationToken = default)
+    {
+        permissionKeys ??= [];
+        description ??= string.Empty;
+        if (ValidateRoleFields(title, description, permissionKeys) is { } invalid)
+        {
+            return invalid;
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var isSystem = await LockRoleAsync(connection, transaction, roleKey, cancellationToken).ConfigureAwait(false);
+        if (isSystem is null)
+        {
+            return AuthzWriteResult.NotFound($"Unknown role '{roleKey}'.");
+        }
+
+        if (isSystem.Value)
+        {
+            return AuthzWriteResult.Invalid($"Role '{roleKey}' is a seeded role and cannot be edited.");
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE authz_roles SET title = @Title, description = @Description, updated_at = @Now WHERE role_key = @RoleKey;",
+            new { RoleKey = roleKey, Title = title, Description = description, Now = DateTime.UtcNow },
+            transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM authz_role_permissions WHERE role_key = @RoleKey;",
+            new { RoleKey = roleKey }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await InsertPermissionsAsync(connection, transaction, roleKey, permissionKeys, cancellationToken).ConfigureAwait(false);
+        await InsertAuditEventAsync(connection, transaction, RoleAudit(RoleUpdateEvent, actorUserId, roleKey), cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return AuthzWriteResult.Ok;
+    }
+
+    public async Task<AuthzWriteResult> DeleteCustomRoleAsync(
+        string roleKey, string actorUserId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var isSystem = await LockRoleAsync(connection, transaction, roleKey, cancellationToken).ConfigureAwait(false);
+        if (isSystem is null)
+        {
+            return AuthzWriteResult.NotFound($"Unknown role '{roleKey}'.");
+        }
+
+        if (isSystem.Value)
+        {
+            return AuthzWriteResult.Invalid($"Role '{roleKey}' is a seeded role and cannot be deleted.");
+        }
+
+        var assignments = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            "SELECT "
+            + "(SELECT COUNT(*) FROM authz_organisation_role_assignments WHERE role_key = @RoleKey) "
+            + "+ (SELECT COUNT(*) FROM authz_system_role_assignments WHERE role_key = @RoleKey);",
+            new { RoleKey = roleKey }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (assignments > 0)
+        {
+            return AuthzWriteResult.Conflict($"Role '{roleKey}' has live assignments and cannot be deleted.");
+        }
+
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM authz_roles WHERE role_key = @RoleKey;",
+                new { RoleKey = roleKey }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            await InsertAuditEventAsync(connection, transaction, RoleAudit(RoleDeleteEvent, actorUserId, roleKey), cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return AuthzWriteResult.Ok;
+        }
+        catch (MySqlException ex) when (ex.ErrorCode is MySqlErrorCode.RowIsReferenced or MySqlErrorCode.RowIsReferenced2)
+        {
+            // An assignment inserted after the count above trips the ON DELETE RESTRICT FK; treat it as
+            // the same in-use conflict rather than surfacing a raw FK error.
+            return AuthzWriteResult.Conflict($"Role '{roleKey}' has live assignments and cannot be deleted.");
+        }
+    }
+
     public async Task AppendAuditEventAsync(AuthzAuditEvent auditEvent, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(auditEvent);
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await InsertAuditEventAsync(connection, null, auditEvent, cancellationToken).ConfigureAwait(false);
+    }
+
+    private const string RoleCreateEvent = "authz.role.create";
+    private const string RoleUpdateEvent = "authz.role.update";
+    private const string RoleDeleteEvent = "authz.role.delete";
+    private const string RoleResourceType = "authz_role";
+
+    private static AuthzAuditEvent RoleAudit(string eventType, string actorUserId, string roleKey)
+        => new(eventType, actorUserId, AuthzActions.SystemAdmin, RoleResourceType, roleKey, null, "Permit", null);
+
+    private static AuthzWriteResult? ValidateRoleFields(
+        string title, string description, IReadOnlyCollection<string> permissionKeys)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 190)
+        {
+            return AuthzWriteResult.Invalid("Title must be non-blank and at most 190 characters.");
+        }
+
+        // Description is optional: callers coerce a null/omitted value to an empty string before this
+        // runs, so only the column width is enforced here.
+        if (description is { Length: > 512 })
+        {
+            return AuthzWriteResult.Invalid("Description must be at most 512 characters.");
+        }
+
+        if (permissionKeys.Any(k => !AuthzCustomRoles.AuthorablePermissionKeys.Contains(k)))
+        {
+            return AuthzWriteResult.Invalid("A submitted permission key is not authorable.");
+        }
+
+        return null;
+    }
+
+    // Locks the role row (FOR UPDATE) so a concurrent update/delete serialises; returns the row's
+    // is_system flag, or null when the role does not exist.
+    private static async Task<bool?> LockRoleAsync(
+        DbConnection connection, DbTransaction transaction, string roleKey, CancellationToken cancellationToken)
+        => await connection.ExecuteScalarAsync<bool?>(new CommandDefinition(
+            "SELECT is_system FROM authz_roles WHERE role_key = @RoleKey FOR UPDATE;",
+            new { RoleKey = roleKey }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+    private static async Task InsertPermissionsAsync(
+        DbConnection connection, DbTransaction transaction, string roleKey,
+        IReadOnlyCollection<string> permissionKeys, CancellationToken cancellationToken)
+    {
+        // Collapse exact duplicates: a role either has a permission or not, and the (role_key,
+        // permission_key) primary key would otherwise reject a repeated submitted key mid-transaction.
+        var distinct = permissionKeys.Distinct(StringComparer.Ordinal).ToArray();
+        if (distinct.Length == 0)
+        {
+            return;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO authz_role_permissions (role_key, permission_key) VALUES (@RoleKey, @PermissionKey);",
+            distinct.Select(k => new { RoleKey = roleKey, PermissionKey = k }),
+            transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+    }
+
+    private async Task InsertAuditEventAsync(
+        DbConnection connection, DbTransaction? transaction, AuthzAuditEvent auditEvent, CancellationToken cancellationToken)
+    {
         await connection.ExecuteAsync(new CommandDefinition(
             "INSERT INTO authz_audit_events "
             + "(id, occurred_at, event_type, actor_user_id, action, resource_type, resource_id, organisation_id, effect, reason) "
@@ -224,7 +409,7 @@ public sealed class MySqlAuthzAdministrationStore(IDbConnectionFactory connectio
                 auditEvent.Effect,
                 auditEvent.Reason,
             },
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+            transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
     }
 
     private static async Task<string?> RoleScopeAsync(

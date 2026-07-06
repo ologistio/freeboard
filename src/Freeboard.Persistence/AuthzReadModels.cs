@@ -7,6 +7,14 @@ public sealed record SystemRoleAssignmentRow(string UserId, string RoleKey, Date
 public sealed record OrganisationRoleAssignmentRow(
     string UserId, string RoleKey, string OrganisationId, DateTime CreatedAt);
 
+/// <summary>One <c>authz_roles</c> row, for the custom-role management UI.</summary>
+public sealed record CustomRoleRow(
+    string RoleKey, string Title, string Description, string Scope, bool IsSystem,
+    DateTime CreatedAt, DateTime UpdatedAt);
+
+/// <summary>A role plus the permission keys it grants, for the custom-role edit view.</summary>
+public sealed record RoleWithPermissions(CustomRoleRow Role, IReadOnlyList<string> PermissionKeys);
+
 /// <summary>
 /// One row to persist in <c>authz_audit_events</c>. Scalar ids only (no strict FKs), so the trail
 /// survives the deletion of the actor or the referenced resource. The store stamps id and occurred_at.

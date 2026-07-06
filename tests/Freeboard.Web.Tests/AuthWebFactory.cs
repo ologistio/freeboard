@@ -98,6 +98,9 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// <summary>When true, the app boots in GitOps read-only mode.</summary>
     public bool ReadOnly { get; init; }
 
+    /// <summary>Drives the <c>Enterprise:CustomPolicies</c> entitlement so a test can boot on or off.</summary>
+    public bool CustomPoliciesEntitled { get; init; }
+
     /// <summary>The first-admin bootstrap secret to configure (empty disables setup).</summary>
     public string BootstrapSecret { get; init; } = string.Empty;
 
@@ -121,6 +124,7 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
         AuthTestConfig.Apply(builder);
         builder.UseSetting("Freeboard:GitOps:ReadOnly", ReadOnly ? "true" : "false");
+        builder.UseSetting("Enterprise:CustomPolicies", CustomPoliciesEntitled ? "true" : "false");
         builder.UseSetting("Auth:BootstrapSecret", BootstrapSecret);
         builder.UseSetting(
             "Auth:PasswordResetEnabled", (PasswordResetEnabled ?? RegisterEmailSender) ? "true" : "false");
@@ -138,6 +142,9 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
             services.RemoveAll<IComplianceStore>();
             services.AddSingleton<IComplianceStore>(Compliance);
 
+            // Share the custom-role dictionary so a write on AuthzAdmin is visible to a read on Authz,
+            // mirroring the two real stores over one database.
+            AuthzAdmin.ShareRolesWith(Authz);
             services.RemoveAll<IAuthzStore>();
             services.AddSingleton<IAuthzStore>(Authz);
             services.RemoveAll<IAuthzAdministrationStore>();
