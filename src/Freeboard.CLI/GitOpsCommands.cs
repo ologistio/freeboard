@@ -9,6 +9,10 @@ namespace Freeboard.CLI;
 /// from a directory. <c>validate</c> and <c>apply --dry-run</c> make no network calls
 /// and write no state. <c>sync</c> connects to the database and writes the persisted
 /// compliance set.
+///
+/// Exit codes follow the CLI convention (0 success, 1 input/validation, 3 operational),
+/// with one group-specific addition: <c>apply</c> without <c>--dry-run</c> returns 2 to
+/// signal the not-yet-implemented real apply, distinct from a config-validation failure (1).
 /// </summary>
 public sealed class GitOpsCommands
 {

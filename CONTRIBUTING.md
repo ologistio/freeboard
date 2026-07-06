@@ -28,7 +28,7 @@ All commits must follow [Conventional Commits v1.0.0](https://www.conventionalco
 ### Scope
 
 Optional noun in parentheses naming the affected area, usually a project:
-`core`, `enterprise`, `agent`, `cli`, `web`. Example: `feat(cli): ...`.
+`core`, `persistence`, `enterprise`, `agent`, `cli`, `web`. Example: `feat(cli): ...`.
 
 ### Breaking changes
 
