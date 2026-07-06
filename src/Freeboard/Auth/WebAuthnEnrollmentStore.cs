@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Freeboard.Auth;
@@ -17,7 +16,7 @@ public sealed class WebAuthnEnrollmentStore(IMemoryCache cache)
     /// <summary>Stores the options JSON for a user and returns the correlation token.</summary>
     public string Stash(string userId, string optionsJson)
     {
-        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var token = OpaqueHandle.New();
         cache.Set(Key(userId, token), optionsJson, Ttl);
         return token;
     }

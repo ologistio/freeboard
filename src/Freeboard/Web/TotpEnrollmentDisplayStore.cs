@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -27,7 +26,7 @@ public sealed class TotpEnrollmentDisplayStore(IMemoryCache cache)
     /// <summary>Stashes the provisioning URI, sets the path-scoped nonce cookie, and returns the nonce.</summary>
     public void Begin(HttpResponse response, string provisioningUri)
     {
-        var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var nonce = OpaqueHandle.New();
         cache.Set(Key(nonce), provisioningUri, Ttl);
         SessionCookie.SetTransient(response, SessionCookie.TotpEnrollName, nonce, EnrollPath, Ttl);
     }
