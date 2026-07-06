@@ -10,7 +10,7 @@ namespace Freeboard.Core.Tests;
 public sealed class RequirementValidationTests
 {
     private const string ValidStandard = """
-        apiVersion: freeboard.io/v1alpha1
+        apiVersion: freeboard.dev/v1alpha1
         kind: Standard
         id: std-a
         title: Standard A
@@ -19,7 +19,7 @@ public sealed class RequirementValidationTests
         """;
 
     private const string ValidRequirement = """
-        apiVersion: freeboard.io/v1alpha1
+        apiVersion: freeboard.dev/v1alpha1
         kind: Requirement
         id: req-a
         title: Requirement A
@@ -61,7 +61,7 @@ public sealed class RequirementValidationTests
     public void RequirementWithUnknownStandardFails()
     {
         using var dir = TempConfig.Create(("req.yaml", """
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Requirement
             id: req-a
             title: Requirement A
@@ -84,7 +84,7 @@ public sealed class RequirementValidationTests
         using var dir = TempConfig.Create(("all.yaml", $"""
             {ValidStandard}
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Requirement
             id: req-a
             title: Requirement A
@@ -116,7 +116,7 @@ public sealed class RequirementValidationTests
         using var dir = TempConfig.Create(("all.yaml", $"""
             {ValidStandard}
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Requirement
             id: req-a
             title: Requirement A
@@ -151,7 +151,7 @@ public sealed class RequirementValidationTests
             ---
             {ValidRequirement}
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Control
             id: ctrl-a
             title: Control A
@@ -172,7 +172,7 @@ public sealed class RequirementValidationTests
             ---
             {ValidRequirement}
             ---
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Control
             id: ctrl-a
             title: Control A
@@ -193,7 +193,7 @@ public sealed class RequirementValidationTests
     public void StandardMissingVersionAndAuthorityFails()
     {
         using var dir = TempConfig.Create(("std.yaml", """
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Standard
             id: std-a
             title: Standard A
@@ -210,7 +210,7 @@ public sealed class RequirementValidationTests
     public void StandardWithWhitespaceVersionFails()
     {
         using var dir = TempConfig.Create(("std.yaml", """
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Standard
             id: std-a
             title: Standard A
@@ -241,7 +241,7 @@ public sealed class RequirementValidationTests
     public void StandardWithBlankPublisherAndSourceUrlIsValid()
     {
         using var dir = TempConfig.Create(("std.yaml", """
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Standard
             id: std-a
             title: Standard A
@@ -260,7 +260,7 @@ public sealed class RequirementValidationTests
     public void MalformedSourceUrlFails()
     {
         using var dir = TempConfig.Create(("std.yaml", """
-            apiVersion: freeboard.io/v1alpha1
+            apiVersion: freeboard.dev/v1alpha1
             kind: Standard
             id: std-a
             title: Standard A

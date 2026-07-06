@@ -9,13 +9,13 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: A
                 """),
             ("ctrl.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Control
                 id: ctrl-a
                 title: Control A
@@ -32,7 +32,7 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v2
+                apiVersion: freeboard.dev/v2
                 kind: Standard
                 id: std-a
                 title: A
@@ -41,7 +41,7 @@ public sealed class ConfigValidatorTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown apiVersion") && d.Message.Contains("freeboard.io/v2"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown apiVersion") && d.Message.Contains("freeboard.dev/v2"));
     }
 
     [Fact]
@@ -49,12 +49,12 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: A
                 ---
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: A again
@@ -71,7 +71,7 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("ctrl.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Control
                 id: ctrl-a
                 title: Control A
@@ -90,13 +90,13 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: A
                 """),
             ("scope.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
                 id: scope-a
                 title: Scope A
@@ -116,14 +116,14 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-a
                 title: Org A
                 type: Company
                 """),
             ("scope.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
                 id: scope-a
                 title: Scope A
@@ -143,7 +143,7 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-a
                 title: Org A
@@ -161,20 +161,20 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: A
                 """),
             ("org.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-a
                 title: Org A
                 type: Company
                 """),
             ("scope.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
                 id: scope-a
                 title: Scope A
@@ -194,7 +194,7 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-a
                 title: Org A
@@ -213,7 +213,7 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-a
                 title: Org A
@@ -232,14 +232,14 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-a
                 title: Org A
                 type: Company
                 parent: org-b
                 ---
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-b
                 title: Org B
@@ -258,13 +258,13 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: ologist-products
                 title: Ologist Products Ltd
                 type: Company
                 ---
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: ologist-products-eng
                 title: Engineering
@@ -284,19 +284,19 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("base.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: A
                 ---
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Organisation
                 id: org-a
                 title: Org A
                 type: Company
                 """),
             ("scopes.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
                 id: scope-a
                 title: Scope A
@@ -304,7 +304,7 @@ public sealed class ConfigValidatorTests
                 standard: std-a
                 disposition: In
                 ---
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
                 id: scope-b
                 title: Scope B
@@ -324,13 +324,13 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: iso-27001
                 title: ISO 27001
                 """),
             ("ctrl.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Control
                 id: ctrl-a
                 title: Control A
@@ -353,7 +353,7 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("scope.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
                 id: scope-a
                 title: Scope A
@@ -372,7 +372,7 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("ctrl.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Control
                 id: ctrl-a
                 title: Control A
@@ -390,12 +390,12 @@ public sealed class ConfigValidatorTests
     {
         using var dir = TempConfig.Create(
             ("bad.yaml", """
-                apiVersion: freeboard.io/v2
+                apiVersion: freeboard.dev/v2
                 kind: Standard
                 id: std-a
                 title: A
                 ---
-                apiVersion: freeboard.io/v2
+                apiVersion: freeboard.dev/v2
                 kind: Standard
                 id: std-b
                 title: B
@@ -411,7 +411,7 @@ public sealed class ConfigValidatorTests
     {
         using var withTitleOne = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: Original
@@ -419,7 +419,7 @@ public sealed class ConfigValidatorTests
                 authority: Example Authority
                 """),
             ("req.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Requirement
                 id: req-a
                 title: Requirement A
@@ -430,7 +430,7 @@ public sealed class ConfigValidatorTests
                 citation_url: https://example.com/a
                 """),
             ("ctrl.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Control
                 id: ctrl-a
                 title: Control A
@@ -440,7 +440,7 @@ public sealed class ConfigValidatorTests
 
         using var withTitleTwo = TempConfig.Create(
             ("std.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Standard
                 id: std-a
                 title: Renamed
@@ -448,7 +448,7 @@ public sealed class ConfigValidatorTests
                 authority: Example Authority
                 """),
             ("req.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Requirement
                 id: req-a
                 title: Requirement A
@@ -459,7 +459,7 @@ public sealed class ConfigValidatorTests
                 citation_url: https://example.com/a
                 """),
             ("ctrl.yaml", """
-                apiVersion: freeboard.io/v1alpha1
+                apiVersion: freeboard.dev/v1alpha1
                 kind: Control
                 id: ctrl-a
                 title: Control A

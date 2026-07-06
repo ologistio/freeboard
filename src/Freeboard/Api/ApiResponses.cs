@@ -41,7 +41,7 @@ public static class ApiResponses
             detail: detail,
             statusCode: StatusCodes.Status422UnprocessableEntity,
             title: "Validation failed",
-            type: "https://freeboard.io/problems/validation");
+            type: "https://freeboard.dev/problems/validation");
     }
 
     /// <summary>A 422 with a single field error.</summary>

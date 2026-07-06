@@ -110,7 +110,7 @@ public static class UserAdminEndpoints
                     title: "Cannot disable the last super-admin",
                     detail: "At least one usable super-admin must remain.",
                     statusCode: StatusCodes.Status409Conflict,
-                    type: "https://freeboard.io/problems/conflict");
+                    type: "https://freeboard.dev/problems/conflict");
             default:
                 // Disabling revokes the user's sessions so an in-flight token cannot keep acting.
                 await sessions.DeleteAllForUserAsync(id, ct).ConfigureAwait(false);

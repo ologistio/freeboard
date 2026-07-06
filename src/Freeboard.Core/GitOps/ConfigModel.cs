@@ -5,7 +5,7 @@ namespace Freeboard.Core.GitOps;
 /// </summary>
 public static class GitOpsSchema
 {
-    public const string ApiVersion = "freeboard.io/v1alpha1";
+    public const string ApiVersion = "freeboard.dev/v1alpha1";
 
     public const string KindStandard = "Standard";
     public const string KindRequirement = "Requirement";

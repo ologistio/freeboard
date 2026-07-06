@@ -519,14 +519,14 @@ public sealed class MySqlIntegrationTests
         await MigrateAsync(db);
         var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
 
-        await importer.ImportAsync(Config([Std("std-a", apiVersion: "freeboard.io/v1alpha1")], [], []));
-        await importer.ImportAsync(Config([Std("std-a", apiVersion: "freeboard.io/v1beta1")], [], []));
+        await importer.ImportAsync(Config([Std("std-a", apiVersion: "freeboard.dev/v1alpha1")], [], []));
+        await importer.ImportAsync(Config([Std("std-a", apiVersion: "freeboard.dev/v1beta1")], [], []));
 
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
         var apiVersion = await conn.ExecuteScalarAsync<string>(
             "SELECT api_version FROM standards WHERE id = 'std-a';");
-        Assert.Equal("freeboard.io/v1beta1", apiVersion);
+        Assert.Equal("freeboard.dev/v1beta1", apiVersion);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

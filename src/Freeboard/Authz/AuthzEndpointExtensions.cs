@@ -97,6 +97,6 @@ public static class AuthzEndpointExtensions
             title: "Forbidden",
             detail: "You do not have permission to perform this action.",
             statusCode: StatusCodes.Status403Forbidden,
-            type: "https://freeboard.io/problems/forbidden");
+            type: "https://freeboard.dev/problems/forbidden");
     }
 }

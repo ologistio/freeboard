@@ -1,12 +1,12 @@
 # Sample organisation tree. A Company with a Department child. Placeholder ids;
 # not a claim about any real entity.
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Organisation
 id: ologist-products
 title: Ologist Products Ltd
 type: Company
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Organisation
 id: ologist-products-eng
 title: Engineering

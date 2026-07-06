@@ -1,11 +1,11 @@
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Standard
 id: std-a
 title: Standard A
 version: "1.0"
 authority: Example Authority
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-a
 title: Requirement A
@@ -15,27 +15,27 @@ statement: Do the thing.
 citation_label: Source A
 citation_url: https://example.com/a
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Control
 id: ctrl-a
 title: Control A
 maps_to:
   - req-a
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Organisation
 id: org-a
 title: Org A
 type: Company
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Organisation
 id: org-eng
 title: Engineering
 type: Department
 parent: org-a
 ---
-apiVersion: freeboard.io/v1alpha1
+apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-a
 title: Scope A

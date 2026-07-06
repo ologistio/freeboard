@@ -14,7 +14,7 @@ requirement. The format SHALL be loadable into a typed config model in
 
 A config directory contains one or more `.yaml` files. Each document has a
 top-level `apiVersion` and `kind`. The only valid `apiVersion` value for this
-increment is `freeboard.io/v1alpha1`. For this increment the valid `kind` values
+increment is `freeboard.dev/v1alpha1`. For this increment the valid `kind` values
 are `Standard`, `Control`, `Requirement`, `Organisation`, `Scope`, and
 `RequirementScope`. Documents of different kinds MAY appear in any file. Every
 resource SHALL have an immutable `id` that is its identity and a mutable `title` for
@@ -97,7 +97,7 @@ or blank on its required `version` or `authority`; a `Standard.source_url` is
 present and non-empty but is not a well-formed absolute `http`/`https` URL; two
 Scopes share the same `(organisation, standard)` pair; two RequirementScopes share
 the same `(organisation, requirement)` pair; the `apiVersion` is not exactly
-`freeboard.io/v1alpha1`. Optional fields (`Requirement.guidance`,
+`freeboard.dev/v1alpha1`. Optional fields (`Requirement.guidance`,
 `Standard.publisher`, `Standard.source_url`) that are omitted or whitespace-only
 are treated as absent and do NOT fail validation; their non-empty and URI-format
 checks run only when the field is present and non-empty. Unknown or missing `kind`
@@ -137,7 +137,7 @@ is reported by the loader (see the loader requirement below), not re-checked her
 
 #### Scenario: Unknown apiVersion rejected
 
-- **WHEN** a document declares an `apiVersion` other than `freeboard.io/v1alpha1`
+- **WHEN** a document declares an `apiVersion` other than `freeboard.dev/v1alpha1`
 - **THEN** validation fails and the error list names the document and the
   unknown `apiVersion`
 
