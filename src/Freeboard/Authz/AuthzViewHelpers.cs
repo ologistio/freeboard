@@ -55,6 +55,10 @@ public static class AuthzViewHelpers
             var loaded = await facts.LoadFactsAsync(userId, cancellationToken).ConfigureAwait(false);
             return loaded.SystemPermissions.Contains(AuthzActions.SystemAdmin);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return false;

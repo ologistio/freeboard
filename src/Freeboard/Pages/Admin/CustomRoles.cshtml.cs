@@ -94,10 +94,12 @@ public sealed class CustomRolesModel(
         var details = new List<RoleWithPermissions>(rows.Count);
         foreach (var row in rows)
         {
-            if (await store.GetRoleAsync(row.RoleKey, ct) is { } detail)
+            if (await store.GetRoleAsync(row.RoleKey, ct) is not { } detail)
             {
-                details.Add(detail);
+                continue;
             }
+
+            details.Add(detail);
         }
 
         Roles = details;

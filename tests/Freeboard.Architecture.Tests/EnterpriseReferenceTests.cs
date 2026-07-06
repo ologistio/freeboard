@@ -60,6 +60,13 @@ public sealed class EnterpriseReferenceTests
     [Fact]
     public void EnterpriseCsprojReferencesOnlyCore()
     {
+        if (Path.IsPathRooted(Enterprise)
+            || Enterprise.Contains(Path.DirectorySeparatorChar)
+            || Enterprise.Contains(Path.AltDirectorySeparatorChar))
+        {
+            Assert.Fail($"Enterprise must be a simple folder name, not a rooted or nested path: {Enterprise}");
+        }
+
         var csproj = Path.Combine(RepoRoot(), "src", Enterprise, $"{Enterprise}.csproj");
         Assert.True(File.Exists(csproj), $"csproj not found: {csproj}");
 
