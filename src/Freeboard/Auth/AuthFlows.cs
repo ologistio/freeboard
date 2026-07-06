@@ -467,7 +467,7 @@ internal static class AuthFlows
 
     /// <summary>The expiry window for an emailed invite's set-password link: long enough to reach an
     /// inbox and be acted on, unlike the 1h public reset lifetime.</summary>
-    private static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(7);
+    internal static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(7);
 
     internal abstract record CreateUserResult
     {
@@ -572,7 +572,7 @@ internal static class AuthFlows
             try
             {
                 var minted = await resets.CreateAsync(invited.Id, DateTime.UtcNow + InviteLifetime, ct).ConfigureAwait(false);
-                await emailService!.SendInviteAsync(invited.Email, minted.Token, ct).ConfigureAwait(false);
+                await emailService!.SendInviteAsync(invited.Email, minted.Token, InviteLifetime, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

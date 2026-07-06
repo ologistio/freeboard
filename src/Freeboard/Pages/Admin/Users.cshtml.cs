@@ -41,6 +41,9 @@ public sealed class UsersModel(
     /// <summary>Set after a successful invite send; drives the in-page confirmation panel.</summary>
     public string? InvitedEmail { get; private set; }
 
+    /// <summary>Whole days an invite link stays valid, sourced from the flow so the notice cannot drift.</summary>
+    public int InviteLifetimeDays => (int)AuthFlows.InviteLifetime.TotalDays;
+
     /// <summary>Set when the row was created but the invite could not be provisioned.</summary>
     public string? InviteFailedEmail { get; private set; }
 

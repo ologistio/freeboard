@@ -51,13 +51,15 @@ public sealed class AuthEmailService
             new EmailMessage(email, "Your Freeboard sign-in link", body), cancellationToken);
     }
 
-    public Task SendInviteAsync(string email, string inviteToken, CancellationToken cancellationToken = default)
+    public Task SendInviteAsync(
+        string email, string inviteToken, TimeSpan lifetime, CancellationToken cancellationToken = default)
     {
         // The invite reuses the password-reset link/page: the recipient sets their own password. The
-        // token is single-use and expiry-bounded by the reset store; it is never logged.
+        // token is single-use and expiry-bounded by the reset store; it is never logged. The stated
+        // expiry is derived from the caller's lifetime so the text cannot drift from the real window.
         var url = BuildLink("/reset-password", inviteToken);
         var body =
-            $"You have been invited to Freeboard. Use the link below to set your password and sign in:\n\n{url}\n\nThis link is single-use and expires in 7 days.";
+            $"You have been invited to Freeboard. Use the link below to set your password and sign in:\n\n{url}\n\nThis link is single-use and expires in {(int)lifetime.TotalDays} days.";
         return _sender.SendAsync(
             new EmailMessage(email, "Your Freeboard invitation", body), cancellationToken);
     }

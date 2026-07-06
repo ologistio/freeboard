@@ -14,7 +14,7 @@
 }
 @if (Model.InvitedEmail is not null)
 {
-    <p class="notice success mb-4 max-w-2xl" data-invite-confirmation>Invite sent to @Model.InvitedEmail, link expires in 7 days.</p>
+    <p class="notice success mb-4 max-w-2xl" data-invite-confirmation>Invite sent to @Model.InvitedEmail, link expires in @Model.InviteLifetimeDays days.</p>
 }
 @if (Model.InviteFailedEmail is not null)
 {
