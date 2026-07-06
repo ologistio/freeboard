@@ -5,10 +5,17 @@
 #
 #   scripts/run-local.sh            # community edition (default)
 #   scripts/run-local.sh --ee       # enterprise edition (CustomPolicies on)
+#   scripts/run-local.sh --watch    # hot reload on source edits
 #
 # Pass --ee (or --enterprise) to start as an Enterprise install: it turns on the
 # CustomPolicies entitlement (Enterprise:CustomPolicies), which enables the
 # custom-role designer at /admin/custom-roles. Default is off (community).
+#
+# Pass --watch (or --hot-reload) to run the web app under `dotnet watch`, so edits
+# to .cs/.cshtml/.razor hot-reload (or restart) without re-running the script. The
+# CSS/JS asset build re-runs on .cshtml changes via MSBuild; for standalone asset
+# iteration use `bun run watch:css` (see CLAUDE.md). Flags combine, e.g.
+# `--ee --watch`.
 #
 # It brings up the local MySQL (the test compose stack), resets the freeboard
 # database, applies migrations, imports the sample compliance config from
@@ -28,12 +35,15 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# Edition flag: --ee/--enterprise turns on the CustomPolicies entitlement.
+# Flags: --ee/--enterprise turns on the CustomPolicies entitlement; --watch/
+# --hot-reload runs the web app under `dotnet watch` for hot reload.
 enterprise=false
+hot_reload=false
 for arg in "$@"; do
   case "$arg" in
     --ee|--enterprise) enterprise=true ;;
-    *) echo "error: unknown argument: $arg (supported: --ee)" >&2; exit 1 ;;
+    --watch|--hot-reload) hot_reload=true ;;
+    *) echo "error: unknown argument: $arg (supported: --ee, --watch)" >&2; exit 1 ;;
   esac
 done
 
@@ -108,8 +118,18 @@ dotnet dev-certs https >/dev/null 2>&1 || true
 # below; without it, `dotnet run` applies the default profile (http only) and the
 # HTTPS listener never binds, breaking the Secure session cookie.
 
+# Under --watch, run via `dotnet watch` for hot reload. --non-interactive makes it
+# auto-apply/restart without prompting (there is no TTY on stdin here). Otherwise
+# use the already-built output with --no-build.
+if [ "$hot_reload" = true ]; then
+  dotnet_cmd=(watch --non-interactive --project src/Freeboard run --no-launch-profile)
+  echo "==> Starting the web app (hot reload via dotnet watch)"
+else
+  dotnet_cmd=(run --no-build --no-launch-profile --project src/Freeboard)
+  echo "==> Starting the web app"
+fi
+
 web_log="$(mktemp -t freeboard-web.XXXXXX.log)"
-echo "==> Starting the web app"
 ASPNETCORE_ENVIRONMENT=Development \
 ASPNETCORE_URLS="$https_url;$http_url" \
 ConnectionStrings__Freeboard="$db_conn" \
@@ -122,7 +142,7 @@ Auth__TokenKeys__1="$key_token" \
 Auth__CurrentTokenKeyVersion=1 \
 Auth__SecretProtectionKeys__1="$key_protect" \
 Auth__CurrentSecretProtectionKeyVersion=1 \
-  dotnet run --no-build --no-launch-profile --project src/Freeboard >"$web_log" 2>&1 &
+  dotnet "${dotnet_cmd[@]}" >"$web_log" 2>&1 &
 web_pid=$!
 
 cleanup() {
@@ -163,6 +183,12 @@ else
   edition_line="  Edition:   Community (run with --ee for Enterprise)"
 fi
 
+if [ "$hot_reload" = true ]; then
+  hotreload_line="  Hot reload: on (dotnet watch) - save a .cs/.cshtml edit to apply"
+else
+  hotreload_line="  Hot reload: off (run with --watch to enable)"
+fi
+
 cat <<BANNER
 
 ============================================================
@@ -172,6 +198,7 @@ cat <<BANNER
              (self-signed cert - accept the browser warning)
 
 $edition_line
+$hotreload_line
 
   Admin login
     email:    $admin_email
