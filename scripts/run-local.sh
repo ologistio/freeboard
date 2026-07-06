@@ -114,6 +114,16 @@ FREEBOARD_DB="$db_conn" dotnet run --no-build --project src/Freeboard.CLI -- git
 # Ensure a dev cert exists (browser will still warn on the self-signed cert).
 dotnet dev-certs https >/dev/null 2>&1 || true
 
+# Fail fast if the ports are already taken - usually a previous run's app that did
+# not shut down. Left running, it answers our readiness check and the bootstrap call
+# with a stale secret, which surfaces as a confusing "Not authorized".
+if curl -s -o /dev/null --max-time 2 "$http_url/"; then
+  echo "error: something is already listening on $http_url." >&2
+  echo "  A previous run may not have stopped. Find and stop it, e.g.:" >&2
+  echo "    lsof -ti tcp:5299 tcp:7245 | xargs -r kill" >&2
+  exit 1
+fi
+
 # --no-launch-profile so launchSettings.json does not override ASPNETCORE_URLS
 # below; without it, `dotnet run` applies the default profile (http only) and the
 # HTTPS listener never binds, breaking the Secure session cookie.
@@ -130,6 +140,10 @@ else
 fi
 
 web_log="$(mktemp -t freeboard-web.XXXXXX.log)"
+# Start the app in its own process group (set -m) so cleanup can signal the whole
+# tree. dotnet watch spawns a child `dotnet run` that spawns the app; signalling only
+# $web_pid would orphan the app and leave it holding the HTTP ports.
+set -m
 ASPNETCORE_ENVIRONMENT=Development \
 ASPNETCORE_URLS="$https_url;$http_url" \
 ConnectionStrings__Freeboard="$db_conn" \
@@ -144,11 +158,32 @@ Auth__SecretProtectionKeys__1="$key_protect" \
 Auth__CurrentSecretProtectionKeyVersion=1 \
   dotnet "${dotnet_cmd[@]}" >"$web_log" 2>&1 &
 web_pid=$!
+set +m
 
+# Run once. We trap INT, TERM, and EXIT with the same handler, so without the guard
+# it would run on the interrupt and again on EXIT; ignoring further INT/TERM also
+# stops the "Stopping..." message repeating when an impatient Ctrl-C is mashed.
+tail_pid=""
+cleaned_up=false
 cleanup() {
+  if [ "$cleaned_up" = true ]; then return; fi
+  cleaned_up=true
+  trap '' INT TERM
   echo
   echo "==> Stopping the web app (MySQL is left running)."
-  kill "$web_pid" >/dev/null 2>&1 || true
+  [ -n "$tail_pid" ] && kill "$tail_pid" >/dev/null 2>&1 || true
+  # Signal the whole process group (-$web_pid), not just $web_pid: the app is a
+  # grandchild of dotnet watch, so killing only the top process orphans it and it
+  # keeps holding the HTTP ports. Ask the group to stop, wait, then force it. A bare
+  # `dotnet run` dies on the first signal, so the loop breaks at once and adds no delay.
+  if kill -0 "$web_pid" 2>/dev/null; then
+    kill -TERM -"$web_pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+      kill -0 "$web_pid" 2>/dev/null || break
+      sleep 0.5
+    done
+    kill -KILL -"$web_pid" >/dev/null 2>&1 || true
+  fi
   wait "$web_pid" 2>/dev/null || true
   rm -f "$web_log"
 }
@@ -216,8 +251,8 @@ $hotreload_line
 
 BANNER
 
-# Stream the web app log and block until the user stops it.
+# Stream the web app log and block until the user stops it. The cleanup trap set
+# above already tears down this tail (via $tail_pid) and the web app.
 tail -n +1 -f "$web_log" &
 tail_pid=$!
-trap 'kill "$tail_pid" >/dev/null 2>&1 || true; cleanup' INT TERM EXIT
 wait "$web_pid"
