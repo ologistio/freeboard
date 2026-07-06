@@ -14,75 +14,72 @@
 }
 
 <section class="mb-8 max-w-2xl">
-    <h2 class="mb-2 text-lg font-semibold">New role</h2>
-    <form method="post" asp-page-handler="Create" class="space-y-3">
-        <div>
-            <label class="block text-sm font-medium">Role key
-                <input type="text" name="roleKey" placeholder="custom:auditor" class="mt-1 w-full border px-2 py-1" />
-            </label>
+    <h2 class="mb-4 text-lg font-semibold">New role</h2>
+    <form method="post" asp-page-handler="Create" class="card space-y-4">
+        <div class="space-y-1.5">
+            <label class="form-label" for="roleKey">Role key</label>
+            <input class="form-input" type="text" id="roleKey" name="roleKey" placeholder="custom:auditor" />
         </div>
-        <div>
-            <label class="block text-sm font-medium">Title
-                <input type="text" name="title" class="mt-1 w-full border px-2 py-1" />
-            </label>
+        <div class="space-y-1.5">
+            <label class="form-label" for="title">Title</label>
+            <input class="form-input" type="text" id="title" name="title" />
         </div>
-        <div>
-            <label class="block text-sm font-medium">Description
-                <input type="text" name="description" class="mt-1 w-full border px-2 py-1" />
-            </label>
+        <div class="space-y-1.5">
+            <label class="form-label" for="description">Description</label>
+            <input class="form-input" type="text" id="description" name="description" />
         </div>
-        <fieldset>
-            <legend class="text-sm font-medium">Permissions</legend>
+        <fieldset class="space-y-2 rounded-md border border-neutral-200 p-4">
+            <legend class="px-1 text-sm font-semibold">Permissions</legend>
             @foreach (var option in Model.PermissionOptions)
             {
                 <label class="flex items-center gap-2 text-sm">
-                    <input type="checkbox" name="permissionKeys" value="@option.PermissionKey" />
+                    <input type="checkbox" name="permissionKeys" value="@option.PermissionKey" class="accent-brand" />
                     <span>@option.Label <span class="text-neutral-500">(@option.Group)</span></span>
                 </label>
             }
         </fieldset>
-        <button type="submit" class="app-button">Create role</button>
+        <button class="btn-primary" type="submit">Create role</button>
     </form>
 </section>
 
 <section class="max-w-3xl">
-    <h2 class="mb-2 text-lg font-semibold">Existing roles</h2>
+    <h2 class="mb-4 text-lg font-semibold">Existing roles</h2>
     @if (Model.Roles.Count == 0)
     {
         <p class="text-sm text-neutral-600">No custom roles yet.</p>
     }
     @foreach (var role in Model.Roles)
     {
-        <div class="mb-6 border p-4">
-            <form method="post" asp-page-handler="Update" class="space-y-3">
+        <div class="card mb-6">
+            <form method="post" asp-page-handler="Update" class="space-y-4">
                 <input type="hidden" name="roleKey" value="@role.Role.RoleKey" />
                 <p class="font-mono text-sm">@role.Role.RoleKey</p>
-                <div>
-                    <label class="block text-sm font-medium">Title
-                        <input type="text" name="title" value="@role.Role.Title" class="mt-1 w-full border px-2 py-1" />
+                <div class="space-y-1.5">
+                    <label class="form-label">Title
+                        <input class="form-input mt-1" type="text" name="title" value="@role.Role.Title" />
                     </label>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium">Description
-                        <input type="text" name="description" value="@role.Role.Description" class="mt-1 w-full border px-2 py-1" />
+                <div class="space-y-1.5">
+                    <label class="form-label">Description
+                        <input class="form-input mt-1" type="text" name="description" value="@role.Role.Description" />
                     </label>
                 </div>
-                <fieldset>
-                    <legend class="text-sm font-medium">Permissions</legend>
+                <fieldset class="space-y-2 rounded-md border border-neutral-200 p-4">
+                    <legend class="px-1 text-sm font-semibold">Permissions</legend>
                     @foreach (var option in Model.PermissionOptions)
                     {
                         <label class="flex items-center gap-2 text-sm">
-                            <input type="checkbox" name="permissionKeys" value="@option.PermissionKey"
+                            <input type="checkbox" name="permissionKeys" value="@option.PermissionKey" class="accent-brand"
                                    checked="@(role.PermissionKeys.Contains(option.PermissionKey))" />
                             <span>@option.Label <span class="text-neutral-500">(@option.Group)</span></span>
                         </label>
                     }
                 </fieldset>
-                <button type="submit" class="app-button">Save</button>
+                <button class="btn-primary" type="submit">Save</button>
             </form>
-            <form method="post" asp-page-handler="Delete" class="mt-2">
+            <form method="post" asp-page-handler="Delete" class="mt-3">
                 <input type="hidden" name="roleKey" value="@role.Role.RoleKey" />
-                <button type="submit" class="app-button">Delete</button>
+                <button class="btn-danger" type="submit">Delete</button>
             </form>
         </div>
     }
