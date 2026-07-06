@@ -1,6 +1,5 @@
-using System.Security.Cryptography;
-using System.Text;
 using Dapper;
+using Freeboard.Core;
 
 namespace Freeboard.Persistence.Auth;
 
@@ -17,8 +16,6 @@ public sealed class MySqlRecoveryCodeStore(
     ITokenHasher tokenHasher)
     : IRecoveryCodeStore
 {
-    // Crockford-style base32 alphabet (no I/L/O/U) for readable, transcription-safe codes.
-    private const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     private const int GroupCount = 2;
     private const int GroupLength = 5; // 10 chars * 5 bits = 50 bits of entropy per code.
 
@@ -115,20 +112,5 @@ public sealed class MySqlRecoveryCodeStore(
     }
 
     /// <summary>Generates one CSPRNG code formatted as hyphen-separated base32 groups (e.g. ABCDE-FGHJK).</summary>
-    private static string GenerateCode()
-    {
-        var totalChars = GroupCount * GroupLength;
-        var builder = new StringBuilder(totalChars + GroupCount - 1);
-        for (var i = 0; i < totalChars; i++)
-        {
-            if (i > 0 && i % GroupLength == 0)
-            {
-                builder.Append('-');
-            }
-
-            builder.Append(Alphabet[RandomNumberGenerator.GetInt32(Alphabet.Length)]);
-        }
-
-        return builder.ToString();
-    }
+    private static string GenerateCode() => ReadableCode.Generate(GroupCount, GroupLength);
 }
