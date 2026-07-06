@@ -99,6 +99,25 @@ public sealed class CustomRolesPageTests
     }
 
     [Fact]
+    public async Task PageUsesSharedButtonComponentNotUndefinedClass()
+    {
+        // Guards against the buttons reverting to the nonexistent .app-button class, which renders
+        // them unstyled. They must use the shared btn-* component classes defined in app.css.
+        using var factory = new AuthWebFactory { CustomPoliciesEntitled = true };
+        var token = factory.SeedSession(AuthWebFactory.MakeUser("admin1", role: "admin"));
+        using var client = NoRedirectClient(factory);
+        using var request = new HttpRequestMessage(HttpMethod.Get, Path);
+        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
+
+        var response = await client.SendAsync(request);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("btn-primary", html);
+        Assert.DoesNotContain("app-button", html);
+    }
+
+    [Fact]
     public async Task PagePostUnderReadOnlyReturns409()
     {
         using var factory = new AuthWebFactory { ReadOnly = true, CustomPoliciesEntitled = true };
