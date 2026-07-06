@@ -10,10 +10,11 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace Freeboard.Pages.Admin;
 
 /// <summary>
-/// Server-rendered custom-role designer. Each handler gates on the <c>CustomPolicies</c> entitlement
-/// (<see cref="NotFoundResult"/> when off, so the surface is absent not forbidden) then
-/// <see cref="AuthzPageGuard"/> for <c>system.admin</c>. Writes go through the same store the API uses,
-/// which enforces the security floor and writes the audit row inside the mutation transaction.
+/// Server-rendered list of custom roles, each expandable to its permission tree, with Edit linking to
+/// <see cref="CustomRoleDesignerModel"/> and an inline Delete. Each handler gates on the
+/// <c>CustomPolicies</c> entitlement (<see cref="NotFoundResult"/> when off, so the surface is absent
+/// not forbidden) then <see cref="AuthzPageGuard"/> for <c>system.admin</c>. Delete goes through the
+/// same store the API uses, which enforces the security floor and writes the audit row.
 /// </summary>
 public sealed class CustomRolesModel(
     IAuthzStore store, IAuthzAdministrationStore admin, AuthzPageGuard pageGuard,
@@ -36,34 +37,6 @@ public sealed class CustomRolesModel(
 
         await LoadAsync(ct);
         return Page();
-    }
-
-    public async Task<IActionResult> OnPostCreateAsync(
-        string? roleKey, string? title, string? description, string[]? permissionKeys, CancellationToken ct)
-    {
-        if (await GuardAsync(ct) is { } denied)
-        {
-            return denied;
-        }
-
-        var result = await admin.CreateCustomRoleAsync(
-            roleKey ?? string.Empty, title ?? string.Empty, description ?? string.Empty, permissionKeys ?? [], Actor(), ct);
-        Notice = result.IsOk ? "Role created." : result.Error;
-        return RedirectToPage();
-    }
-
-    public async Task<IActionResult> OnPostUpdateAsync(
-        string roleKey, string? title, string? description, string[]? permissionKeys, CancellationToken ct)
-    {
-        if (await GuardAsync(ct) is { } denied)
-        {
-            return denied;
-        }
-
-        var result = await admin.UpdateCustomRoleAsync(
-            roleKey, title ?? string.Empty, description ?? string.Empty, permissionKeys ?? [], Actor(), ct);
-        Notice = result.IsOk ? "Role updated." : result.Error;
-        return RedirectToPage();
     }
 
     public async Task<IActionResult> OnPostDeleteAsync(string roleKey, CancellationToken ct)
