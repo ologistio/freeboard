@@ -145,10 +145,30 @@ Auth__CurrentSecretProtectionKeyVersion=1 \
   dotnet "${dotnet_cmd[@]}" >"$web_log" 2>&1 &
 web_pid=$!
 
+# Run once, even though we trap INT, TERM, and EXIT and the log tail below shares
+# this handler. Ctrl-C signals the whole process group, so this fires on the
+# interrupt and would fire again on EXIT; the guard plus ignoring further INT/TERM
+# stops the "Stopping..." message repeating when an impatient Ctrl-C is mashed.
+tail_pid=""
+cleaned_up=false
 cleanup() {
+  if [ "$cleaned_up" = true ]; then return; fi
+  cleaned_up=true
+  trap '' INT TERM
   echo
   echo "==> Stopping the web app (MySQL is left running)."
-  kill "$web_pid" >/dev/null 2>&1 || true
+  [ -n "$tail_pid" ] && kill "$tail_pid" >/dev/null 2>&1 || true
+  # dotnet watch is slower to tear down than a bare `dotnet run` and can outlive a
+  # single SIGTERM, so ask it to stop, wait briefly, then force it. A bare run dies
+  # on the first signal, so the loop breaks immediately and adds no delay.
+  if kill -0 "$web_pid" 2>/dev/null; then
+    kill "$web_pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+      kill -0 "$web_pid" 2>/dev/null || break
+      sleep 0.5
+    done
+    kill -9 "$web_pid" >/dev/null 2>&1 || true
+  fi
   wait "$web_pid" 2>/dev/null || true
   rm -f "$web_log"
 }
@@ -216,8 +236,8 @@ $hotreload_line
 
 BANNER
 
-# Stream the web app log and block until the user stops it.
+# Stream the web app log and block until the user stops it. The cleanup trap set
+# above already tears down this tail (via $tail_pid) and the web app.
 tail -n +1 -f "$web_log" &
 tail_pid=$!
-trap 'kill "$tail_pid" >/dev/null 2>&1 || true; cleanup' INT TERM EXIT
 wait "$web_pid"
