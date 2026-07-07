@@ -23,13 +23,20 @@ public sealed class MySqlTestDatabase : IAsyncDisposable
 
     private MySqlTestDatabase(string baseConnectionString)
     {
+        // Disable pooling for test connections. Each test provisions a uniquely-named
+        // throwaway database, so each gets its own pool; connections pooled against a
+        // database that has since been dropped linger until the idle timeout and
+        // accumulate across the parallel integration run, exhausting the server's
+        // max_connections ("Too many connections" at OpenAsync). Test connections are
+        // short-lived, so skipping the pool costs little and keeps the count bounded.
         var adminBuilder = new MySqlConnectionStringBuilder(baseConnectionString);
         adminBuilder.Database = string.Empty;
+        adminBuilder.Pooling = false;
         adminConnectionString = adminBuilder.ConnectionString;
 
         databaseName = $"fb_test_{Guid.NewGuid():N}";
 
-        var dbBuilder = new MySqlConnectionStringBuilder(baseConnectionString) { Database = databaseName };
+        var dbBuilder = new MySqlConnectionStringBuilder(baseConnectionString) { Database = databaseName, Pooling = false };
         ConnectionString = dbBuilder.ConnectionString;
         ConnectionFactory = new MySqlConnectionFactory(new PersistenceOptions { ConnectionString = ConnectionString });
     }

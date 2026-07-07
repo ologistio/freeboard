@@ -19,11 +19,13 @@
 services:
   mysql:
     image: mysql:8.4
-    # Migrations create append-only triggers on the evidence tables. With binary logging on (the
-    # 8.4 default) a non-SUPER user cannot create a trigger unless the server trusts function/trigger
-    # creators, so a real deployment applying these migrations as a least-privilege user needs the
-    # same setting. Enable it here so the fb_test_* databases can apply migration 011.
-    command: ["--log-bin-trust-function-creators=1"]
+    # --log-bin-trust-function-creators=1: migrations create append-only triggers on the evidence
+    # tables. With binary logging on (the 8.4 default) a non-SUPER user cannot create a trigger unless
+    # the server trusts function/trigger creators, so a real deployment applying these migrations as a
+    # least-privilege user needs the same setting. Enable it here so fb_test_* can apply migration 011.
+    # --max-connections=500: the integration suite provisions many throwaway fb_test_* databases in
+    # parallel; the 8.4 default (151) is too low for the peak and gives headroom as the suite grows.
+    command: ["--log-bin-trust-function-creators=1", "--max-connections=500"]
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: freeboard
