@@ -19,6 +19,11 @@
 services:
   mysql:
     image: mysql:8.4
+    # Migrations create append-only triggers on the evidence tables. With binary logging on (the
+    # 8.4 default) a non-SUPER user cannot create a trigger unless the server trusts function/trigger
+    # creators, so a real deployment applying these migrations as a least-privilege user needs the
+    # same setting. Enable it here so the fb_test_* databases can apply migration 011.
+    command: ["--log-bin-trust-function-creators=1"]
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: freeboard

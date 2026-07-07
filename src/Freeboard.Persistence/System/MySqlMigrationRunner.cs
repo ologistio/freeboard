@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Reflection;
 using Dapper;
+using MySqlConnector;
 
 namespace Freeboard.Persistence.System;
 
@@ -100,6 +101,18 @@ public sealed class MySqlMigrationRunner : IMigrationRunner
             // unrecorded and the migration is re-attemptable.
             await connection.ExecuteAsync(new CommandDefinition(migration.Sql, cancellationToken: cancellationToken))
                 .ConfigureAwait(false);
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.BinLogCreateRoutineNeedSuper)
+        {
+            // Creating a trigger under binary logging needs either a server with
+            // log_bin_trust_function_creators=1 or a migration user privileged to create routines.
+            // Name the remediation so the operator does not have to decode error 1419.
+            throw new MigrationException(
+                $"Migration '{migration.Version}' failed: creating a trigger requires the server to run "
+                + "with log_bin_trust_function_creators=1, or the migration database user to hold a "
+                + "privilege sufficient to create triggers under binary logging. "
+                + "The version was not recorded; fix the grant or server setting and re-run.",
+                ex);
         }
         catch (DbException ex)
         {

@@ -313,6 +313,12 @@ freeboard system migrate --connection-string "<conn>"
 freeboard gitops sync <dir> --connection-string "<conn>"
 ```
 
+Migration 011 (and any later trigger-using migration) runs `CREATE TRIGGER`. On a
+binary-logging MySQL 8.x server the migration database user must either connect to a
+server started with `log_bin_trust_function_creators=1` or hold a privilege sufficient
+to create triggers under binary logging; otherwise `system migrate` fails with error
+1419 (`ER_BINLOG_CREATE_ROUTINE_NEED_SUPER`).
+
 `gitops sync` loads and validates the config via the same path as `validate`, then
 checks migration state. If the schema is not current and `--migrate` is not
 supplied, it exits `3` and writes nothing (not even the tracking table). Pass

@@ -54,6 +54,30 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory and the read-only <see cref="IEvidenceStore"/>. Does NOT register
+    /// the append store.
+    /// </summary>
+    public static IServiceCollection AddEvidenceStore(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<IEvidenceStore, MySqlEvidenceStore>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the connection factory and the append-only <see cref="IEvidenceWriteStore"/>. The write
+    /// store needs an <see cref="Auth.IUlidFactory"/> for run/check ids; it is TryAdded so a co-registered
+    /// <see cref="AddAuth"/>/<see cref="AddAuthz"/> keeps its single instance.
+    /// </summary>
+    public static IServiceCollection AddEvidenceWriteStore(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<Auth.IUlidFactory, Auth.UlidFactory>();
+        services.TryAddSingleton<IEvidenceWriteStore, MySqlEvidenceWriteStore>();
+        return services;
+    }
+
     /// <summary>Registers the connection factory and <see cref="IGitOpsImporter"/>.</summary>
     public static IServiceCollection AddGitOpsImport(this IServiceCollection services, string connectionString)
     {
