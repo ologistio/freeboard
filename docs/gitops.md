@@ -17,21 +17,24 @@ reconciling apply, soft-delete on removal, and drift detection are not built yet
 
 Freeboard borrows Fleet's structure but renames the nouns for compliance:
 
-| Fleet    | Freeboard          | Meaning                                                        |
-| -------- | ------------------ | -------------------------------------------------------------- |
-| (n/a)    | organisations      | the tree of entities being assessed (company/department)       |
-| labels   | scopes             | maps an organisation to a standard with a disposition          |
-| (n/a)    | requirement-scopes | maps an organisation to a requirement with a disposition       |
-| policies | checks             | executable conformance checks (deferred, not built)            |
-| (n/a)    | controls           | an implemented control mapped to one or more requirements      |
-| (n/a)    | requirements       | a standard's published normative statements                    |
-| (n/a)    | standards          | a compliance standard in scope                                 |
-| (n/a)    | vendors            | a piece of software or platform in use                         |
-| (n/a)    | vendor-scopes      | maps a vendor to one requirement or control with a disposition |
+| Fleet    | Freeboard             | Meaning                                                        |
+| -------- | --------------------- | -------------------------------------------------------------- |
+| (n/a)    | organisations         | the tree of entities being assessed (company/department)       |
+| labels   | scopes                | maps an organisation to a standard with a disposition          |
+| (n/a)    | requirement-scopes    | maps an organisation to a requirement with a disposition       |
+| policies | checks                | executable conformance checks (deferred, not built)            |
+| (n/a)    | controls              | an implemented control mapped to one or more requirements      |
+| (n/a)    | requirements          | a standard's published normative statements                    |
+| (n/a)    | standards             | a compliance standard in scope                                 |
+| (n/a)    | vendors               | a piece of software or platform in use                         |
+| (n/a)    | vendor-scopes         | maps a vendor to one requirement or control with a disposition |
+| (n/a)    | evidence-collectors   | attaches a data source to a control                            |
+| (n/a)    | attestation-templates | a form or quiz attached to a control                           |
 
 This increment ships `standards`, `requirements`, `controls`, `organisations`,
-`scopes`, `requirement-scopes`, `vendors`, and `vendor-scopes`. `checks` are named
-for the trajectory but are not built.
+`scopes`, `requirement-scopes`, `vendors`, `vendor-scopes`, `evidence-collectors`,
+and `attestation-templates`. `checks` are named for the trajectory but are not
+built.
 
 ## Format
 
@@ -40,7 +43,8 @@ or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.dev/v1alpha1`.
 - `kind` - one of `Standard`, `Requirement`, `Control`, `Organisation`, `Scope`,
-  `RequirementScope`, `Vendor`, or `VendorScope`.
+  `RequirementScope`, `Vendor`, `VendorScope`, `EvidenceCollector`, or
+  `AttestationTemplate`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -213,6 +217,89 @@ disposition: Out
 justification: SaaS identity provider - no host firewall under our control.
 ```
 
+### EvidenceCollector
+
+An evidence-collector attaches a data source to one `Control` (the attach point
+named by the required `control` field) and, optionally, to one `Vendor` (the
+optional `vendor` field). `type` is one of `integration`, `script`,
+`manual-attestation`, `training-attestation`, or `agent`. `frequency` is the
+collection cadence, one of `continuous`, `daily`, `weekly`, `monthly`,
+`quarterly`, or `annual`. `threshold` is optional; when present it is an integer
+percent from 0 to 100. `config` is an optional free-form map of type-specific
+settings; it holds no secret material.
+
+A control that has at least one attached evidence-collector must declare an
+`evaluation` roll-up rule (`all`, `any`, or `manual`) saying how its collectors
+combine into a status.
+
+```yaml
+apiVersion: freeboard.dev/v1alpha1
+kind: Control
+id: ctrl-mfa
+title: Multi-factor authentication enforced
+maps_to:
+  - req-ce-plus-user-access-control-04
+evaluation: all
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: EvidenceCollector
+id: ec-okta-mfa
+title: Okta MFA enrolment
+control: ctrl-mfa
+vendor: vendor-okta
+type: integration
+frequency: daily
+threshold: 95
+config:
+  policy: default
+```
+
+### AttestationTemplate
+
+An attestation-template is a form or quiz attached to one `Control` (the attach
+point named by the required `control` field). A template references only its
+attach-point control; its standard is reached through the control's mapped
+requirements, so there is no `requirement` or `standard` field. `type` is `manual`
+or `training`. `body` is optional markdown stored verbatim.
+
+A `manual` template collects `fields`: an ordered list of form fields, each with
+an `id`, a `label`, and a `type` (`boolean`, `single-choice`, or `short-text`). A
+`single-choice` field carries two or more `options`; other field types carry none.
+A `manual` template must not declare `pass_mark` or `quiz`.
+
+A `training` template requires a `pass_mark` (an integer percent from 0 to 100)
+and a non-empty `quiz`: an ordered list of items, each with an `id`, a `prompt`,
+two or more `options`, and an `answer` that is one of those options. The answer is
+persisted for grading but redacted from every read surface.
+
+```yaml
+apiVersion: freeboard.dev/v1alpha1
+kind: AttestationTemplate
+id: attest-mfa-review
+title: MFA enforcement review
+control: ctrl-mfa
+type: manual
+fields:
+  - id: enforced
+    label: Is MFA enforced for all cloud services?
+    type: boolean
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: AttestationTemplate
+id: attest-phishing
+title: Phishing awareness
+control: ctrl-mfa
+type: training
+pass_mark: 90
+quiz:
+  - id: q1
+    prompt: What should you do with an unexpected attachment?
+    options:
+      - Open it immediately
+      - Report it and do not open it
+    answer: Report it and do not open it
+```
+
 ## Validation
 
 Validation collects every error in one pass (not just the first). It fails when:
@@ -245,6 +332,30 @@ Validation collects every error in one pass (not just the first). It fails when:
 - a `VendorScope` has `disposition: Out` but no `justification`;
 - two vendor-scopes name the same `(vendor, requirement)` or `(vendor, control)`
   pair;
+- an `EvidenceCollector.control` names a `Control` id that does not exist;
+- an `EvidenceCollector.vendor` is present but names a `Vendor` id that does not
+  exist;
+- an `EvidenceCollector.type` is not one of `integration`, `script`,
+  `manual-attestation`, `training-attestation`, `agent`;
+- an `EvidenceCollector.frequency` is not one of `continuous`, `daily`, `weekly`,
+  `monthly`, `quarterly`, `annual`;
+- an `EvidenceCollector.threshold` is present but not an integer percent from 0 to
+  100;
+- a `Control` has at least one attached evidence-collector but omits `evaluation`
+  (which must be `all`, `any`, or `manual`);
+- an `AttestationTemplate.control` names a `Control` id that does not exist;
+- an `AttestationTemplate.type` is not `manual` or `training`;
+- an `AttestationTemplate.pass_mark` is present but not an integer percent from 0
+  to 100;
+- an `AttestationTemplate` of type `training` omits `pass_mark` or a non-empty
+  `quiz`, or one of type `manual` declares `pass_mark` or `quiz`;
+- an `AttestationTemplate` field is malformed - the validator rejects, among other
+  cases, a missing `id`/`label`/`type`, a duplicate field `id`, an unknown field
+  type, a `single-choice` field with fewer than two options or with duplicate
+  options, and a non-`single-choice` field that declares options;
+- an `AttestationTemplate` quiz item is malformed - the validator rejects, among
+  other cases, a missing `id`/`prompt`/`answer`, a duplicate quiz `id`, fewer than
+  two options, duplicate options, and an `answer` that is not one of its options;
 - `apiVersion` is not exactly `freeboard.dev/v1alpha1`.
 
 A missing or unknown `kind`, and malformed YAML, are reported as diagnostics by
@@ -273,8 +384,9 @@ vendors) is persisted in MySQL. The data is the general compliance store; GitOps
 
 ### Schema
 
-Eight domain tables (`standards`, `requirements`, `controls`, `organisations`,
-`scopes`, `requirement_scopes`, `vendors`, `vendor_scopes`), each keyed on `id`
+Ten domain tables (`standards`, `requirements`, `controls`, `organisations`,
+`scopes`, `requirement_scopes`, `vendors`, `vendor_scopes`, `evidence_collectors`,
+`attestation_templates`), each keyed on `id`
 with `api_version`, `title`, `created_at`, and `updated_at`. `standards` also
 carries nullable `version`, `authority`, `publisher`, and `source_url` metadata
 columns. `requirements` has a `standard_id` foreign key (`ON DELETE RESTRICT`), a
@@ -291,6 +403,14 @@ only. `vendor_scopes` has a `vendor_id` foreign key, nullable `requirement_id` a
 and a nullable `justification`; a `CHECK` constraint enforces that exactly one of
 `requirement_id` or `control_id` is set, and unique keys on
 `(vendor_id, requirement_id)` and `(vendor_id, control_id)` bound each target pair.
+`evidence_collectors` has a required `control_id` foreign key and a nullable
+`vendor_id` foreign key (both `ON DELETE RESTRICT`), the `type`/`frequency` token
+columns, a nullable `threshold`, and a native JSON `config` column.
+`attestation_templates` has a required `control_id` foreign key (`ON DELETE
+RESTRICT`), a `type` column, a nullable `body`, a nullable `pass_mark`, and native
+JSON `fields`/`quiz` columns. The `evidence_collectors` and `attestation_templates`
+`RESTRICT` foreign keys are why `gitops sync` prunes an absent collector or
+template before deleting the control or vendor it referenced.
 One relation table
 (`control_requirements` for `Control.maps_to`) with a composite primary key and
 `ON DELETE CASCADE` foreign keys. One migration-tracking table
