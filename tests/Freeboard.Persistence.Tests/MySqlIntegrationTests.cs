@@ -40,7 +40,8 @@ public sealed class MySqlIntegrationTests
         IEnumerable<Requirement>? requirements = null,
         IEnumerable<RequirementScope>? requirementScopes = null,
         IEnumerable<Vendor>? vendors = null,
-        IEnumerable<VendorScope>? vendorScopes = null) => new()
+        IEnumerable<VendorScope>? vendorScopes = null,
+        IEnumerable<EvidenceCollector>? evidenceCollectors = null) => new()
         {
             Standards = standards.ToList(),
             Requirements = requirements?.ToList() ?? [],
@@ -50,6 +51,7 @@ public sealed class MySqlIntegrationTests
             RequirementScopes = requirementScopes?.ToList() ?? [],
             Vendors = vendors?.ToList() ?? [],
             VendorScopes = vendorScopes?.ToList() ?? [],
+            EvidenceCollectors = evidenceCollectors?.ToList() ?? [],
         };
 
     private static Standard Std(
@@ -71,8 +73,31 @@ public sealed class MySqlIntegrationTests
             CitationUrl = "https://example.com/" + id,
         };
 
-    private static Control Ctrl(string id, string[] mapsTo, string title = "T", string apiVersion = "v1") =>
-        new() { Id = id, Title = title, ApiVersion = apiVersion, MapsTo = [.. mapsTo] };
+    private static Control Ctrl(string id, string[] mapsTo, string title = "T", string apiVersion = "v1", string? evaluation = null) =>
+        new() { Id = id, Title = title, ApiVersion = apiVersion, MapsTo = [.. mapsTo], Evaluation = evaluation ?? string.Empty };
+
+    private static EvidenceCollector Ec(
+        string id,
+        string control,
+        string type = "integration",
+        string frequency = "daily",
+        string? vendor = null,
+        string threshold = "",
+        Dictionary<string, string>? config = null,
+        string title = "T",
+        string apiVersion = "v1") =>
+        new()
+        {
+            Id = id,
+            Title = title,
+            ApiVersion = apiVersion,
+            Control = control,
+            Vendor = vendor ?? string.Empty,
+            Type = type,
+            Frequency = frequency,
+            Threshold = threshold,
+            Config = config ?? [],
+        };
 
     private static Organisation Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, OrgKind = kind, Parent = parent ?? string.Empty };
@@ -151,11 +176,30 @@ public sealed class MySqlIntegrationTests
                  {
                      "standards", "requirements", "controls", "organisations", "scopes",
                      "requirement_scopes", "control_requirements", "schema_migrations",
-                     "vendors", "vendor_scopes",
+                     "vendors", "vendor_scopes", "evidence_collectors",
                  })
         {
             Assert.Contains(t, tables);
         }
+
+        // controls gains the nullable evaluation column; evidence_collectors FKs to controls and vendors.
+        var evaluationColumn = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            + "WHERE table_schema = DATABASE() AND table_name = 'controls' AND column_name = 'evaluation';");
+        Assert.Equal(1, evaluationColumn);
+
+        var collectorFks = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.key_column_usage "
+            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_collectors' "
+            + "AND referenced_table_name IN ('controls', 'vendors');");
+        Assert.Equal(2, collectorFks);
+
+        var collectorDeleteRules = (await conn.QueryAsync<string>(
+            "SELECT delete_rule FROM information_schema.referential_constraints "
+            + "WHERE constraint_schema = DATABASE() AND table_name = 'evidence_collectors';"))
+            .ToArray();
+        Assert.Equal(2, collectorDeleteRules.Length);
+        Assert.All(collectorDeleteRules, rule => Assert.Equal("RESTRICT", rule));
 
         // The old scope->controls relation is dropped by the organisation migration; the
         // control->standard join is repointed to control_requirements by migration 008.
@@ -394,7 +438,7 @@ public sealed class MySqlIntegrationTests
             [VscReq("vs-a", "vendor-a", "req-a")]));
 
         var counts = await store.GetCountsAsync();
-        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1, 1, 1, 1), counts);
+        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1, 1, 1, 1, 0), counts);
 
         var requirementScope = Assert.Single(await store.GetRequirementScopesAsync());
         Assert.Equal("rs-a", requirementScope.Id);
@@ -962,6 +1006,132 @@ public sealed class MySqlIntegrationTests
         Assert.Equal(2, scopes.Count);
         Assert.Equal(("vendor-b", "req-y", "Out"), (scopes["vs-1"].Vendor, scopes["vs-1"].Requirement, scopes["vs-1"].Disposition));
         Assert.Equal(("vendor-a", "req-x", "In"), (scopes["vs-2"].Vendor, scopes["vs-2"].Requirement, scopes["vs-2"].Disposition));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task EvidenceCollectorsAndControlEvaluationRoundTrip()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
+            requirements: [Req("req-a", "std-a")],
+            vendors: [Vnd("vendor-a")],
+            evidenceCollectors:
+            [
+                Ec("collector-int", "ctrl-a", "integration", "daily", vendor: "vendor-a", threshold: "100",
+                    config: new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
+                Ec("collector-manual", "ctrl-a", "manual-attestation", "annual"),
+            ]));
+
+        var counts = await store.GetCountsAsync();
+        Assert.Equal(2, counts.EvidenceCollectors);
+
+        var control = Assert.Single(await store.GetControlsAsync());
+        Assert.Equal("all", control.Evaluation);
+
+        var collectors = (await store.GetEvidenceCollectorsAsync()).ToDictionary(c => c.Id);
+        Assert.Equal(2, collectors.Count);
+
+        var integration = collectors["collector-int"];
+        Assert.Equal("ctrl-a", integration.Control);
+        Assert.Equal("vendor-a", integration.Vendor);
+        Assert.Equal("integration", integration.Type);
+        Assert.Equal("daily", integration.Frequency);
+        Assert.Equal(100, integration.Threshold);
+        Assert.Equal("policies.mfa", integration.Config["endpoint"]);
+
+        var manual = collectors["collector-manual"];
+        Assert.Null(manual.Vendor);
+        Assert.Null(manual.Threshold);
+        Assert.Empty(manual.Config);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task AddingEvaluationToExistingControlPreservesCrossRefs()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        // Control starts with no evaluation and maps to two requirements.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-a", ["req-a", "req-b"])],
+            requirements: [Req("req-a", "std-a"), Req("req-b", "std-a")]));
+
+        var before = Assert.Single(await store.GetControlsAsync());
+        Assert.Null(before.Evaluation);
+        Assert.Equal(["req-a", "req-b"], before.MapsTo);
+
+        // Re-sync the same control with an evaluation rule. Its maps_to must be unchanged.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-a", ["req-a", "req-b"], evaluation: "any")],
+            requirements: [Req("req-a", "std-a"), Req("req-b", "std-a")]));
+
+        var after = Assert.Single(await store.GetControlsAsync());
+        Assert.Equal("any", after.Evaluation);
+        Assert.Equal(["req-a", "req-b"], after.MapsTo);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRemovesControlAttachedByEvidenceCollector()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        // Old state: collector-a attaches to ctrl-gone under a RESTRICT FK.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-keep", ["req-a"]), Ctrl("ctrl-gone", ["req-a"], evaluation: "all")],
+            requirements: [Req("req-a", "std-a")],
+            evidenceCollectors: [Ec("collector-a", "ctrl-gone")]));
+
+        // New config drops the attached control (and its collector). The importer must delete the
+        // collector before the control, so the control RESTRICT FK is not hit.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-keep", ["req-a"])],
+            requirements: [Req("req-a", "std-a")]));
+
+        Assert.Empty(await store.GetEvidenceCollectorsAsync());
+        Assert.Equal(["ctrl-keep"], (await store.GetControlsAsync()).Select(c => c.Id).ToArray());
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRemovesVendorNamedByEvidenceCollector()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        // Old state: collector-a names vendor-gone under a RESTRICT FK.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
+            requirements: [Req("req-a", "std-a")],
+            vendors: [Vnd("vendor-keep"), Vnd("vendor-gone")],
+            evidenceCollectors: [Ec("collector-a", "ctrl-a", vendor: "vendor-gone")]));
+
+        // New config drops the named vendor (and its collector). The importer must delete the collector
+        // before the vendor, so the vendor RESTRICT FK is not hit.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
+            requirements: [Req("req-a", "std-a")],
+            vendors: [Vnd("vendor-keep")]));
+
+        Assert.Empty(await store.GetEvidenceCollectorsAsync());
+        Assert.Equal(["vendor-keep"], (await store.GetVendorsAsync()).Select(v => v.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

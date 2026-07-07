@@ -22,8 +22,11 @@ public sealed record RequirementRow(
     string CitationLabel,
     string CitationUrl);
 
-/// <summary>A persisted control with its resolved <see cref="MapsTo"/> requirement ids.</summary>
-public sealed record ControlRow(string Id, string Title, IReadOnlyList<string> MapsTo);
+/// <summary>
+/// A persisted control with its resolved <see cref="MapsTo"/> requirement ids and its optional
+/// <see cref="Evaluation"/> roll-up rule (null when unset).
+/// </summary>
+public sealed record ControlRow(string Id, string Title, IReadOnlyList<string> MapsTo, string? Evaluation);
 
 /// <summary>
 /// A persisted organisation node. <see cref="Kind"/> is <c>Company</c> or <c>Department</c>;
@@ -64,6 +67,21 @@ public sealed record VendorRow(string Id, string Title);
 public sealed record VendorScopeRow(
     string Id, string Title, string Vendor, string? Requirement, string? Control, string Disposition, string? Justification);
 
+/// <summary>
+/// A persisted evidence-collector attached to one control. Identity is <see cref="Id"/>.
+/// <see cref="Vendor"/> and <see cref="Threshold"/> are null when unset; <see cref="Config"/> is the
+/// type-specific settings map (empty when unset).
+/// </summary>
+public sealed record EvidenceCollectorRow(
+    string Id,
+    string Title,
+    string Control,
+    string? Vendor,
+    string Type,
+    string Frequency,
+    int? Threshold,
+    IReadOnlyDictionary<string, string> Config);
+
 /// <summary>Per-kind row counts for the status summary.</summary>
 public sealed record ComplianceCounts(
     int Standards,
@@ -73,4 +91,5 @@ public sealed record ComplianceCounts(
     int Scopes,
     int RequirementScopes,
     int Vendors,
-    int VendorScopes);
+    int VendorScopes,
+    int EvidenceCollectors);

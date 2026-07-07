@@ -6,15 +6,16 @@ namespace Freeboard.Persistence.GitOps;
 
 /// <summary>
 /// Imports a validated <see cref="GitOpsConfig"/> into MySQL in one DML transaction.
-/// FK-safe order: upsert standards (with metadata), requirements (reference standards), controls,
-/// organisations (parent-before-child), vendors; prune absent scopes then upsert the new scope set
-/// (which references organisations and standards); replace the whole requirement-scope set and the
-/// whole vendor-scope set (delete-all then insert); replace all control->requirement join rows; then
-/// hard-remove absent domain rows (organisations child-before-parent; vendors; controls; requirements
-/// before standards, so a removed standard's requirements clear before the RESTRICT FK is hit;
-/// standards). The requirement-scope and vendor-scope replaces precede the absent-organisation,
-/// absent-vendor, absent-control, and absent-requirement deletes, keeping those RESTRICT FKs safe.
-/// Matches on id only.
+/// FK-safe order: upsert standards (with metadata), requirements (reference standards), controls (with
+/// their evaluation rule), organisations (parent-before-child), vendors, evidence-collectors (reference
+/// controls and vendors); prune absent scopes then upsert the new scope set (which references
+/// organisations and standards); replace the whole requirement-scope set and the whole vendor-scope set
+/// (delete-all then insert); replace all control->requirement join rows; then hard-remove absent domain
+/// rows (organisations child-before-parent; absent evidence-collectors before vendors and controls, so
+/// their RESTRICT FKs stay safe; vendors; controls; requirements before standards, so a removed
+/// standard's requirements clear before the RESTRICT FK is hit; standards). The requirement-scope and
+/// vendor-scope replaces and the absent-collector prune precede the absent-organisation, absent-vendor,
+/// absent-control, and absent-requirement deletes, keeping those RESTRICT FKs safe. Matches on id only.
 /// </summary>
 public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) : IGitOpsImporter
 {
@@ -30,7 +31,7 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         //    Requirements reference standards, so they follow standards and precede any standard delete.
         await UpsertStandardsAsync(connection, transaction, plan.Standards, now, cancellationToken).ConfigureAwait(false);
         await UpsertRequirementsAsync(connection, transaction, plan.Requirements, now, cancellationToken).ConfigureAwait(false);
-        await UpsertAsync(connection, transaction, "controls", plan.Controls, now, cancellationToken).ConfigureAwait(false);
+        await UpsertControlsAsync(connection, transaction, plan.Controls, now, cancellationToken).ConfigureAwait(false);
         await UpsertOrganisationsAsync(connection, transaction, plan.Organisations, now, cancellationToken).ConfigureAwait(false);
 
         // Vendors are independent identity+metadata rows (like controls); upsert them here so their
@@ -38,6 +39,11 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         // vendor_scopes replace, since the RESTRICT FK blocks deleting a still-referenced vendor.
         await UpsertAsync(
             connection, transaction, "vendors", plan.Vendors, now, cancellationToken).ConfigureAwait(false);
+
+        // Evidence-collectors reference both controls and vendors, so upsert them after both. Upsert by
+        // id (no secondary unique key); absent collectors are pruned before their target rows in step 6.
+        await UpsertEvidenceCollectorsAsync(
+            connection, transaction, plan.EvidenceCollectors, now, cancellationToken).ConfigureAwait(false);
 
         // 2. Prune absent scopes before upserting the new set. A scope whose id is renamed while
         //    keeping its (organisation, standard) pair collides on the unique key: the upsert would
@@ -76,6 +82,10 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         //    is parent-before-child, so reversing it deletes children first. Requirements reference
         //    standards with ON DELETE RESTRICT, so a removed standard's requirements must clear first.
         await DeleteAbsentOrganisationsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
+        // Prune absent evidence_collectors before their target rows: the collector FKs to controls and
+        // vendors are RESTRICT, so a still-referenced control or vendor cannot be deleted while a stale
+        // collector points at it.
+        await DeleteAbsentAsync(connection, transaction, "evidence_collectors", plan.EvidenceCollectorIds, cancellationToken).ConfigureAwait(false);
         // Absent vendors are pruned after their vendor_scopes are gone (step 3b). Absent controls and
         // requirements are pruned after vendor_scopes too, so a vendor-scope's RESTRICT FK to a removed
         // control/requirement is already cleared.
@@ -139,6 +149,62 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         var parameters = rows.Select(r => new
         {
             r.Id, r.ApiVersion, r.Title, r.Standard, r.Theme, r.Statement, r.Guidance, r.CitationLabel, r.CitationUrl, Now = now,
+        });
+        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task UpsertControlsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<ControlRowPlan> rows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        // Controls carry the optional evaluation rule, so they cannot use the generic UpsertAsync.
+        const string sql =
+            "INSERT INTO controls (id, api_version, title, evaluation, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Evaluation, @Now, @Now) "
+            + "ON DUPLICATE KEY UPDATE "
+            + "api_version = VALUES(api_version), title = VALUES(title), evaluation = VALUES(evaluation), "
+            + "updated_at = VALUES(updated_at);";
+
+        var parameters = rows.Select(r => new { r.Id, r.ApiVersion, r.Title, r.Evaluation, Now = now });
+        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task UpsertEvidenceCollectorsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<EvidenceCollectorRowPlan> rows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        // Upsert by id (identity is id only, no secondary unique key). ConfigJson is written straight
+        // into the native JSON column, which validates its well-formedness.
+        const string sql =
+            "INSERT INTO evidence_collectors "
+            + "(id, api_version, title, control_id, vendor_id, type, frequency, threshold, config, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Control, @Vendor, @Type, @Frequency, @Threshold, @ConfigJson, @Now, @Now) "
+            + "ON DUPLICATE KEY UPDATE "
+            + "api_version = VALUES(api_version), title = VALUES(title), control_id = VALUES(control_id), "
+            + "vendor_id = VALUES(vendor_id), type = VALUES(type), frequency = VALUES(frequency), "
+            + "threshold = VALUES(threshold), config = VALUES(config), updated_at = VALUES(updated_at);";
+
+        var parameters = rows.Select(r => new
+        {
+            r.Id, r.ApiVersion, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, r.ConfigJson, Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);

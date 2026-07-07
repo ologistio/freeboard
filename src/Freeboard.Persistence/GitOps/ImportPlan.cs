@@ -1,9 +1,34 @@
+using System.Globalization;
+using System.Text.Json;
 using Freeboard.Core.GitOps;
 
 namespace Freeboard.Persistence.GitOps;
 
 /// <summary>A domain row to upsert. Keyed on <see cref="Id"/>; never matched on title.</summary>
 public sealed record DomainRow(string Id, string ApiVersion, string Title);
+
+/// <summary>
+/// A control row to upsert. Carries the optional <see cref="Evaluation"/> roll-up rule (null when
+/// blank); this extra column is why controls use their own row rather than the generic <see cref="DomainRow"/>.
+/// </summary>
+public sealed record ControlRowPlan(string Id, string ApiVersion, string Title, string? Evaluation);
+
+/// <summary>
+/// An evidence-collector row to upsert: a required control foreign key, an optional vendor foreign key
+/// (null when blank), the type/frequency tokens, an optional <see cref="Threshold"/> integer percent
+/// (null when blank), and <see cref="ConfigJson"/> - the type-specific settings map serialized to a
+/// JSON string (null when the map is empty).
+/// </summary>
+public sealed record EvidenceCollectorRowPlan(
+    string Id,
+    string ApiVersion,
+    string Title,
+    string Control,
+    string? Vendor,
+    string Type,
+    string Frequency,
+    int? Threshold,
+    string? ConfigJson);
 
 /// <summary>
 /// A standard row to upsert. Carries the metadata columns; optional <see cref="Publisher"/> and
@@ -69,7 +94,7 @@ public sealed class ImportPlan
 
     public IReadOnlyList<RequirementRowPlan> Requirements { get; }
 
-    public IReadOnlyList<DomainRow> Controls { get; }
+    public IReadOnlyList<ControlRowPlan> Controls { get; }
 
     public IReadOnlyList<OrganisationRowPlan> Organisations { get; }
 
@@ -82,6 +107,8 @@ public sealed class ImportPlan
     public IReadOnlyList<DomainRow> Vendors { get; }
 
     public IReadOnlyList<VendorScopeRowPlan> VendorScopes { get; }
+
+    public IReadOnlyList<EvidenceCollectorRowPlan> EvidenceCollectors { get; }
 
     private ImportPlan(GitOpsConfig config)
     {
@@ -96,7 +123,7 @@ public sealed class ImportPlan
                 NullIfBlank(r.Guidance), r.CitationLabel, r.CitationUrl))
             .ToList();
         Controls = config.Controls
-            .Select(c => new DomainRow(c.Id, c.ApiVersion, c.Title))
+            .Select(c => new ControlRowPlan(c.Id, c.ApiVersion, c.Title, NullIfBlank(c.Evaluation)))
             .ToList();
         Organisations = OrderParentBeforeChild(config.Organisations);
         Scopes = config.Scopes
@@ -128,11 +155,25 @@ public sealed class ImportPlan
                 v.Id, v.ApiVersion, v.Title, v.Vendor,
                 NullIfBlank(v.Requirement), NullIfBlank(v.Control), v.Disposition, NullIfBlank(v.Justification)))
             .ToList();
+
+        // Threshold is parsed to int? only here, after Core validation has range-checked the raw text;
+        // a blank stays null. config serializes to a JSON object string, null when the map is empty.
+        EvidenceCollectors = config.EvidenceCollectors
+            .Select(c => new EvidenceCollectorRowPlan(
+                c.Id, c.ApiVersion, c.Title, c.Control, NullIfBlank(c.Vendor), c.Type, c.Frequency,
+                ParseThreshold(c.Threshold), SerializeConfig(c.Config)))
+            .ToList();
     }
 
     public static ImportPlan From(GitOpsConfig config) => new(config);
 
     private static string? NullIfBlank(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static int? ParseThreshold(string value) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+
+    private static string? SerializeConfig(IReadOnlyDictionary<string, string> config) =>
+        config.Count == 0 ? null : JsonSerializer.Serialize(config);
 
     public IReadOnlyList<string> StandardIds => Standards.Select(r => r.Id).ToList();
 
@@ -150,6 +191,8 @@ public sealed class ImportPlan
     public IReadOnlyList<string> VendorIds => Vendors.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> VendorScopeIds => VendorScopes.Select(r => r.Id).ToList();
+
+    public IReadOnlyList<string> EvidenceCollectorIds => EvidenceCollectors.Select(r => r.Id).ToList();
 
     /// <summary>
     /// Orders organisations so every parent precedes its children (topological by depth).

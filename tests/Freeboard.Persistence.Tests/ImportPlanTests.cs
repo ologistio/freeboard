@@ -171,6 +171,106 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
+    public void ControlRowCarriesEvaluationNullWhenBlank()
+    {
+        var config = new GitOpsConfig
+        {
+            Controls =
+            [
+                new Control { Id = "ctrl-a", ApiVersion = "v1", Title = "A", MapsTo = ["req-a"], Evaluation = "all" },
+                new Control { Id = "ctrl-b", ApiVersion = "v1", Title = "B", MapsTo = ["req-a"] },
+            ],
+        };
+
+        var rows = ImportPlan.From(config).Controls;
+
+        Assert.Equal("all", rows.Single(r => r.Id == "ctrl-a").Evaluation);
+        Assert.Null(rows.Single(r => r.Id == "ctrl-b").Evaluation);
+    }
+
+    [Fact]
+    public void EvidenceCollectorRowCarriesFieldsAndSerializesConfig()
+    {
+        var config = new GitOpsConfig
+        {
+            EvidenceCollectors =
+            [
+                new EvidenceCollector
+                {
+                    Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a", Vendor = "vendor-a",
+                    Type = "integration", Frequency = "daily", Threshold = "100",
+                    Config = new Dictionary<string, string> { ["endpoint"] = "policies.mfa" },
+                },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
+
+        Assert.Equal("ctrl-a", row.Control);
+        Assert.Equal("vendor-a", row.Vendor);
+        Assert.Equal("integration", row.Type);
+        Assert.Equal("daily", row.Frequency);
+        Assert.Equal(100, row.Threshold);
+        Assert.Equal("{\"endpoint\":\"policies.mfa\"}", row.ConfigJson);
+        Assert.Equal(["collector-a"], ImportPlan.From(config).EvidenceCollectorIds);
+    }
+
+    [Fact]
+    public void EvidenceCollectorRowNullsOptionalFieldsWhenAbsent()
+    {
+        var config = new GitOpsConfig
+        {
+            EvidenceCollectors =
+            [
+                new EvidenceCollector
+                {
+                    Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
+                    Type = "manual-attestation", Frequency = "annual",
+                },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
+
+        Assert.Null(row.Vendor);
+        Assert.Null(row.Threshold);
+        // An empty config map serializes to null (stored as SQL NULL), never throwing.
+        Assert.Null(row.ConfigJson);
+    }
+
+    [Fact]
+    public void ExplicitNullConfigLoadedFromYamlSerializesToNullConfigJson()
+    {
+        // A collector authored with an explicit-null `config:` normalizes to an empty map on load,
+        // then serializes to null (SQL NULL) in the import plan without throwing.
+        var dir = Directory.CreateTempSubdirectory("fb-importplan-");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir.FullName, "collector.yaml"), """
+                apiVersion: freeboard.dev/v1alpha1
+                kind: EvidenceCollector
+                id: collector-a
+                title: T
+                control: ctrl-a
+                type: integration
+                frequency: daily
+                config:
+                """);
+
+            var loaded = ConfigLoader.Load(dir.FullName);
+            Assert.Empty(loaded.Diagnostics);
+
+            var row = Assert.Single(ImportPlan.From(loaded.Config).EvidenceCollectors);
+
+            Assert.Null(row.ConfigJson);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void OrganisationRowCarriesKindAndNullParentForRoot()
     {
         var row = Assert.Single(ImportPlan.From(SampleConfig()).Organisations);
