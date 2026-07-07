@@ -23,6 +23,7 @@ public sealed class ComplianceEndpointTests
         "/api/v1/freeboard/requirement-scopes",
         "/api/v1/freeboard/vendors",
         "/api/v1/freeboard/vendor-scopes",
+        "/api/v1/freeboard/evidence-collectors",
         "/api/v1/freeboard/statement-of-applicability/std-a",
     ];
 
@@ -38,7 +39,7 @@ public sealed class ComplianceEndpointTests
             new RequirementRow("req-a", "Requirement A", "std-a", "Theme A", "Do the thing.", null, "Source A", "https://example.com/a"),
             new RequirementRow("req-b", "Requirement B", "std-a", "Theme A", "Do the other thing.", "Some guidance.", "Source B", "https://example.com/b"),
         ],
-        Controls = [new ControlRow("ctrl-a", "Control A", ["req-a", "req-b"])],
+        Controls = [new ControlRow("ctrl-a", "Control A", ["req-a", "req-b"], "all")],
         Organisations =
         [
             new OrganisationRow("org-a", "Org A", "Company", null),
@@ -59,6 +60,13 @@ public sealed class ComplianceEndpointTests
         [
             new VendorScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO."),
             new VendorScopeRow("vs-b", "Include ctrl-a for vendor-a", "vendor-a", null, "ctrl-a", "In", null),
+        ],
+        Collectors =
+        [
+            new EvidenceCollectorRow("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "daily", 100,
+                new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
+            new EvidenceCollectorRow("collector-b", "Annual attestation", "ctrl-a", null, "manual-attestation", "annual", null,
+                new Dictionary<string, string>()),
         ],
     };
 
@@ -140,6 +148,80 @@ public sealed class ComplianceEndpointTests
         Assert.Equal("ctrl-a", control.GetProperty("id").GetString());
         var mapsTo = control.GetProperty("maps_to").EnumerateArray().Select(e => e.GetString()).ToList();
         Assert.Equal(["req-a", "req-b"], mapsTo);
+        Assert.Equal("all", control.GetProperty("evaluation").GetString());
+    }
+
+    [Fact]
+    public async Task ControlsEndpointNullsEvaluationWhenUnset()
+    {
+        var store = PopulatedStore();
+        store.Controls = [new ControlRow("ctrl-a", "Control A", ["req-a"], null)];
+        using var factory = Factory(store);
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/controls");
+
+        Assert.Equal(JsonValueKind.Null, json[0].GetProperty("evaluation").ValueKind);
+    }
+
+    [Fact]
+    public async Task EvidenceCollectorsEndpointReturnsRowsWithConfig()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/evidence-collectors");
+
+        Assert.Equal(2, json.GetArrayLength());
+
+        var first = json[0];
+        Assert.Equal("collector-a", first.GetProperty("id").GetString());
+        Assert.Equal("ctrl-a", first.GetProperty("control").GetString());
+        Assert.Equal("vendor-a", first.GetProperty("vendor").GetString());
+        Assert.Equal("integration", first.GetProperty("type").GetString());
+        Assert.Equal("daily", first.GetProperty("frequency").GetString());
+        Assert.Equal(100, first.GetProperty("threshold").GetInt32());
+        Assert.Equal("policies.mfa", first.GetProperty("config").GetProperty("endpoint").GetString());
+
+        // Optional vendor/threshold null when absent; empty config serializes as an empty object.
+        var second = json[1];
+        Assert.Equal(JsonValueKind.Null, second.GetProperty("vendor").ValueKind);
+        Assert.Equal(JsonValueKind.Null, second.GetProperty("threshold").ValueKind);
+        Assert.Equal(JsonValueKind.Object, second.GetProperty("config").ValueKind);
+        Assert.Empty(second.GetProperty("config").EnumerateObject());
+    }
+
+    [Fact]
+    public async Task EvidenceCollectorsReadServedInReadOnlyModeToAuthenticatedUser()
+    {
+        using var factory = Factory(PopulatedStore(), readOnly: true);
+        using var client = MemberClient(factory);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/evidence-collectors")).StatusCode);
+    }
+
+    [Fact]
+    public async Task EvidenceCollectorsEndpointReturns503WhenStoreUnreachable()
+    {
+        using var factory = Factory(new FakeComplianceStore { Unreachable = true });
+        using var client = MemberClient(factory);
+
+        var response = await client.GetAsync("/api/v1/freeboard/evidence-collectors");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task ZeroGrantEnforceCallerStillReadsEveryCollector()
+    {
+        // The evidence-collectors endpoint does NOT narrow by IOrgAccess. Under strict Enforce with no
+        // grants a member still reads every collector.
+        using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/evidence-collectors");
+        Assert.Equal(["collector-a", "collector-b"], json.EnumerateArray().Select(c => c.GetProperty("id").GetString()!).ToArray());
     }
 
     [Fact]
@@ -354,6 +436,7 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(2, persisted.GetProperty("requirementScopes").GetInt32());
         Assert.Equal(2, persisted.GetProperty("vendors").GetInt32());
         Assert.Equal(2, persisted.GetProperty("vendorScopes").GetInt32());
+        Assert.Equal(2, persisted.GetProperty("evidenceCollectors").GetInt32());
     }
 
     [Fact]
@@ -394,6 +477,7 @@ public sealed class ComplianceEndpointTests
                      "/api/v1/freeboard/requirement-scopes",
                      "/api/v1/freeboard/vendors",
                      "/api/v1/freeboard/vendor-scopes",
+                     "/api/v1/freeboard/evidence-collectors",
                  })
         {
             var response = await client.GetAsync(path);
@@ -428,6 +512,7 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("requirementScopes").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendors").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendorScopes").ValueKind);
+        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("evidenceCollectors").ValueKind);
     }
 
     [Fact]

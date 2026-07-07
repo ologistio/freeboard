@@ -69,6 +69,7 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         { "/reset-password?token=a11y", Access.ResetToken },
         // Authenticated (full session).
         { "/compliance/vendors", Access.Full },
+        { "/compliance/evidence-collectors", Access.Full },
         { "/account", Access.Full },
         { "/account/mfa", Access.Full },
         { "/account/password/change", Access.Full },
