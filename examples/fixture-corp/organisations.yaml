@@ -1,0 +1,44 @@
+# Fixture Corp Ltd - a mid-size software company working towards Cyber Essentials
+# Plus through Freeboard. The tree is one Company with four departments;
+# Engineering has a nested Platform team to show multi-level inheritance.
+# Placeholder ids; not a claim about any real entity.
+apiVersion: freeboard.dev/v1alpha1
+kind: Organisation
+id: fixture-corp
+title: Fixture Corp Ltd
+type: Company
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Organisation
+id: fixture-corp-eng
+title: Engineering
+type: Department
+parent: fixture-corp
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Organisation
+id: fixture-corp-eng-platform
+title: Platform Team
+type: Department
+parent: fixture-corp-eng
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Organisation
+id: fixture-corp-sales
+title: Sales and Marketing
+type: Department
+parent: fixture-corp
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Organisation
+id: fixture-corp-finance
+title: Finance and Operations
+type: Department
+parent: fixture-corp
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Organisation
+id: fixture-corp-it
+title: IT and Security
+type: Department
+parent: fixture-corp

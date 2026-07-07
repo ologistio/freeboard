@@ -1,0 +1,22 @@
+# Google Workspace - identity provider and email. Enforces MFA and is the
+# system of record for user accounts.
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-google-workspace
+title: Google Workspace
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-google-workspace-mfa-in
+title: Google Workspace enforces multi-factor authentication
+vendor: vendor-google-workspace
+control: ctrl-fc-mfa
+disposition: In
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-google-workspace-user-access-in
+title: Google Workspace is the account system of record
+vendor: vendor-google-workspace
+requirement: req-ce-plus-user-access-control-01
+disposition: In

@@ -1,26 +1,30 @@
 # Example GitOps config
 
-Sample declarative compliance config for Freeboard. The ids here are
+A small, generic sample config that exercises every kind. The ids here are
 placeholders for illustration and are not a claim of conformance to any real
-standard.
+standard. For a worked, company-shaped example see
+[`../fixture-corp`](../fixture-corp/README.md).
 
 ## Layout
 
-| File                      | Kind               | Purpose                                                  |
-| ------------------------- | ------------------ | -------------------------------------------------------- |
-| `standards.yaml`          | `Standard`         | Compliance standards in scope, with version/authority    |
-| `requirements.yaml`       | `Requirement`      | A standard's published statements, each in one `theme`   |
-| `controls.yaml`           | `Control`          | Implemented controls, each `maps_to` requirement(s)      |
-| `organisations.yaml`      | `Organisation`     | The organisation tree, each with a `type` and parent     |
-| `scopes.yaml`             | `Scope`            | Maps an organisation to a standard with a disposition    |
-| `requirement-scopes.yaml` | `RequirementScope` | Maps an organisation to a requirement with a disposition |
-| `vendors.yaml`            | `Vendor`           | Software, platforms, and external parties in use         |
-| `vendor-scopes.yaml`      | `VendorScope`      | Per-vendor requirement/control exceptions with rationale |
+| File                         | Kind                       | Purpose                                                        |
+| ---------------------------- | -------------------------- | -------------------------------------------------------------- |
+| `cyber-essentials-plus.yaml` | `Standard` + `Requirement` | Symlink to the shared CE+ catalog (standard + 35 requirements) |
+| `standards.yaml`             | `Standard`                 | The other standards declared locally (CE, SOC 2)               |
+| `controls.yaml`              | `Control`                  | Implemented controls, each `maps_to` requirement(s)            |
+| `organisations.yaml`         | `Organisation`             | The organisation tree, each with a `type` and parent           |
+| `scopes.yaml`                | `Scope`                    | Maps an organisation to a standard with a disposition          |
+| `requirement-scopes.yaml`    | `RequirementScope`         | Maps an organisation to a requirement with a disposition       |
+| `vendors.yaml`               | `Vendor`                   | Software, platforms, and external parties in use               |
+| `vendor-scopes.yaml`         | `VendorScope`              | Per-vendor requirement/control exceptions with rationale       |
 
-`requirements.yaml` holds the full Cyber Essentials Plus v3.3 technical control
-set (35 requirements across five themes) as a worked example. A `Control.maps_to`
-now names `Requirement` ids (not `Standard` ids); a control's standard is derived
-from the requirements it satisfies.
+`cyber-essentials-plus.yaml` is a symlink to
+[`../shared/cyber-essentials-plus.yaml`](../shared/cyber-essentials-plus.yaml),
+the standard-authored CE+ catalog (the `Standard` plus its full 35-requirement
+v3.3 technical control set). Both example directories symlink the same file
+rather than copying it. A `Control.maps_to` names `Requirement` ids (not
+`Standard` ids); a control's standard is derived from the requirements it
+satisfies.
 
 `requirement-scopes.yaml` shows requirement-level scoping: Ologist Products
 excludes one CE+ requirement company-wide, and its Engineering department

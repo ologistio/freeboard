@@ -1,0 +1,11 @@
+# Standard-level scope. Fixture Corp is pursuing Cyber Essentials Plus across the
+# whole company, so a single In scope on the root organisation covers every
+# department by inheritance. Departments need no scope of their own unless they
+# diverge.
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: scope-fixture-corp-ce-plus
+title: Fixture Corp - Cyber Essentials Plus
+organisation: fixture-corp
+standard: std-cyber-essentials-plus
+disposition: In

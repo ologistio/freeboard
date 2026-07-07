@@ -1,6 +1,19 @@
-# Cyber Essentials Plus technical control requirements (scheme version 3.3).
-# Freeboard-authored paraphrases of the five technical control themes, each citing the
-# official NCSC/IASME source. Example content, not a certification claim.
+# Cyber Essentials Plus (scheme version 3.3): the standard entry and its full
+# technical control requirement set (35 requirements across five themes).
+#
+# This is the standard-authored catalog, shared by every example company that
+# adopts CE+. Symlink it into an example's `standards/` directory rather than
+# copying it. Freeboard-authored paraphrases citing the official NCSC/IASME
+# source; example content, not a certification claim.
+apiVersion: freeboard.dev/v1alpha1
+kind: Standard
+id: std-cyber-essentials-plus
+title: Cyber Essentials Plus
+version: "3.3"
+authority: National Cyber Security Centre
+publisher: IASME Consortium
+source_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
+---
 apiVersion: freeboard.dev/v1alpha1
 kind: Requirement
 id: req-ce-plus-firewalls-01
