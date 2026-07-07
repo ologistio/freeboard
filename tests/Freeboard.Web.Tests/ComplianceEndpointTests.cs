@@ -21,6 +21,8 @@ public sealed class ComplianceEndpointTests
         "/api/v1/freeboard/organisations",
         "/api/v1/freeboard/scopes",
         "/api/v1/freeboard/requirement-scopes",
+        "/api/v1/freeboard/vendors",
+        "/api/v1/freeboard/vendor-scopes",
         "/api/v1/freeboard/statement-of-applicability/std-a",
     ];
 
@@ -47,6 +49,16 @@ public sealed class ComplianceEndpointTests
         [
             new RequirementScopeRow("rs-a", "Exclude req-a", "org-a", "req-a", "Out"),
             new RequirementScopeRow("rs-b", "Exclude req-b", "org-a", "req-b", "Out"),
+        ],
+        Vendors =
+        [
+            new VendorRow("vendor-a", "Vendor A"),
+            new VendorRow("vendor-b", "Vendor B"),
+        ],
+        VendorScopes =
+        [
+            new VendorScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO."),
+            new VendorScopeRow("vs-b", "Include ctrl-a for vendor-a", "vendor-a", null, "ctrl-a", "In", null),
         ],
     };
 
@@ -190,6 +202,74 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
+    public async Task VendorsEndpointReturnsIdsAndTitlesOrderedById()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
+
+        Assert.Equal(2, json.GetArrayLength());
+        Assert.Equal("vendor-a", json[0].GetProperty("id").GetString());
+        Assert.Equal("Vendor A", json[0].GetProperty("title").GetString());
+        Assert.Equal("vendor-b", json[1].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task VendorScopesEndpointReturnsTargetsDispositionsAndJustifications()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendor-scopes");
+
+        Assert.Equal(2, json.GetArrayLength());
+
+        // vs-a: requirement target, Out, justification present. control null.
+        var vsA = json[0];
+        Assert.Equal("vs-a", vsA.GetProperty("id").GetString());
+        Assert.Equal("vendor-a", vsA.GetProperty("vendor").GetString());
+        Assert.Equal("req-a", vsA.GetProperty("requirement").GetString());
+        Assert.Equal(JsonValueKind.Null, vsA.GetProperty("control").ValueKind);
+        Assert.Equal("Out", vsA.GetProperty("disposition").GetString());
+        Assert.Equal("Supports MFA but not SSO.", vsA.GetProperty("justification").GetString());
+
+        // vs-b: control target, In, no justification. requirement null.
+        var vsB = json[1];
+        Assert.Equal("ctrl-a", vsB.GetProperty("control").GetString());
+        Assert.Equal(JsonValueKind.Null, vsB.GetProperty("requirement").ValueKind);
+        Assert.Equal("In", vsB.GetProperty("disposition").GetString());
+        Assert.Equal(JsonValueKind.Null, vsB.GetProperty("justification").ValueKind);
+    }
+
+    [Fact]
+    public async Task VendorReadsServedInReadOnlyModeToAuthenticatedUser()
+    {
+        using var factory = Factory(PopulatedStore(), readOnly: true);
+        using var client = MemberClient(factory);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/vendors")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/vendor-scopes")).StatusCode);
+    }
+
+    [Fact]
+    public async Task ZeroGrantEnforceCallerStillReadsEveryVendor()
+    {
+        // Unlike /organisations, the vendor endpoints do NOT narrow by IOrgAccess. Under strict
+        // Enforce with no grants, AuthzOrgAccess yields an empty accessible-org set, yet a member
+        // still reads every vendor and every vendor-scope (including Out justifications).
+        using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var vendors = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
+        Assert.Equal(["vendor-a", "vendor-b"], vendors.EnumerateArray().Select(v => v.GetProperty("id").GetString()!).ToArray());
+
+        var scopes = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendor-scopes");
+        Assert.Equal(2, scopes.GetArrayLength());
+        Assert.Equal("Supports MFA but not SSO.", scopes[0].GetProperty("justification").GetString());
+    }
+
+    [Fact]
     public async Task StatementOfApplicabilityResolvesInheritanceOrderedById()
     {
         using var factory = Factory(PopulatedStore());
@@ -272,6 +352,8 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(2, persisted.GetProperty("organisations").GetInt32());
         Assert.Equal(1, persisted.GetProperty("scopes").GetInt32());
         Assert.Equal(2, persisted.GetProperty("requirementScopes").GetInt32());
+        Assert.Equal(2, persisted.GetProperty("vendors").GetInt32());
+        Assert.Equal(2, persisted.GetProperty("vendorScopes").GetInt32());
     }
 
     [Fact]
@@ -310,6 +392,8 @@ public sealed class ComplianceEndpointTests
                      "/api/v1/freeboard/organisations",
                      "/api/v1/freeboard/scopes",
                      "/api/v1/freeboard/requirement-scopes",
+                     "/api/v1/freeboard/vendors",
+                     "/api/v1/freeboard/vendor-scopes",
                  })
         {
             var response = await client.GetAsync(path);
@@ -342,6 +426,8 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("organisations").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("scopes").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("requirementScopes").ValueKind);
+        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendors").ValueKind);
+        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendorScopes").ValueKind);
     }
 
     [Fact]

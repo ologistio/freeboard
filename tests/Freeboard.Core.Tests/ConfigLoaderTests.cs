@@ -79,6 +79,89 @@ public sealed class ConfigLoaderTests
     }
 
     [Fact]
+    public void ValidMultiKindConfigIncludingVendorsLoadsAndValidates()
+    {
+        using var dir = TempConfig.Create(
+            ("all.yaml", """
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Standard
+                id: std-a
+                title: Standard A
+                version: "1.0"
+                authority: Example Authority
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Requirement
+                id: req-a
+                title: Requirement A
+                standard: std-a
+                theme: Theme A
+                statement: Do the thing.
+                citation_label: Source A
+                citation_url: https://example.com/a
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Control
+                id: ctrl-a
+                title: Control A
+                maps_to:
+                  - req-a
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Organisation
+                id: org-a
+                title: Org A
+                type: Company
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Scope
+                id: scope-a
+                title: Scope A
+                organisation: org-a
+                standard: std-a
+                disposition: In
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: RequirementScope
+                id: rs-a
+                title: Exclude req-a
+                organisation: org-a
+                requirement: req-a
+                disposition: Out
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Vendor
+                id: vendor-a
+                title: Vendor A
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: VendorScope
+                id: vs-req
+                title: Except req-a for vendor-a
+                vendor: vendor-a
+                requirement: req-a
+                disposition: Out
+                justification: Supports MFA but not SSO.
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: VendorScope
+                id: vs-ctrl
+                title: Include ctrl-a for vendor-a
+                vendor: vendor-a
+                control: ctrl-a
+                disposition: In
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        Assert.Single(result.Config.Vendors);
+        Assert.Equal(2, result.Config.VendorScopes.Count);
+        Assert.Equal("vendor-a", result.Config.Vendors[0].Id);
+        Assert.Equal(["vs-req", "vs-ctrl"], result.Config.VendorScopes.Select(v => v.Id).ToArray());
+    }
+
+    [Fact]
     public void MultipleDocumentsInOneFileAllParse()
     {
         using var dir = TempConfig.Create(

@@ -27,6 +27,12 @@ internal interface IFreeboardApiClient
     /// <summary>POST /setup - first-admin bootstrap; returns the admin and an admin token.</summary>
     Task<ApiResult<BootstrapResult>> BootstrapAsync(
         string email, string name, string? password, string bootstrapSecret, CancellationToken ct);
+
+    /// <summary>GET /vendors - list vendors.</summary>
+    Task<ApiResult<IReadOnlyList<ApiVendor>>> ListVendorsAsync(CancellationToken ct);
+
+    /// <summary>GET /vendor-scopes - list vendor-scopes (per-vendor requirement/control exceptions).</summary>
+    Task<ApiResult<IReadOnlyList<ApiVendorScope>>> ListVendorScopesAsync(CancellationToken ct);
 }
 
 /// <summary>The public user fields returned by the API (snake_case on the wire).</summary>
@@ -41,6 +47,17 @@ internal sealed record ResetPassword(string TemporaryPassword);
 
 /// <summary>POST /setup response: the created admin and an admin bearer token.</summary>
 internal sealed record BootstrapResult(ApiUser User, string Token);
+
+/// <summary>A vendor as returned by the API (single-word fields).</summary>
+internal sealed record ApiVendor(string Id, string Title);
+
+/// <summary>
+/// A vendor-scope as returned by the API. Exactly one of <see cref="Requirement"/> or
+/// <see cref="Control"/> is set (the other null). <see cref="Justification"/> is null when unset and
+/// always present for an <c>Out</c> exception.
+/// </summary>
+internal sealed record ApiVendorScope(
+    string Id, string Title, string Vendor, string? Requirement, string? Control, string Disposition, string? Justification);
 
 /// <summary>A void success payload for calls that return no body of interest.</summary>
 internal sealed record Unit

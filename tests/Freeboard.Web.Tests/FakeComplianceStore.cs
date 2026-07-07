@@ -29,6 +29,10 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public IReadOnlyList<RequirementScopeRow> RequirementScopes { get; set; } = [];
 
+    public IReadOnlyList<VendorRow> Vendors { get; set; } = [];
+
+    public IReadOnlyList<VendorScopeRow> VendorScopes { get; set; } = [];
+
     public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Standards);
 
@@ -54,6 +58,12 @@ internal sealed class FakeComplianceStore : IComplianceStore
     public Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default) =>
         Guard(() => RequirementScopes);
 
+    public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
+        Guard(() => Vendors);
+
+    public Task<IReadOnlyList<VendorScopeRow>> GetVendorScopesAsync(CancellationToken cancellationToken = default) =>
+        Guard(() => VendorScopes);
+
     public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
     {
         if (OrganisationsUnreachable)
@@ -66,7 +76,8 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => new ComplianceCounts(
-            Standards.Count, Controls.Count, Requirements.Count, Organisations.Count, Scopes.Count, RequirementScopes.Count));
+            Standards.Count, Controls.Count, Requirements.Count, Organisations.Count, Scopes.Count,
+            RequirementScopes.Count, Vendors.Count, VendorScopes.Count));
 
     private Task<T> Guard<T>(Func<T> value)
     {

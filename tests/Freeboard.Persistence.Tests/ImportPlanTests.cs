@@ -57,6 +57,23 @@ public sealed class ImportPlanTests
                 Disposition = "Out",
             },
         ],
+        Vendors =
+        [
+            new Vendor { Id = "vendor-a", ApiVersion = "v1", Title = "Vendor A" },
+        ],
+        VendorScopes =
+        [
+            new VendorScope
+            {
+                Id = "vs-a",
+                ApiVersion = "v1",
+                Title = "VendorScope A",
+                Vendor = "vendor-a",
+                Requirement = "req-a",
+                Disposition = "Out",
+                Justification = "Supports MFA but not SSO.",
+            },
+        ],
     };
 
     [Fact]
@@ -116,6 +133,41 @@ public sealed class ImportPlanTests
 
         Assert.Equal(["rs-b", "rs-a"], rows.Select(r => r.Id).ToArray());
         Assert.Equal(["rs-b", "rs-a"], ImportPlan.From(config).RequirementScopeIds.ToArray());
+    }
+
+    [Fact]
+    public void VendorScopeRowCarriesTargetDispositionAndJustification()
+    {
+        var row = Assert.Single(ImportPlan.From(SampleConfig()).VendorScopes);
+
+        Assert.Equal("vendor-a", row.Vendor);
+        Assert.Equal("req-a", row.Requirement);
+        Assert.Null(row.Control);
+        Assert.Equal("Out", row.Disposition);
+        Assert.Equal("Supports MFA but not SSO.", row.Justification);
+    }
+
+    [Fact]
+    public void VendorScopeControlTargetNullsRequirementAndBlankJustification()
+    {
+        var config = new GitOpsConfig
+        {
+            VendorScopes =
+            [
+                new VendorScope
+                {
+                    Id = "vs-c", ApiVersion = "v1", Title = "T", Vendor = "vendor-a",
+                    Control = "ctrl-a", Disposition = "In", Justification = "   ",
+                },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).VendorScopes);
+
+        Assert.Equal("ctrl-a", row.Control);
+        Assert.Null(row.Requirement);
+        // A blank justification (permitted on an In scope) normalizes to null like other optional fields.
+        Assert.Null(row.Justification);
     }
 
     [Fact]
@@ -266,5 +318,7 @@ public sealed class ImportPlanTests
         Assert.Equal(["org-a"], plan.OrganisationIds);
         Assert.Equal(["scope-a"], plan.ScopeIds);
         Assert.Equal(["rs-a"], plan.RequirementScopeIds);
+        Assert.Equal(["vendor-a"], plan.VendorIds);
+        Assert.Equal(["vs-a"], plan.VendorScopeIds);
     }
 }

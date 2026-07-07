@@ -67,6 +67,18 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json => new BootstrapResult(ReadUser(json), json.GetProperty("token").GetString()!),
             ct);
 
+    public Task<ApiResult<IReadOnlyList<ApiVendor>>> ListVendorsAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiVendor>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/vendors", body: null,
+            json => json.EnumerateArray().Select(ReadVendor).ToList(),
+            ct);
+
+    public Task<ApiResult<IReadOnlyList<ApiVendorScope>>> ListVendorScopesAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiVendorScope>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/vendor-scopes", body: null,
+            json => json.EnumerateArray().Select(ReadVendorScope).ToList(),
+            ct);
+
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpMethod method, string path, object? body, Func<JsonElement, T> map, CancellationToken ct)
     {
@@ -134,6 +146,23 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             user.GetProperty("global_role").GetString()!,
             user.TryGetProperty("enabled", out var e) && e.GetBoolean());
     }
+
+    private static ApiVendor ReadVendor(JsonElement json) =>
+        new(json.GetProperty("id").GetString()!, json.GetProperty("title").GetString()!);
+
+    private static ApiVendorScope ReadVendorScope(JsonElement json) =>
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("title").GetString()!,
+            json.GetProperty("vendor").GetString()!,
+            OptionalString(json, "requirement"),
+            OptionalString(json, "control"),
+            json.GetProperty("disposition").GetString()!,
+            OptionalString(json, "justification"));
+
+    /// <summary>Reads a property that may be JSON null or absent, returning null in either case.</summary>
+    private static string? OptionalString(JsonElement json, string name) =>
+        json.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null ? value.GetString() : null;
 
     /// <summary>
     /// Pulls a human-readable message out of an RFC 7807 validation-problem body (the API's 422

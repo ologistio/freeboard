@@ -7,13 +7,14 @@ namespace Freeboard.Persistence.GitOps;
 /// <summary>
 /// Imports a validated <see cref="GitOpsConfig"/> into MySQL in one DML transaction.
 /// FK-safe order: upsert standards (with metadata), requirements (reference standards), controls,
-/// organisations (parent-before-child); prune absent scopes then upsert the new scope set (which
-/// references organisations and standards); replace the whole requirement-scope set (delete-all then
-/// insert, referencing organisations and requirements); replace all control->requirement join rows;
-/// then hard-remove absent domain rows (organisations child-before-parent; controls; requirements
+/// organisations (parent-before-child), vendors; prune absent scopes then upsert the new scope set
+/// (which references organisations and standards); replace the whole requirement-scope set and the
+/// whole vendor-scope set (delete-all then insert); replace all control->requirement join rows; then
+/// hard-remove absent domain rows (organisations child-before-parent; vendors; controls; requirements
 /// before standards, so a removed standard's requirements clear before the RESTRICT FK is hit;
-/// standards). The requirement-scope replace precedes the absent-organisation and absent-requirement
-/// deletes, keeping those RESTRICT FKs safe. Matches on id only.
+/// standards). The requirement-scope and vendor-scope replaces precede the absent-organisation,
+/// absent-vendor, absent-control, and absent-requirement deletes, keeping those RESTRICT FKs safe.
+/// Matches on id only.
 /// </summary>
 public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) : IGitOpsImporter
 {
@@ -32,6 +33,12 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await UpsertAsync(connection, transaction, "controls", plan.Controls, now, cancellationToken).ConfigureAwait(false);
         await UpsertOrganisationsAsync(connection, transaction, plan.Organisations, now, cancellationToken).ConfigureAwait(false);
 
+        // Vendors are independent identity+metadata rows (like controls); upsert them here so their
+        // referencing vendor_scopes can be replaced below. Absent vendors are pruned only after the
+        // vendor_scopes replace, since the RESTRICT FK blocks deleting a still-referenced vendor.
+        await UpsertAsync(
+            connection, transaction, "vendors", plan.Vendors, now, cancellationToken).ConfigureAwait(false);
+
         // 2. Prune absent scopes before upserting the new set. A scope whose id is renamed while
         //    keeping its (organisation, standard) pair collides on the unique key: the upsert would
         //    update the old-id row in place, then the absent-id cleanup below would delete that old
@@ -49,6 +56,13 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         //    deletes below stay RESTRICT-safe.
         await ReplaceRequirementScopesAsync(connection, transaction, plan.RequirementScopes, now, cancellationToken).ConfigureAwait(false);
 
+        // 3b. Replace the whole vendor-scope set (delete-all then insert), same reasoning as
+        //     requirement_scopes: it has both a primary key (id) and unique (vendor, requirement) /
+        //     (vendor, control) keys, so a pair-swap keeping ids cannot be upserted safely. It
+        //     re-inserts only rows referencing in-config vendors, requirements, and controls, so the
+        //     absent-vendor, absent-requirement, and absent-control deletes below stay RESTRICT-safe.
+        await ReplaceVendorScopesAsync(connection, transaction, plan.VendorScopes, now, cancellationToken).ConfigureAwait(false);
+
         // 4. Replace all control->requirement join rows for the imported set (whole-set delete+insert).
         await ReplaceControlRequirementsAsync(connection, transaction, plan, cancellationToken).ConfigureAwait(false);
 
@@ -62,6 +76,10 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         //    is parent-before-child, so reversing it deletes children first. Requirements reference
         //    standards with ON DELETE RESTRICT, so a removed standard's requirements must clear first.
         await DeleteAbsentOrganisationsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
+        // Absent vendors are pruned after their vendor_scopes are gone (step 3b). Absent controls and
+        // requirements are pruned after vendor_scopes too, so a vendor-scope's RESTRICT FK to a removed
+        // control/requirement is already cleared.
+        await DeleteAbsentAsync(connection, transaction, "vendors", plan.VendorIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "controls", plan.ControlIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "requirements", plan.RequirementIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "standards", plan.StandardIds, cancellationToken).ConfigureAwait(false);
@@ -228,6 +246,38 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         var parameters = rows.Select(r => new
         {
             r.Id, r.ApiVersion, r.Title, r.Organisation, r.Requirement, r.Disposition, Now = now,
+        });
+        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task ReplaceVendorScopesAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<VendorScopeRowPlan> rows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM vendor_scopes;", transaction: transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        // Plain INSERT after the delete: config validation guarantees unique ids and unique
+        // (vendor, requirement) / (vendor, control) pairs, so no duplicate key can arise. Exactly one
+        // of requirement_id / control_id is non-null per row (the other side of the CHECK).
+        const string sql =
+            "INSERT INTO vendor_scopes "
+            + "(id, api_version, title, vendor_id, requirement_id, control_id, disposition, justification, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Vendor, @Requirement, @Control, @Disposition, @Justification, @Now, @Now);";
+
+        var parameters = rows.Select(r => new
+        {
+            r.Id, r.ApiVersion, r.Title, r.Vendor, r.Requirement, r.Control, r.Disposition, r.Justification, Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);

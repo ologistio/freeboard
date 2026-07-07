@@ -68,6 +68,7 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         // GET stashes it and 302s to the bare path, so navigating with the query lands on the form.
         { "/reset-password?token=a11y", Access.ResetToken },
         // Authenticated (full session).
+        { "/compliance/vendors", Access.Full },
         { "/account", Access.Full },
         { "/account/mfa", Access.Full },
         { "/account/password/change", Access.Full },

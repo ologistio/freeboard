@@ -45,6 +45,20 @@ public sealed record RequirementScopeRowPlan(
 public sealed record ControlRequirementRow(string ControlId, string RequirementId);
 
 /// <summary>
+/// A vendor-scope row to insert: vendor foreign key plus exactly one target (requirement or control,
+/// the other null), disposition, and optional justification (null when blank).
+/// </summary>
+public sealed record VendorScopeRowPlan(
+    string Id,
+    string ApiVersion,
+    string Title,
+    string Vendor,
+    string? Requirement,
+    string? Control,
+    string Disposition,
+    string? Justification);
+
+/// <summary>
 /// The flattened, id-keyed shape derived from a validated <see cref="GitOpsConfig"/>.
 /// Pure (no database), so the mapping is unit testable without MySQL. Organisations are
 /// ordered parent-before-child so the self-FK holds during the import upsert.
@@ -64,6 +78,10 @@ public sealed class ImportPlan
     public IReadOnlyList<RequirementScopeRowPlan> RequirementScopes { get; }
 
     public IReadOnlyList<ControlRequirementRow> ControlRequirements { get; }
+
+    public IReadOnlyList<DomainRow> Vendors { get; }
+
+    public IReadOnlyList<VendorScopeRowPlan> VendorScopes { get; }
 
     private ImportPlan(GitOpsConfig config)
     {
@@ -97,6 +115,19 @@ public sealed class ImportPlan
             .SelectMany(c => c.MapsTo.Select(requirementId => new ControlRequirementRow(c.Id, requirementId)))
             .Distinct()
             .ToList();
+
+        Vendors = config.Vendors
+            .Select(v => new DomainRow(v.Id, v.ApiVersion, v.Title))
+            .ToList();
+
+        // Exactly one target is set (Core validation guarantees it); the empty side normalizes to
+        // null. A blank justification (permitted on an In scope) normalizes to null like other
+        // optional fields.
+        VendorScopes = config.VendorScopes
+            .Select(v => new VendorScopeRowPlan(
+                v.Id, v.ApiVersion, v.Title, v.Vendor,
+                NullIfBlank(v.Requirement), NullIfBlank(v.Control), v.Disposition, NullIfBlank(v.Justification)))
+            .ToList();
     }
 
     public static ImportPlan From(GitOpsConfig config) => new(config);
@@ -115,6 +146,10 @@ public sealed class ImportPlan
     public IReadOnlyList<string> ScopeIds => Scopes.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> RequirementScopeIds => RequirementScopes.Select(r => r.Id).ToList();
+
+    public IReadOnlyList<string> VendorIds => Vendors.Select(r => r.Id).ToList();
+
+    public IReadOnlyList<string> VendorScopeIds => VendorScopes.Select(r => r.Id).ToList();
 
     /// <summary>
     /// Orders organisations so every parent precedes its children (topological by depth).
