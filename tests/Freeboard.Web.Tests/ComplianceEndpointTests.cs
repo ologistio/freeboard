@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Freeboard.Core.GitOps;
 using Freeboard.Persistence;
 
 namespace Freeboard.Web.Tests;
@@ -24,6 +25,7 @@ public sealed class ComplianceEndpointTests
         "/api/v1/freeboard/vendors",
         "/api/v1/freeboard/vendor-scopes",
         "/api/v1/freeboard/evidence-collectors",
+        "/api/v1/freeboard/attestation-templates",
         "/api/v1/freeboard/statement-of-applicability/std-a",
     ];
 
@@ -67,6 +69,13 @@ public sealed class ComplianceEndpointTests
                 new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
             new EvidenceCollectorRow("collector-b", "Annual attestation", "ctrl-a", null, "manual-attestation", "annual", null,
                 new Dictionary<string, string>()),
+        ],
+        Templates =
+        [
+            new AttestationTemplateRow("attest-manual", "Firewall attestation", "ctrl-a", "manual", "Confirm review.",
+                [new AttestationField { Id = "reviewed", Label = "Ruleset reviewed?", Type = "boolean" }], null, []),
+            new AttestationTemplateRow("attest-training", "Phishing awareness", "ctrl-a", "training", null,
+                [], 80, [new QuizItemView("q1", "What should you do?", ["Open it", "Report it"])]),
         ],
     };
 
@@ -222,6 +231,83 @@ public sealed class ComplianceEndpointTests
 
         var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/evidence-collectors");
         Assert.Equal(["collector-a", "collector-b"], json.EnumerateArray().Select(c => c.GetProperty("id").GetString()!).ToArray());
+    }
+
+    [Fact]
+    public async Task AttestationTemplatesEndpointReturnsRowsWithFieldsAndQuiz()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/attestation-templates");
+
+        Assert.Equal(2, json.GetArrayLength());
+
+        var manual = json[0];
+        Assert.Equal("attest-manual", manual.GetProperty("id").GetString());
+        Assert.Equal("ctrl-a", manual.GetProperty("control").GetString());
+        Assert.Equal("manual", manual.GetProperty("type").GetString());
+        Assert.Equal("Confirm review.", manual.GetProperty("body").GetString());
+        var field = manual.GetProperty("fields")[0];
+        Assert.Equal("reviewed", field.GetProperty("id").GetString());
+        Assert.Equal("boolean", field.GetProperty("type").GetString());
+        Assert.Equal(JsonValueKind.Null, manual.GetProperty("pass_mark").ValueKind);
+
+        var training = json[1];
+        Assert.Equal("training", training.GetProperty("type").GetString());
+        Assert.Equal(80, training.GetProperty("pass_mark").GetInt32());
+        var item = training.GetProperty("quiz")[0];
+        Assert.Equal("q1", item.GetProperty("id").GetString());
+        Assert.Equal("What should you do?", item.GetProperty("prompt").GetString());
+        Assert.Equal(["Open it", "Report it"], item.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToArray());
+    }
+
+    [Fact]
+    public async Task AttestationTemplatesEndpointNeverExposesQuizAnswer()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var raw = await client.GetStringAsync("/api/v1/freeboard/attestation-templates");
+        var json = JsonSerializer.Deserialize<JsonElement>(raw);
+        var item = json[1].GetProperty("quiz")[0];
+
+        Assert.False(item.TryGetProperty("answer", out _));
+        // The correct answer is "Report it"; it must not appear anywhere in the JSON.
+        Assert.DoesNotContain("answer", raw, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AttestationTemplatesReadServedInReadOnlyModeToAuthenticatedUser()
+    {
+        using var factory = Factory(PopulatedStore(), readOnly: true);
+        using var client = MemberClient(factory);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/attestation-templates")).StatusCode);
+    }
+
+    [Fact]
+    public async Task AttestationTemplatesEndpointReturns503WhenStoreUnreachable()
+    {
+        using var factory = Factory(new FakeComplianceStore { Unreachable = true });
+        using var client = MemberClient(factory);
+
+        var response = await client.GetAsync("/api/v1/freeboard/attestation-templates");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task ZeroGrantEnforceCallerStillReadsEveryTemplate()
+    {
+        // The attestation-templates endpoint does NOT narrow by IOrgAccess. Under strict Enforce with no
+        // grants a member still reads every template.
+        using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/attestation-templates");
+        Assert.Equal(["attest-manual", "attest-training"], json.EnumerateArray().Select(t => t.GetProperty("id").GetString()!).ToArray());
     }
 
     [Fact]
@@ -437,6 +523,7 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(2, persisted.GetProperty("vendors").GetInt32());
         Assert.Equal(2, persisted.GetProperty("vendorScopes").GetInt32());
         Assert.Equal(2, persisted.GetProperty("evidenceCollectors").GetInt32());
+        Assert.Equal(2, persisted.GetProperty("attestationTemplates").GetInt32());
     }
 
     [Fact]
@@ -478,6 +565,7 @@ public sealed class ComplianceEndpointTests
                      "/api/v1/freeboard/vendors",
                      "/api/v1/freeboard/vendor-scopes",
                      "/api/v1/freeboard/evidence-collectors",
+                     "/api/v1/freeboard/attestation-templates",
                  })
         {
             var response = await client.GetAsync(path);
@@ -513,6 +601,7 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendors").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendorScopes").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("evidenceCollectors").ValueKind);
+        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("attestationTemplates").ValueKind);
     }
 
     [Fact]

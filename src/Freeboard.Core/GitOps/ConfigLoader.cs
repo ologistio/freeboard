@@ -41,6 +41,10 @@ public static class ConfigLoader
             {
                 "apiVersion", "kind", "id", "title", "control", "vendor", "type", "frequency", "threshold", "config",
             },
+            [GitOpsSchema.KindAttestationTemplate] = new(StringComparer.Ordinal)
+            {
+                "apiVersion", "kind", "id", "title", "control", "type", "body", "fields", "quiz", "pass_mark",
+            },
         };
 
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
@@ -56,6 +60,7 @@ public static class ConfigLoader
         .WithAttributeOverride<Vendor>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<VendorScope>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<EvidenceCollector>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<AttestationTemplate>(t => t.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .IgnoreUnmatchedProperties()
         .Build();
 
@@ -159,7 +164,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}.",
             });
             return;
         }
@@ -202,6 +207,18 @@ public static class ConfigLoader
                     // An explicit-null `config:` deserializes the map to null (overwriting the record
                     // default); normalize to empty so ImportPlan, the page, and the CLI never NRE.
                     config.EvidenceCollectors.Add(collector with { Config = collector.Config ?? [] });
+                    break;
+                case GitOpsSchema.KindAttestationTemplate:
+                    var template = Deserialize<AttestationTemplate>(mapping);
+                    // An explicit-null `fields:`/`quiz:`/`options:` deserializes the list to null, and
+                    // an explicit-null sequence item (`fields:\n  -`) deserializes to a null element.
+                    // Drop null items and normalize every nested list to empty so the loader keeps its
+                    // never-throw contract and ImportPlan, the page, and the CLI never NRE.
+                    config.AttestationTemplates.Add(template with
+                    {
+                        Fields = (template.Fields ?? []).Where(f => f is not null).Select(f => f with { Options = f.Options ?? [] }).ToList(),
+                        Quiz = (template.Quiz ?? []).Where(q => q is not null).Select(q => q with { Options = q.Options ?? [] }).ToList(),
+                    });
                     break;
             }
         }

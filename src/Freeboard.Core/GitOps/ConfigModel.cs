@@ -16,6 +16,7 @@ public static class GitOpsSchema
     public const string KindVendor = "Vendor";
     public const string KindVendorScope = "VendorScope";
     public const string KindEvidenceCollector = "EvidenceCollector";
+    public const string KindAttestationTemplate = "AttestationTemplate";
 }
 
 /// <summary>
@@ -250,6 +251,65 @@ public sealed record EvidenceCollector
 }
 
 /// <summary>
+/// A single form field on an <see cref="AttestationTemplate"/>. <see cref="Type"/> is one of a fixed
+/// token set (boolean/single-choice/short-text); <see cref="Options"/> carries the choice labels and is
+/// meaningful only for a single-choice field.
+/// </summary>
+public sealed record AttestationField
+{
+    public string Id { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public string Type { get; init; } = string.Empty;
+    public List<string> Options { get; init; } = [];
+}
+
+/// <summary>
+/// A single quiz item on a training <see cref="AttestationTemplate"/>. <see cref="Answer"/> is the
+/// correct option label; it is persisted for grading but redacted from every read surface.
+/// </summary>
+public sealed record QuizItem
+{
+    public string Id { get; init; } = string.Empty;
+    public string Prompt { get; init; } = string.Empty;
+    public List<string> Options { get; init; } = [];
+    public string Answer { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A form or quiz attached to one <see cref="Control"/>. Identity is <see cref="Id"/>. A template names
+/// its attach-point <see cref="Control"/> and a <see cref="Type"/> (manual/training). <see cref="Body"/>
+/// is optional markdown stored verbatim. A manual template collects <see cref="Fields"/>; a training
+/// template requires a <see cref="PassMark"/> and a <see cref="Quiz"/>. <see cref="PassMark"/> is carried
+/// as raw authored text (an integer percent 0..100) so a malformed value surfaces as a clean validation
+/// diagnostic rather than a YAML binding error, mirroring <see cref="EvidenceCollector.Threshold"/>.
+/// </summary>
+public sealed record AttestationTemplate
+{
+    public string ApiVersion { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+
+    /// <summary>Attach-point Control id (required).</summary>
+    public string Control { get; init; } = string.Empty;
+
+    /// <summary>Template type token (manual/training).</summary>
+    public string Type { get; init; } = string.Empty;
+
+    /// <summary>Optional markdown body stored verbatim; blank means absent.</summary>
+    public string Body { get; init; } = string.Empty;
+
+    /// <summary>Optional ordered form fields; empty when absent.</summary>
+    public List<AttestationField> Fields { get; init; } = [];
+
+    /// <summary>Optional ordered quiz items; empty when absent. Required non-empty for a training template.</summary>
+    public List<QuizItem> Quiz { get; init; } = [];
+
+    /// <summary>Raw authored pass-mark text; validation parses and range-checks it to an integer percent 0..100.</summary>
+    public string PassMark { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// The aggregate config model loaded from a directory.
 /// </summary>
 public sealed record GitOpsConfig
@@ -263,4 +323,5 @@ public sealed record GitOpsConfig
     public List<Vendor> Vendors { get; init; } = [];
     public List<VendorScope> VendorScopes { get; init; } = [];
     public List<EvidenceCollector> EvidenceCollectors { get; init; } = [];
+    public List<AttestationTemplate> AttestationTemplates { get; init; } = [];
 }

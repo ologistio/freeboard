@@ -229,6 +229,77 @@ public sealed class ConfigLoaderTests
     }
 
     [Fact]
+    public void ValidMultiKindConfigIncludingAttestationTemplatesLoadsAndValidates()
+    {
+        using var dir = TempConfig.Create(
+            ("all.yaml", """
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Standard
+                id: std-a
+                title: Standard A
+                version: "1.0"
+                authority: Example Authority
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Requirement
+                id: req-a
+                title: Requirement A
+                standard: std-a
+                theme: Theme A
+                statement: Do the thing.
+                citation_label: Source A
+                citation_url: https://example.com/a
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Control
+                id: ctrl-a
+                title: Control A
+                maps_to:
+                  - req-a
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: AttestationTemplate
+                id: attest-manual
+                title: Firewall change attestation
+                control: ctrl-a
+                type: manual
+                body: Confirm the ruleset was reviewed.
+                fields:
+                  - id: reviewed
+                    label: Ruleset reviewed?
+                    type: boolean
+                  - id: outcome
+                    label: Review outcome
+                    type: single-choice
+                    options: [pass, fail]
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: AttestationTemplate
+                id: attest-training
+                title: Phishing awareness
+                control: ctrl-a
+                type: training
+                pass_mark: 80
+                quiz:
+                  - id: q1
+                    prompt: What should you do with an unexpected attachment?
+                    options: [Open it, Report it]
+                    answer: Report it
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        Assert.Equal(["attest-manual", "attest-training"], result.Config.AttestationTemplates.Select(t => t.Id).ToArray());
+        var manual = result.Config.AttestationTemplates[0];
+        Assert.Equal(2, manual.Fields.Count);
+        Assert.Equal(["pass", "fail"], manual.Fields[1].Options.ToArray());
+        var training = result.Config.AttestationTemplates[1];
+        Assert.Equal("80", training.PassMark);
+        Assert.Equal("Report it", Assert.Single(training.Quiz).Answer);
+    }
+
+    [Fact]
     public void MultipleDocumentsInOneFileAllParse()
     {
         using var dir = TempConfig.Create(
@@ -362,6 +433,32 @@ public sealed class ConfigLoaderTests
         var result = ConfigLoader.Load(dir.Path);
 
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("Unknown field 'org_kind'"));
+    }
+
+    [Fact]
+    public void ExplicitNullFieldAndQuizItemsAreDroppedNotThrown()
+    {
+        // A null sequence item (`fields:\n  -`) deserializes to a null element; the loader must
+        // drop it rather than NRE while normalizing, keeping its never-throw contract.
+        using var dir = TempConfig.Create(
+            ("template.yaml", """
+                apiVersion: freeboard.dev/v1alpha1
+                kind: AttestationTemplate
+                id: attest-manual
+                title: T
+                control: ctrl-a
+                type: manual
+                fields:
+                  -
+                quiz:
+                  -
+                """));
+
+        var result = ConfigLoader.Load(dir.Path);
+
+        var template = Assert.Single(result.Config.AttestationTemplates);
+        Assert.Empty(template.Fields);
+        Assert.Empty(template.Quiz);
     }
 
     [Fact]

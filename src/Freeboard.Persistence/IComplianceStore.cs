@@ -27,6 +27,8 @@ public interface IComplianceStore
 
     Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Reads the four Statement of Applicability inputs (organisations, scopes, requirements,
     /// requirement-scopes) together in one repeatable-read snapshot so they cannot straddle a

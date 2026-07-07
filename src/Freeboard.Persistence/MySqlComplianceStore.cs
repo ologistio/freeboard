@@ -2,6 +2,7 @@ using System.Data;
 using System.Data.Common;
 using System.Text.Json;
 using Dapper;
+using Freeboard.Core.GitOps;
 
 namespace Freeboard.Persistence;
 
@@ -135,6 +136,43 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             ? new Dictionary<string, string>(StringComparer.Ordinal)
             : JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>(StringComparer.Ordinal);
 
+    public async Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<(string Id, string Title, string Control, string Type, string? Body, string? Fields, int? PassMark, string? Quiz)>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, control_id AS Control, type AS Type, body AS Body, "
+            + "fields AS Fields, pass_mark AS PassMark, quiz AS Quiz "
+            + "FROM attestation_templates ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows
+            .Select(r => new AttestationTemplateRow(
+                r.Id, r.Title, r.Control, r.Type, r.Body,
+                DeserializeFields(r.Fields), r.PassMark, DeserializeQuiz(r.Quiz)))
+            .ToList();
+    }
+
+    /// <summary>Deserializes the stored fields JSON to the typed list; empty when the column is NULL.</summary>
+    private static IReadOnlyList<AttestationField> DeserializeFields(string? json) =>
+        string.IsNullOrEmpty(json)
+            ? []
+            : JsonSerializer.Deserialize<List<AttestationField>>(json) ?? [];
+
+    /// <summary>
+    /// Deserializes the stored quiz JSON and projects each item to an answer-free <see cref="QuizItemView"/>.
+    /// The stored quiz carries the correct answer for the grading runtime; dropping it here is what keeps
+    /// the answer off every read surface. Empty when the column is NULL.
+    /// </summary>
+    private static IReadOnlyList<QuizItemView> DeserializeQuiz(string? json)
+    {
+        if (string.IsNullOrEmpty(json))
+        {
+            return [];
+        }
+
+        var items = JsonSerializer.Deserialize<List<QuizItem>>(json) ?? [];
+        return items.Select(q => new QuizItemView(q.Id, q.Prompt, q.Options)).ToList();
+    }
+
     public async Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -180,7 +218,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes, int Vendors, int VendorScopes, int EvidenceCollectors)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes, int Vendors, int VendorScopes, int EvidenceCollectors, int AttestationTemplates)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
@@ -190,10 +228,12 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             + "(SELECT COUNT(*) FROM requirement_scopes) AS RequirementScopes, "
             + "(SELECT COUNT(*) FROM vendors) AS Vendors, "
             + "(SELECT COUNT(*) FROM vendor_scopes) AS VendorScopes, "
-            + "(SELECT COUNT(*) FROM evidence_collectors) AS EvidenceCollectors;",
+            + "(SELECT COUNT(*) FROM evidence_collectors) AS EvidenceCollectors, "
+            + "(SELECT COUNT(*) FROM attestation_templates) AS AttestationTemplates;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return new ComplianceCounts(
             counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes,
-            counts.RequirementScopes, counts.Vendors, counts.VendorScopes, counts.EvidenceCollectors);
+            counts.RequirementScopes, counts.Vendors, counts.VendorScopes, counts.EvidenceCollectors,
+            counts.AttestationTemplates);
     }
 }

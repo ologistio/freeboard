@@ -141,10 +141,13 @@ public sealed class OrgSelectionTests
         public Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<EvidenceCollectorRow>)[]);
 
+        public Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult((IReadOnlyList<AttestationTemplateRow>)[]);
+
         public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new SoaInputs(Organisations, [], [], []));
 
         public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0, 0, 0));
+            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
     }
 }

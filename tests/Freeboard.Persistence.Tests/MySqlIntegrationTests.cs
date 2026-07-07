@@ -41,7 +41,8 @@ public sealed class MySqlIntegrationTests
         IEnumerable<RequirementScope>? requirementScopes = null,
         IEnumerable<Vendor>? vendors = null,
         IEnumerable<VendorScope>? vendorScopes = null,
-        IEnumerable<EvidenceCollector>? evidenceCollectors = null) => new()
+        IEnumerable<EvidenceCollector>? evidenceCollectors = null,
+        IEnumerable<AttestationTemplate>? attestationTemplates = null) => new()
         {
             Standards = standards.ToList(),
             Requirements = requirements?.ToList() ?? [],
@@ -52,6 +53,7 @@ public sealed class MySqlIntegrationTests
             Vendors = vendors?.ToList() ?? [],
             VendorScopes = vendorScopes?.ToList() ?? [],
             EvidenceCollectors = evidenceCollectors?.ToList() ?? [],
+            AttestationTemplates = attestationTemplates?.ToList() ?? [],
         };
 
     private static Standard Std(
@@ -97,6 +99,44 @@ public sealed class MySqlIntegrationTests
             Frequency = frequency,
             Threshold = threshold,
             Config = config ?? [],
+        };
+
+    private static AttestationTemplate AttManual(
+        string id,
+        string control,
+        string title = "T",
+        string apiVersion = "v1",
+        string? body = null,
+        List<AttestationField>? fields = null) =>
+        new()
+        {
+            Id = id,
+            Title = title,
+            ApiVersion = apiVersion,
+            Control = control,
+            Type = "manual",
+            Body = body ?? string.Empty,
+            Fields = fields ?? [],
+        };
+
+    private static AttestationTemplate AttTraining(
+        string id,
+        string control,
+        string passMark,
+        List<QuizItem> quiz,
+        string title = "T",
+        string apiVersion = "v1",
+        string? body = null) =>
+        new()
+        {
+            Id = id,
+            Title = title,
+            ApiVersion = apiVersion,
+            Control = control,
+            Type = "training",
+            Body = body ?? string.Empty,
+            PassMark = passMark,
+            Quiz = quiz,
         };
 
     private static Organisation Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
@@ -200,6 +240,32 @@ public sealed class MySqlIntegrationTests
             .ToArray();
         Assert.Equal(2, collectorDeleteRules.Length);
         Assert.All(collectorDeleteRules, rule => Assert.Equal("RESTRICT", rule));
+
+        // attestation_templates: present, binary-collated ids, a control_id RESTRICT FK, JSON columns.
+        Assert.Contains("attestation_templates", tables);
+        foreach (var column in new[] { "id", "control_id" })
+        {
+            var col = await conn.ExecuteScalarAsync<string>(
+                "SELECT collation_name FROM information_schema.columns "
+                + "WHERE table_schema = DATABASE() AND table_name = 'attestation_templates' AND column_name = @Column;",
+                new { Column = column });
+            Assert.Equal("utf8mb4_bin", col);
+        }
+
+        var templateDeleteRules = (await conn.QueryAsync<string>(
+            "SELECT delete_rule FROM information_schema.referential_constraints "
+            + "WHERE constraint_schema = DATABASE() AND table_name = 'attestation_templates';"))
+            .ToArray();
+        Assert.Equal(["RESTRICT"], templateDeleteRules);
+
+        foreach (var jsonColumn in new[] { "fields", "quiz" })
+        {
+            var dataType = await conn.ExecuteScalarAsync<string>(
+                "SELECT data_type FROM information_schema.columns "
+                + "WHERE table_schema = DATABASE() AND table_name = 'attestation_templates' AND column_name = @Column;",
+                new { Column = jsonColumn });
+            Assert.Equal("json", dataType);
+        }
 
         // The old scope->controls relation is dropped by the organisation migration; the
         // control->standard join is repointed to control_requirements by migration 008.
@@ -438,7 +504,7 @@ public sealed class MySqlIntegrationTests
             [VscReq("vs-a", "vendor-a", "req-a")]));
 
         var counts = await store.GetCountsAsync();
-        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1, 1, 1, 1, 0), counts);
+        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1, 1, 1, 1, 0, 0), counts);
 
         var requirementScope = Assert.Single(await store.GetRequirementScopesAsync());
         Assert.Equal("rs-a", requirementScope.Id);
@@ -1132,6 +1198,96 @@ public sealed class MySqlIntegrationTests
 
         Assert.Empty(await store.GetEvidenceCollectorsAsync());
         Assert.Equal(["vendor-keep"], (await store.GetVendorsAsync()).Select(v => v.Id).ToArray());
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task AttestationTemplatesRoundTripAndRedactQuizAnswer()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        var fields = new List<AttestationField>
+        {
+            new() { Id = "reviewed", Label = "Ruleset reviewed?", Type = "boolean" },
+            new() { Id = "outcome", Label = "Outcome", Type = "single-choice", Options = ["pass", "fail"] },
+        };
+        var quiz = new List<QuizItem>
+        {
+            new() { Id = "q1", Prompt = "What should you do?", Options = ["Open it", "Report it"], Answer = "Report it" },
+        };
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-a", ["req-a"])],
+            requirements: [Req("req-a", "std-a")],
+            attestationTemplates:
+            [
+                AttManual("attest-manual", "ctrl-a", body: "Confirm review.", fields: fields),
+                AttTraining("attest-training", "ctrl-a", "80", quiz),
+            ]));
+
+        var counts = await store.GetCountsAsync();
+        Assert.Equal(2, counts.AttestationTemplates);
+
+        var templates = (await store.GetAttestationTemplatesAsync()).ToDictionary(t => t.Id);
+        Assert.Equal(2, templates.Count);
+
+        var manual = templates["attest-manual"];
+        Assert.Equal("ctrl-a", manual.Control);
+        Assert.Equal("manual", manual.Type);
+        Assert.Equal("Confirm review.", manual.Body);
+        Assert.Null(manual.PassMark);
+        Assert.Empty(manual.Quiz);
+        Assert.Equal(["reviewed", "outcome"], manual.Fields.Select(f => f.Id).ToArray());
+        Assert.Equal(["pass", "fail"], manual.Fields[1].Options.ToArray());
+
+        var training = templates["attest-training"];
+        Assert.Equal("training", training.Type);
+        Assert.Null(training.Body);
+        Assert.Equal(80, training.PassMark);
+        Assert.Empty(training.Fields);
+        var item = Assert.Single(training.Quiz);
+        Assert.Equal("q1", item.Id);
+        Assert.Equal("What should you do?", item.Prompt);
+        Assert.Equal(["Open it", "Report it"], item.Options.ToArray());
+
+        // The read model has no property to hold the answer: it cannot reach any read surface.
+        Assert.DoesNotContain("Answer", typeof(QuizItemView).GetProperties().Select(p => p.Name));
+
+        // But the answer IS persisted in the raw quiz JSON column for the later grading runtime.
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        var rawQuiz = await conn.ExecuteScalarAsync<string>(
+            "SELECT quiz FROM attestation_templates WHERE id = 'attest-training';");
+        Assert.Contains("Report it", rawQuiz);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ResyncRemovesControlAttachedByAttestationTemplate()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        // Old state: attest-a attaches to ctrl-gone under a RESTRICT FK.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-keep", ["req-a"]), Ctrl("ctrl-gone", ["req-a"])],
+            requirements: [Req("req-a", "std-a")],
+            attestationTemplates: [AttManual("attest-a", "ctrl-gone")]));
+
+        // New config drops the attached control (and its template). The importer must delete the
+        // template before the control, so the control RESTRICT FK is not hit.
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-keep", ["req-a"])],
+            requirements: [Req("req-a", "std-a")]));
+
+        Assert.Empty(await store.GetAttestationTemplatesAsync());
+        Assert.Equal(["ctrl-keep"], (await store.GetControlsAsync()).Select(c => c.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
