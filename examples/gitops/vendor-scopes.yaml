@@ -1,0 +1,69 @@
+# Sample vendor-scopes. Each binds one Vendor to exactly one target - a
+# Requirement id OR a Control id - with a disposition (In or Out). An Out scope
+# is an exception and MUST carry a non-empty justification; the register always
+# shows it, so an exception is never silent. An In scope may omit justification.
+# A vendor-scope is flat: it carries no organisation and does not inherit down
+# the org tree.
+#
+# In: the vendor participates normally in meeting the target.
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-crowdstrike-malware-in
+title: CrowdStrike provides malware protection
+vendor: vendor-crowdstrike
+requirement: req-ce-plus-malware-protection-01
+disposition: In
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-fleetdm-patching-in
+title: Fleet reports device patch status
+vendor: vendor-fleetdm
+requirement: req-ce-plus-security-update-management-04
+disposition: In
+---
+# In against a Control id (rather than a Requirement) - Google Workspace is the
+# identity provider enforcing MFA.
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-google-workspace-mfa-in
+title: Google Workspace enforces multi-factor authentication
+vendor: vendor-google-workspace
+control: ctrl-mfa
+disposition: In
+---
+# Out: the vendor cannot meet the target. Justification is required and is always
+# surfaced in the vendor register.
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-ledgerleaf-user-access-out
+title: LedgerLeaf excluded from centralised user access control
+vendor: vendor-ledgerleaf
+requirement: req-ce-plus-user-access-control-01
+disposition: Out
+justification: >-
+  LedgerLeaf supports MFA but not SSO, so accounts are provisioned and removed
+  manually; a quarterly access review is the compensating control.
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-quill-mfa-out
+title: Quill Accountancy excluded from MFA
+vendor: vendor-quill-accountancy
+requirement: req-ce-plus-user-access-control-04
+disposition: Out
+justification: >-
+  Quill Accountancy is an external firm with no logins to our systems - N/A.
+  Documents are exchanged over an encrypted portal.
+---
+# Out against a Control id.
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-sentinel-vpn-patching-out
+title: Sentinel VPN patching managed by the vendor
+vendor: vendor-sentinel-vpn
+control: ctrl-patching
+disposition: Out
+justification: >-
+  Sentinel VPN is a managed appliance; the vendor patches it under contract,
+  evidenced by their SOC 2 report, so it is out of scope for our patch process.

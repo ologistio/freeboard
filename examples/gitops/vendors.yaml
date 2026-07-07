@@ -1,0 +1,37 @@
+# Sample vendors: the software, platforms, and external parties the
+# organisation relies on. Collectors, evidence, and per-vendor exceptions map to
+# these ids. A Vendor is a plain identity record (id + title); richer metadata is
+# not modelled yet. CrowdStrike, Fleet, and Google Workspace are real named
+# integrations; the remaining vendors are invented for illustration.
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-crowdstrike
+title: CrowdStrike Falcon
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-fleetdm
+title: Fleet
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-google-workspace
+title: Google Workspace
+---
+# Invented: a SaaS accounting package that supports MFA but not SSO.
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-ledgerleaf
+title: LedgerLeaf Accounting (example)
+---
+# Invented: an external accountancy firm with no logins to our systems.
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-quill-accountancy
+title: Quill Accountancy Ltd (example)
+---
+# Invented: a managed VPN appliance configured by the vendor under contract.
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-sentinel-vpn
+title: Sentinel VPN (example)
