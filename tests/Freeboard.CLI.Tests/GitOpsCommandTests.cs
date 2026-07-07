@@ -115,6 +115,97 @@ public sealed class GitOpsCommandTests
     }
 
     [Fact]
+    public void ValidateVendorScopeWithUnknownVendorExitsOneNamingTheVendor()
+    {
+        var dir = WriteTempConfig("""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Standard
+            id: std-a
+            title: Standard A
+            version: "1.0"
+            authority: Example Authority
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Requirement
+            id: req-a
+            title: Requirement A
+            standard: std-a
+            theme: Theme A
+            statement: Do the thing.
+            citation_label: Source A
+            citation_url: https://example.com/a
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: VendorScope
+            id: vs-a
+            title: Scope A
+            vendor: vendor-missing
+            requirement: req-a
+            disposition: In
+            """);
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(1, exit);
+            Assert.Contains("vendor-missing", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ValidateEvidenceCollectorWithUnknownControlExitsOneNamingTheControl()
+    {
+        var dir = WriteTempConfig("""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: EvidenceCollector
+            id: ec-a
+            title: Collector A
+            control: ctrl-missing
+            type: integration
+            frequency: daily
+            """);
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(1, exit);
+            Assert.Contains("ctrl-missing", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ValidateAttestationTemplateWithUnknownControlExitsOneNamingTheControl()
+    {
+        var dir = WriteTempConfig("""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: AttestationTemplate
+            id: attest-a
+            title: Template A
+            control: ctrl-missing
+            type: manual
+            """);
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(1, exit);
+            Assert.Contains("ctrl-missing", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GitOpsAuthoringOutputNeverPrintsQuizAnswer()
     {
         var dir = WriteTempConfig(TrainingConfigWithSentinelAnswer());
