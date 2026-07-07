@@ -37,6 +37,13 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
     // Path.Join (not Path.Combine) so a rooted name cannot silently drop the base path.
     private static string FixtureDir(string name) => Path.Join(AppContext.BaseDirectory, "fixtures", name);
 
+    private static string WriteTempConfig(string content)
+    {
+        var dir = Directory.CreateTempSubdirectory("fb-gitops-sync-");
+        File.WriteAllText(Path.Join(dir.FullName, "config.yaml"), content);
+        return dir.FullName;
+    }
+
     private static async Task<MySqlTestDatabase> RequireDbAsync()
     {
         var db = await MySqlTestDatabase.TryCreateAsync();
@@ -148,4 +155,205 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Contains("missing", err, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM standards;"));
     }
+
+    // A full config persists the new-kind rows; re-syncing a config that drops one vendor-scope, one
+    // evidence-collector, and one attestation-template hard-removes exactly those rows while keeping their
+    // FK targets (the vendor, control, and requirement they referenced) and the other retained rows. This
+    // covers the "drop only the resource, keep its FK target" case at the command surface and exercises both
+    // removal paths: the whole-set ReplaceVendorScopes and the DeleteAbsent collector/template prunes.
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task SyncRoundTripThenDropRemovesDroppedNewKindRowsKeepingTargets()
+    {
+        await using var db = await RequireDbAsync();
+        Environment.SetEnvironmentVariable("FREEBOARD_DB", db.ConnectionString);
+
+        var full = WriteTempConfig(FullConfig);
+        var dropped = WriteTempConfig(DroppedConfig);
+        try
+        {
+            var (fullExit, _, _) = Capture(() => new GitOpsCommands().Sync(full, migrate: true));
+            Assert.Equal(0, fullExit);
+
+            await using var conn = new MySqlConnection(db.ConnectionString);
+            await conn.OpenAsync();
+
+            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM vendor_scopes;"));
+            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_collectors;"));
+            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM attestation_templates;"));
+
+            // Read back a persisted field value on a retained row to prove a true round-trip, not just
+            // row identity: ec-keep's type must equal the config's 'integration'.
+            Assert.Equal("integration", await conn.ExecuteScalarAsync<string>(
+                "SELECT type FROM evidence_collectors WHERE id = 'ec-keep';"));
+
+            var (dropExit, _, _) = Capture(() => new GitOpsCommands().Sync(dropped));
+            Assert.Equal(0, dropExit);
+
+            // The dropped rows are gone; the retained ones remain.
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM vendor_scopes;"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_collectors;"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM attestation_templates;"));
+            Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM vendor_scopes WHERE id = 'vs-drop';"));
+            Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM evidence_collectors WHERE id = 'ec-drop';"));
+            Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM attestation_templates WHERE id = 'at-drop';"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM vendor_scopes WHERE id = 'vs-keep';"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM evidence_collectors WHERE id = 'ec-keep';"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM attestation_templates WHERE id = 'at-keep';"));
+
+            // The FK targets of the dropped rows survive: the vendor, control, and requirement are kept.
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM vendors WHERE id = 'vendor-a';"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM controls WHERE id = 'ctrl-a';"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM requirements WHERE id = 'req-a';"));
+        }
+        finally
+        {
+            Directory.Delete(full, recursive: true);
+            Directory.Delete(dropped, recursive: true);
+        }
+    }
+
+    // Standard/requirement/control plus a vendor, two vendor-scopes, two evidence-collectors, and two
+    // attestation-templates. ctrl-a declares evaluation because it has attached collectors.
+    private const string FullConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Standard
+        id: std-a
+        title: Standard A
+        version: "1.0"
+        authority: Example Authority
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Requirement
+        id: req-a
+        title: Requirement A
+        standard: std-a
+        theme: Theme A
+        statement: Do the thing.
+        citation_label: Source A
+        citation_url: https://example.com/a
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Control
+        id: ctrl-a
+        title: Control A
+        maps_to:
+          - req-a
+        evaluation: all
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Vendor
+        id: vendor-a
+        title: Vendor A
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: VendorScope
+        id: vs-keep
+        title: Keep scope
+        vendor: vendor-a
+        control: ctrl-a
+        disposition: In
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: VendorScope
+        id: vs-drop
+        title: Drop scope
+        vendor: vendor-a
+        requirement: req-a
+        disposition: In
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: EvidenceCollector
+        id: ec-keep
+        title: Keep collector
+        control: ctrl-a
+        vendor: vendor-a
+        type: integration
+        frequency: daily
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: EvidenceCollector
+        id: ec-drop
+        title: Drop collector
+        control: ctrl-a
+        vendor: vendor-a
+        type: script
+        frequency: weekly
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: AttestationTemplate
+        id: at-keep
+        title: Keep template
+        control: ctrl-a
+        type: manual
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: AttestationTemplate
+        id: at-drop
+        title: Drop template
+        control: ctrl-a
+        type: manual
+        """;
+
+    // The full config with vs-drop, ec-drop, and at-drop removed; every FK target is retained.
+    private const string DroppedConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Standard
+        id: std-a
+        title: Standard A
+        version: "1.0"
+        authority: Example Authority
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Requirement
+        id: req-a
+        title: Requirement A
+        standard: std-a
+        theme: Theme A
+        statement: Do the thing.
+        citation_label: Source A
+        citation_url: https://example.com/a
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Control
+        id: ctrl-a
+        title: Control A
+        maps_to:
+          - req-a
+        evaluation: all
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Vendor
+        id: vendor-a
+        title: Vendor A
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: VendorScope
+        id: vs-keep
+        title: Keep scope
+        vendor: vendor-a
+        control: ctrl-a
+        disposition: In
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: EvidenceCollector
+        id: ec-keep
+        title: Keep collector
+        control: ctrl-a
+        vendor: vendor-a
+        type: integration
+        frequency: daily
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: AttestationTemplate
+        id: at-keep
+        title: Keep template
+        control: ctrl-a
+        type: manual
+        """;
 }
