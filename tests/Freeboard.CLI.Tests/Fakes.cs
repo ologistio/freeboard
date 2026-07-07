@@ -96,6 +96,10 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public int VendorScopeListCalls { get; private set; }
 
+    public int ControlListCalls { get; private set; }
+
+    public int CollectorListCalls { get; private set; }
+
     public string? LastId { get; private set; }
 
     public ApiResult<CreatedUser> CreateResult { get; init; } =
@@ -120,6 +124,12 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public ApiResult<IReadOnlyList<ApiVendorScope>> VendorScopeListResult { get; init; } =
         ApiResult<IReadOnlyList<ApiVendorScope>>.Success([SampleVendorScope]);
 
+    public ApiResult<IReadOnlyList<ApiControl>> ControlListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiControl>>.Success([SampleControl]);
+
+    public ApiResult<IReadOnlyList<ApiEvidenceCollector>> CollectorListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiEvidenceCollector>>.Success([SampleCollector]);
+
     public static ApiUser SampleUser { get; } =
         new("01HZZ0000000000000000000AA", "user@example.test", "User", "member", true);
 
@@ -127,6 +137,12 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public static ApiVendorScope SampleVendorScope { get; } =
         new("vs-a", "Except req-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO.");
+
+    public static ApiControl SampleControl { get; } = new("ctrl-a", "Control A", ["req-a"], "all");
+
+    public static ApiEvidenceCollector SampleCollector { get; } =
+        new("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "daily", 100,
+            new Dictionary<string, string> { ["endpoint"] = "policies.mfa" });
 
     public Task<ApiResult<CreatedUser>> CreateUserAsync(string email, string name, string role, CancellationToken ct)
     {
@@ -178,5 +194,17 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     {
         VendorScopeListCalls++;
         return Task.FromResult(VendorScopeListResult);
+    }
+
+    public Task<ApiResult<IReadOnlyList<ApiControl>>> ListControlsAsync(CancellationToken ct)
+    {
+        ControlListCalls++;
+        return Task.FromResult(ControlListResult);
+    }
+
+    public Task<ApiResult<IReadOnlyList<ApiEvidenceCollector>>> ListEvidenceCollectorsAsync(CancellationToken ct)
+    {
+        CollectorListCalls++;
+        return Task.FromResult(CollectorListResult);
     }
 }

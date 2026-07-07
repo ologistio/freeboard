@@ -1,0 +1,80 @@
+# evidence-collector-register Specification
+
+## Purpose
+TBD - created by archiving change add-evidence-collector-kind. Update Purpose after archive.
+## Requirements
+### Requirement: Web evidence-collector register page
+
+The web app SHALL serve a read-only evidence-collector register page at
+`/compliance/evidence-collectors` that lists controls and, under each control, its
+`evaluation` rule and its attached evidence-collectors: for each collector its
+`type`, `vendor` (when set), `frequency`, `threshold` (when set), and any
+type-specific `config`. The page SHALL read through the compliance store in-process
+(like the Statement of Applicability and Vendor Register pages), SHALL be GET-only and
+served in GitOps read-only mode, and SHALL require an authenticated user: an anonymous
+browser GET SHALL redirect to `/login`. When the store is unreachable the page SHALL
+render an in-page notice rather than an error page. The page SHALL be reachable from
+the compliance navigation. Unlike the per-org compliance pages, the register SHALL NOT
+narrow its rows to the caller's accessible organisations: controls and collectors are
+org-independent reference data, so any authenticated user - including one with zero
+organisation grants under strict enforcement - SHALL see every control and every
+collector.
+
+#### Scenario: Register lists controls with their evaluation rule and collectors
+
+- **WHEN** an authenticated user opens `/compliance/evidence-collectors` with
+  persisted controls and evidence-collectors
+- **THEN** the page lists each control with its `evaluation` rule and, under it, each
+  attached collector's `type`, `vendor` (when set), `frequency`, `threshold` (when
+  set), and any `config`
+
+#### Scenario: Control with no collectors renders without collectors
+
+- **WHEN** a control has no attached collectors
+- **THEN** the page renders the control and indicates it has no collectors rather than
+  omitting it or failing
+
+#### Scenario: Anonymous request redirects to login
+
+- **WHEN** an anonymous browser requests `/compliance/evidence-collectors`
+- **THEN** the response redirects to `/login` rather than rendering the register
+
+#### Scenario: Served in read-only mode
+
+- **WHEN** GitOps read-only mode is on and an authenticated user opens
+  `/compliance/evidence-collectors`
+- **THEN** the page renders normally and is not blocked by read-only mode
+
+#### Scenario: Zero-grant caller under strict enforcement sees every collector
+
+- **WHEN** authorization runs in strict enforce mode and an authenticated user with
+  no organisation grants opens `/compliance/evidence-collectors`
+- **THEN** the page renders every control and every collector, not narrowed to the
+  caller's empty accessible-organisation set, because the register intentionally does
+  not filter by accessible organisations
+
+### Requirement: CLI evidence-collector register command
+
+The CLI SHALL provide a `freeboard collector list` command that reads the
+evidence-collector register through the HTTP API (not by direct database access),
+mirroring the existing HTTP-backed read commands. It SHALL call the authenticated
+`GET /api/v1/freeboard/controls` and `GET /api/v1/freeboard/evidence-collectors`
+endpoints using the configured API base URL and admin token, and print each control
+with its `evaluation` rule and its attached collectors (type, vendor, frequency,
+threshold). The command SHALL follow the CLI exit-code convention: `0` on success,
+`1` on a validation response, and `3` on an operational failure (unauthorized,
+forbidden, server error, or connection failure).
+
+#### Scenario: collector list prints controls with their collectors
+
+- **WHEN** the user runs `freeboard collector list` against a reachable API with
+  persisted controls and evidence-collectors
+- **THEN** the command prints each control with its evaluation rule and its attached
+  collectors, and exits `0`
+
+#### Scenario: Operational failure maps to exit 3
+
+- **WHEN** the user runs `freeboard collector list` and the API is unauthorized,
+  forbidden, unreachable, or returns a server error
+- **THEN** the command prints an error and exits `3`
+

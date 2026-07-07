@@ -15,6 +15,7 @@ public static class GitOpsSchema
     public const string KindRequirementScope = "RequirementScope";
     public const string KindVendor = "Vendor";
     public const string KindVendorScope = "VendorScope";
+    public const string KindEvidenceCollector = "EvidenceCollector";
 }
 
 /// <summary>
@@ -86,6 +87,13 @@ public sealed record Control
     public string Id { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public List<string> MapsTo { get; init; } = [];
+
+    /// <summary>
+    /// Optional roll-up rule (<c>all</c>/<c>any</c>/<c>manual</c>) saying how the control's attached
+    /// evidence-collectors combine into a status. Blank means absent; required only when the control
+    /// has at least one attached collector.
+    /// </summary>
+    public string Evaluation { get; init; } = string.Empty;
 }
 
 /// <summary>What an organisation node represents in the tree.</summary>
@@ -208,6 +216,40 @@ public sealed record VendorScope
 }
 
 /// <summary>
+/// Attaches a data source to one <see cref="Control"/>. Identity is <see cref="Id"/>. A collector
+/// names its <see cref="Control"/> (the attach point) and, optionally, a <see cref="Vendor"/>.
+/// <see cref="Type"/> is one of a fixed token set; <see cref="Frequency"/> is a collection cadence.
+/// <see cref="Threshold"/> is carried as raw authored text (an integer percent 0..100) so a malformed
+/// value surfaces as a clean validation diagnostic rather than a YAML binding error. <see cref="Config"/>
+/// is a free-form type-specific settings map; it holds no secret material.
+/// </summary>
+public sealed record EvidenceCollector
+{
+    public string ApiVersion { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+
+    /// <summary>Attach-point Control id (required).</summary>
+    public string Control { get; init; } = string.Empty;
+
+    /// <summary>Optional Vendor id; blank means absent.</summary>
+    public string Vendor { get; init; } = string.Empty;
+
+    /// <summary>Collector type token (integration/script/manual-attestation/training-attestation/agent).</summary>
+    public string Type { get; init; } = string.Empty;
+
+    /// <summary>Collection cadence token (continuous/daily/weekly/monthly/quarterly/annual).</summary>
+    public string Frequency { get; init; } = string.Empty;
+
+    /// <summary>Raw authored threshold text; validation parses and range-checks it to an integer percent 0..100.</summary>
+    public string Threshold { get; init; } = string.Empty;
+
+    /// <summary>Free-form type-specific settings; empty when absent.</summary>
+    public Dictionary<string, string> Config { get; init; } = [];
+}
+
+/// <summary>
 /// The aggregate config model loaded from a directory.
 /// </summary>
 public sealed record GitOpsConfig
@@ -220,4 +262,5 @@ public sealed record GitOpsConfig
     public List<RequirementScope> RequirementScopes { get; init; } = [];
     public List<Vendor> Vendors { get; init; } = [];
     public List<VendorScope> VendorScopes { get; init; } = [];
+    public List<EvidenceCollector> EvidenceCollectors { get; init; } = [];
 }

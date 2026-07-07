@@ -67,7 +67,7 @@ public static class ComplianceEndpoints
             try
             {
                 var rows = await store.GetControlsAsync(ct);
-                return Results.Ok(rows.Select(r => new { id = r.Id, title = r.Title, maps_to = r.MapsTo }));
+                return Results.Ok(rows.Select(r => new { id = r.Id, title = r.Title, maps_to = r.MapsTo, evaluation = r.Evaluation }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
             {
@@ -179,6 +179,32 @@ public static class ComplianceEndpoints
             }
         });
 
+        // Evidence-collectors are org-independent reference data (no organisation dimension), so - like
+        // /vendors - they are intentionally NOT narrowed by IOrgAccess: any authenticated user reads
+        // every collector, including its config map. Revisit if a later change adds an org dimension.
+        reads.MapGet("/evidence-collectors", async (IComplianceStore store, CancellationToken ct) =>
+        {
+            try
+            {
+                var rows = await store.GetEvidenceCollectorsAsync(ct);
+                return Results.Ok(rows.Select(r => new
+                {
+                    id = r.Id,
+                    title = r.Title,
+                    control = r.Control,
+                    vendor = r.Vendor,
+                    type = r.Type,
+                    frequency = r.Frequency,
+                    threshold = r.Threshold,
+                    config = r.Config,
+                }));
+            }
+            catch (Exception ex) when (IsStoreFailure(ex))
+            {
+                return Unreachable();
+            }
+        });
+
         reads.MapGet("/statement-of-applicability/{standardId}",
             async (string standardId, IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
             {
@@ -235,6 +261,7 @@ public static class ComplianceEndpoints
                         requirementScopes = (int?)counts.RequirementScopes,
                         vendors = (int?)counts.Vendors,
                         vendorScopes = (int?)counts.VendorScopes,
+                        evidenceCollectors = (int?)counts.EvidenceCollectors,
                     },
                 });
             }
@@ -253,6 +280,7 @@ public static class ComplianceEndpoints
                         requirementScopes = (int?)null,
                         vendors = (int?)null,
                         vendorScopes = (int?)null,
+                        evidenceCollectors = (int?)null,
                     },
                 });
             }

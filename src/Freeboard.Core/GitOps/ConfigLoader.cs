@@ -28,7 +28,7 @@ public static class ConfigLoader
                 "apiVersion", "kind", "id", "title", "standard", "theme", "statement", "guidance",
                 "citation_label", "citation_url",
             },
-            [GitOpsSchema.KindControl] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "maps_to" },
+            [GitOpsSchema.KindControl] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "maps_to", "evaluation" },
             [GitOpsSchema.KindOrganisation] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "parent" },
             [GitOpsSchema.KindScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "standard", "disposition" },
             [GitOpsSchema.KindRequirementScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "requirement", "disposition" },
@@ -36,6 +36,10 @@ public static class ConfigLoader
             [GitOpsSchema.KindVendorScope] = new(StringComparer.Ordinal)
             {
                 "apiVersion", "kind", "id", "title", "vendor", "requirement", "control", "disposition", "justification",
+            },
+            [GitOpsSchema.KindEvidenceCollector] = new(StringComparer.Ordinal)
+            {
+                "apiVersion", "kind", "id", "title", "control", "vendor", "type", "frequency", "threshold", "config",
             },
         };
 
@@ -51,6 +55,7 @@ public static class ConfigLoader
         .WithAttributeOverride<RequirementScope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Vendor>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<VendorScope>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<EvidenceCollector>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .IgnoreUnmatchedProperties()
         .Build();
 
@@ -154,7 +159,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}.",
             });
             return;
         }
@@ -191,6 +196,12 @@ public static class ConfigLoader
                     break;
                 case GitOpsSchema.KindVendorScope:
                     config.VendorScopes.Add(Deserialize<VendorScope>(mapping));
+                    break;
+                case GitOpsSchema.KindEvidenceCollector:
+                    var collector = Deserialize<EvidenceCollector>(mapping);
+                    // An explicit-null `config:` deserializes the map to null (overwriting the record
+                    // default); normalize to empty so ImportPlan, the page, and the CLI never NRE.
+                    config.EvidenceCollectors.Add(collector with { Config = collector.Config ?? [] });
                     break;
             }
         }

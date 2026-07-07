@@ -1,0 +1,109 @@
+@page "/compliance/evidence-collectors"
+@model Freeboard.Pages.Compliance.EvidenceCollectorsModel
+@{
+    ViewData["Title"] = "Evidence Collector Register";
+}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Evidence Collector Register</h1>
+    <p class="mt-1 text-sm text-neutral-600">Controls, their evaluation rule, and the data sources attached to each.</p>
+</div>
+
+@if (Model.StoreUnreachable)
+{
+    <p class="notice-error max-w-2xl">The compliance store could not be reached. Check the database connection.</p>
+}
+else if (Model.Controls.Count == 0)
+{
+    <p class="text-sm text-neutral-600" data-empty>No controls are registered.</p>
+}
+else
+{
+    <div class="space-y-6">
+        @foreach (var control in Model.Controls)
+        {
+            var collectors = Model.CollectorsFor(control.Id);
+            <section class="card p-0" data-control-id="@control.Id">
+                <div class="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-3">
+                    <div>
+                        <h2 class="font-semibold">@control.Title</h2>
+                        <p class="font-mono text-xs text-neutral-600">@control.Id</p>
+                    </div>
+                    <span class="text-xs text-neutral-600">
+                        Evaluation:
+                        <span class="badge badge-brand" data-evaluation>@Freeboard.Pages.Compliance.EvidenceCollectorsModel.EvaluationLabel(control)</span>
+                    </span>
+                </div>
+                @if (collectors.Count == 0)
+                {
+                    <p class="px-4 py-3 text-sm text-neutral-500" data-no-collectors>No collectors attached.</p>
+                }
+                else
+                {
+                    <table class="evidence-collectors w-full text-sm">
+                        <thead class="border-b border-neutral-200 text-left text-neutral-600">
+                            <tr>
+                                <th class="px-4 py-3 font-medium">Collector</th>
+                                <th class="px-4 py-3 font-medium">Type</th>
+                                <th class="px-4 py-3 font-medium">Vendor</th>
+                                <th class="px-4 py-3 font-medium">Frequency</th>
+                                <th class="px-4 py-3 font-medium">Threshold</th>
+                                <th class="px-4 py-3 font-medium">Config</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-neutral-100">
+                            @foreach (var collector in collectors)
+                            {
+                                <tr data-collector-id="@collector.Id">
+                                    <td class="px-4 py-3">
+                                        <span>@collector.Title</span>
+                                        <span class="block font-mono text-xs text-neutral-500">@collector.Id</span>
+                                    </td>
+                                    <td class="px-4 py-3"><span class="font-mono text-xs" data-type>@collector.Type</span></td>
+                                    <td class="px-4 py-3">
+                                        @if (!string.IsNullOrEmpty(collector.Vendor))
+                                        {
+                                            <span class="font-mono text-xs" data-vendor>@collector.Vendor</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-neutral-500">-</span>
+                                        }
+                                    </td>
+                                    <td class="px-4 py-3"><span data-frequency>@collector.Frequency</span></td>
+                                    <td class="px-4 py-3">
+                                        @if (collector.Threshold is int threshold)
+                                        {
+                                            <span data-threshold>@threshold%</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-neutral-500">-</span>
+                                        }
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @if (collector.Config.Count == 0)
+                                        {
+                                            <span class="text-neutral-500">-</span>
+                                        }
+                                        else
+                                        {
+                                            <dl class="space-y-0.5">
+                                                @foreach (var entry in collector.Config)
+                                                {
+                                                    <div class="flex gap-1 font-mono text-xs" data-config-key="@entry.Key">
+                                                        <dt class="text-neutral-600">@entry.Key:</dt>
+                                                        <dd>@entry.Value</dd>
+                                                    </div>
+                                                }
+                                            </dl>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+        }
+    </div>
+}

@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using System.Text.Json;
 using Dapper;
 
 namespace Freeboard.Persistence;
@@ -39,8 +40,8 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         await using var transaction = await connection
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
-        var controls = (await connection.QueryAsync<(string Id, string Title)>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title FROM controls ORDER BY id;",
+        var controls = (await connection.QueryAsync<(string Id, string Title, string? Evaluation)>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, evaluation AS Evaluation FROM controls ORDER BY id;",
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -60,7 +61,8 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .Select(c => new ControlRow(
                 c.Id,
                 c.Title,
-                mapsTo.TryGetValue(c.Id, out var ids) ? ids : []))
+                mapsTo.TryGetValue(c.Id, out var ids) ? ids : [],
+                c.Evaluation))
             .ToList();
     }
 
@@ -113,6 +115,26 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         return rows.ToList();
     }
 
+    public async Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<(string Id, string Title, string Control, string? Vendor, string Type, string Frequency, int? Threshold, string? Config)>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, control_id AS Control, vendor_id AS Vendor, type AS Type, "
+            + "frequency AS Frequency, threshold AS Threshold, config AS Config "
+            + "FROM evidence_collectors ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows
+            .Select(r => new EvidenceCollectorRow(
+                r.Id, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, DeserializeConfig(r.Config)))
+            .ToList();
+    }
+
+    /// <summary>Deserializes the stored config JSON to a string map; empty when the column is NULL.</summary>
+    private static IReadOnlyDictionary<string, string> DeserializeConfig(string? json) =>
+        string.IsNullOrEmpty(json)
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
     public async Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -158,7 +180,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes, int Vendors, int VendorScopes)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes, int Vendors, int VendorScopes, int EvidenceCollectors)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
@@ -167,10 +189,11 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             + "(SELECT COUNT(*) FROM scopes) AS Scopes, "
             + "(SELECT COUNT(*) FROM requirement_scopes) AS RequirementScopes, "
             + "(SELECT COUNT(*) FROM vendors) AS Vendors, "
-            + "(SELECT COUNT(*) FROM vendor_scopes) AS VendorScopes;",
+            + "(SELECT COUNT(*) FROM vendor_scopes) AS VendorScopes, "
+            + "(SELECT COUNT(*) FROM evidence_collectors) AS EvidenceCollectors;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return new ComplianceCounts(
             counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes,
-            counts.RequirementScopes, counts.Vendors, counts.VendorScopes);
+            counts.RequirementScopes, counts.Vendors, counts.VendorScopes, counts.EvidenceCollectors);
     }
 }
