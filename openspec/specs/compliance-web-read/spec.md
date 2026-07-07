@@ -13,17 +13,17 @@ SHALL provide `GET /api/v1/freeboard/standards`, `GET /api/v1/freeboard/controls
 `GET /api/v1/freeboard/scopes`, and `GET /api/v1/freeboard/requirement-scopes`.
 Standards SHALL include their `version`, `authority`, optional `publisher`, and
 optional `source_url` metadata (null when unset). Controls SHALL include their
-`maps_to` `Requirement` ids, resolved from the `control_requirements` join.
-Requirements SHALL include their owning `standard` id, `theme`, `statement`,
-`guidance` (null when unset), and a `citation` object of `{ label, url }` composed
-from the stored `citation_label` and `citation_url`. Organisations SHALL include
-their `kind` and resolved `parent` id (null for a root). Scopes SHALL include their
-`organisation` id, `standard` id, and `disposition`, resolved from the store.
-Requirement-scopes SHALL include their `organisation` id, `requirement` id, and
-`disposition`, resolved from the store. The web app SHALL read through the
-`IComplianceStore` abstraction; its read-path dependency-injection registration
-SHALL register `IComplianceStore` and SHALL NOT register the GitOps import or the
-migration runner abstractions.
+`maps_to` `Requirement` ids, resolved from the `control_requirements` join, and their
+`evaluation` rule (null when unset). Requirements SHALL include their owning
+`standard` id, `theme`, `statement`, `guidance` (null when unset), and a `citation`
+object of `{ label, url }` composed from the stored `citation_label` and
+`citation_url`. Organisations SHALL include their `kind` and resolved `parent` id
+(null for a root). Scopes SHALL include their `organisation` id, `standard` id, and
+`disposition`, resolved from the store. Requirement-scopes SHALL include their
+`organisation` id, `requirement` id, and `disposition`, resolved from the store. The
+web app SHALL read through the `IComplianceStore` abstraction; its read-path
+dependency-injection registration SHALL register `IComplianceStore` and SHALL NOT
+register the GitOps import or the migration runner abstractions.
 
 The org-scoped reads SHALL be narrowed to the caller's accessible organisation set
 (as defined by the authorization enforcement capability): `organisations` filtered
@@ -49,8 +49,9 @@ consistent with the identifier identity semantics.
 #### Scenario: Controls endpoint includes cross-references
 
 - **WHEN** a client requests `GET /api/v1/freeboard/controls`
-- **THEN** the response lists the persisted controls with `id`, `title`, and the
-  `maps_to` `Requirement` ids resolved from the store
+- **THEN** the response lists the persisted controls with `id`, `title`, the
+  `maps_to` `Requirement` ids resolved from the store, and the `evaluation` rule
+  (null when unset)
 
 #### Scenario: Requirements endpoint returns the requirement set
 
@@ -102,10 +103,10 @@ rather than an unhandled exception, and the `GET /api/v1/freeboard/compliance/st
 endpoint's `persisted` summary SHALL degrade to all-null per-kind values rather
 than failing the whole status response. The `persisted` object SHALL remain
 present with every per-kind key, each set to `null`. The per-kind key set includes
-`vendors` and `vendorScopes` alongside the pre-existing kinds:
+`vendors`, `vendorScopes`, and `evidenceCollectors` alongside the pre-existing kinds:
 
 ```json
-{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null } }
+{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null, "evidenceCollectors": null } }
 ```
 
 `null` (not omitted, not `{}`, not `0`) marks each count as unknown rather than
@@ -119,9 +120,10 @@ unavailable to it. A full database outage that also fails authentication surface
 first as an authentication failure (HTTP 401) - the request never reaches the
 compliance handler - not as these compliance degradation responses.
 
-The two vendor read endpoints (`GET /api/v1/freeboard/vendors` and
-`GET /api/v1/freeboard/vendor-scopes`) tolerate the unreachable store the same way
-as the other resource reads: HTTP 503 with an RFC 7807 problem body, never an
+The vendor and evidence-collector read endpoints
+(`GET /api/v1/freeboard/vendors`, `GET /api/v1/freeboard/vendor-scopes`, and
+`GET /api/v1/freeboard/evidence-collectors`) tolerate the unreachable store the same
+way as the other resource reads: HTTP 503 with an RFC 7807 problem body, never an
 unhandled exception.
 
 #### Scenario: Unreachable store does not crash the compliance status endpoint
@@ -129,7 +131,7 @@ unhandled exception.
 - **WHEN** the store is unreachable and an authenticated user requests
   `GET /api/v1/freeboard/compliance/status`
 - **THEN** the response returns HTTP 200 with `persisted` equal to
-  `{ "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null }`
+  `{ "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null, "evidenceCollectors": null }`
   rather than the request failing
 
 #### Scenario: Unreachable store returns 503 from the read endpoints
@@ -138,7 +140,8 @@ unhandled exception.
   `GET /api/v1/freeboard/standards`, `/api/v1/freeboard/controls`,
   `/api/v1/freeboard/requirements`, `/api/v1/freeboard/organisations`,
   `/api/v1/freeboard/scopes`, `/api/v1/freeboard/requirement-scopes`,
-  `/api/v1/freeboard/vendors`, or `/api/v1/freeboard/vendor-scopes`
+  `/api/v1/freeboard/vendors`, `/api/v1/freeboard/vendor-scopes`, or
+  `/api/v1/freeboard/evidence-collectors`
 - **THEN** the endpoint returns HTTP 503 with an RFC 7807 problem body rather than
   an unhandled exception
 
@@ -174,14 +177,14 @@ read-only mode is on.
 
 The web app SHALL provide `GET /api/v1/freeboard/compliance/status` returning a
 summary of how many standards, controls, requirements, organisations, scopes,
-requirement-scopes, vendors, and vendor-scopes are currently persisted in the
-store. This is the general compliance read surface; the persisted counts live here,
-NOT on `GET /api/v1/freeboard/gitops/status` (which stays a GitOps concern
-reporting read-only mode and repository URL). The summary SHALL be a `persisted`
-object with per-kind counts:
+requirement-scopes, vendors, vendor-scopes, and evidence-collectors are currently
+persisted in the store. This is the general compliance read surface; the persisted
+counts live here, NOT on `GET /api/v1/freeboard/gitops/status` (which stays a GitOps
+concern reporting read-only mode and repository URL). The summary SHALL be a
+`persisted` object with per-kind counts:
 
 ```json
-{ "persisted": { "standards": 3, "controls": 12, "requirements": 35, "organisations": 4, "scopes": 2, "requirementScopes": 3, "vendors": 5, "vendorScopes": 4 } }
+{ "persisted": { "standards": 3, "controls": 12, "requirements": 35, "organisations": 4, "scopes": 2, "requirementScopes": 3, "vendors": 5, "vendorScopes": 4, "evidenceCollectors": 8 } }
 ```
 
 The `persisted` object SHALL always be present: integer counts when the store is
@@ -194,7 +197,7 @@ read-path tolerance requirement).
   reachable store
 - **THEN** the response includes a `persisted` object with the count of persisted
   standards, controls, requirements, organisations, scopes, requirement-scopes,
-  vendors, and vendor-scopes
+  vendors, vendor-scopes, and evidence-collectors
 
 ### Requirement: GitOps status endpoint is unchanged and store-independent
 
@@ -310,5 +313,51 @@ Responses SHALL be deterministically ordered by `id`.
 - **THEN** both endpoints return every persisted vendor and vendor-scope, not narrowed
   to the empty accessible-organisation set that strict enforcement produces for a
   zero-grant caller, because the vendor endpoints intentionally skip the `IOrgAccess`
+  narrowing that the per-org resource endpoints apply
+
+### Requirement: Evidence-collector read endpoint serves the persisted collectors
+
+The web app SHALL expose a read-only HTTP endpoint that returns the persisted
+evidence-collectors from the store, under the single `/api/v1/freeboard/` API
+namespace, requiring an authenticated user (any logged-in user; no admin role). It
+SHALL provide `GET /api/v1/freeboard/evidence-collectors`. Each collector SHALL
+include its `id`, `title`, `control` id, `vendor` id (null when unset), `type`,
+`frequency`, `threshold` (null when unset), and `config` (the type-specific settings
+map, an empty object when unset). The endpoint SHALL read through the
+`IComplianceStore` abstraction, SHALL be GET-only and unaffected by GitOps read-only
+mode, and SHALL return the RFC 7807 / HTTP 503 unreachable-store response when the
+store is unavailable. Unlike the per-org resource endpoints (`/organisations`,
+`/scopes`, `/requirement-scopes`), which narrow rows to the caller's accessible
+organisation set via `IOrgAccess`, this endpoint intentionally does NOT filter:
+evidence-collectors are org-independent reference data (they carry no `organisation`
+dimension), so any authenticated user - including one with zero org access - may read
+every collector. Responses SHALL be deterministically ordered by `id`.
+
+#### Scenario: Evidence-collectors endpoint returns the persisted collectors
+
+- **WHEN** an authenticated client requests `GET /api/v1/freeboard/evidence-collectors`
+- **THEN** the response lists each collector with its `id`, `title`, `control`,
+  `vendor` (null when unset), `type`, `frequency`, `threshold` (null when unset), and
+  `config`, ordered by `id`
+
+#### Scenario: Anonymous request is rejected
+
+- **WHEN** an anonymous client requests `GET /api/v1/freeboard/evidence-collectors`
+- **THEN** the endpoint returns HTTP 401
+
+#### Scenario: Served in read-only mode
+
+- **WHEN** GitOps read-only mode is on and an authenticated client requests the
+  evidence-collectors endpoint
+- **THEN** the request is served normally and is not rejected with the 409 read-only
+  response
+
+#### Scenario: Zero-grant caller under strict enforcement still reads every collector
+
+- **WHEN** authorization runs in strict enforce mode and an authenticated caller
+  holding no organisation grants requests `GET /api/v1/freeboard/evidence-collectors`
+- **THEN** the endpoint returns every persisted collector, not narrowed to the empty
+  accessible-organisation set that strict enforcement produces for a zero-grant
+  caller, because the collector endpoint intentionally skips the `IOrgAccess`
   narrowing that the per-org resource endpoints apply
 
