@@ -56,4 +56,15 @@ public interface IMigrationRunner
 /// Raised when the migration runner detects a forward-only integrity violation or a
 /// failed migration. Surfaced by the CLI as exit code 3.
 /// </summary>
-public sealed class MigrationException(string message) : Exception(message);
+public sealed class MigrationException : Exception
+{
+    public MigrationException(string message)
+        : base(message)
+    {
+    }
+
+    public MigrationException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
