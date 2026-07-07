@@ -121,7 +121,8 @@ public sealed class GitOpsCommands
             $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Requirements.Count} requirement(s), "
             + $"{result.Config.Controls.Count} control(s), {result.Config.Organisations.Count} organisation(s), "
             + $"{result.Config.Scopes.Count} scope(s), {result.Config.RequirementScopes.Count} requirement-scope(s), "
-            + $"{result.Config.Vendors.Count} vendor(s), {result.Config.VendorScopes.Count} vendor-scope(s).");
+            + $"{result.Config.Vendors.Count} vendor(s), {result.Config.VendorScopes.Count} vendor-scope(s), "
+            + $"{result.Config.EvidenceCollectors.Count} evidence-collector(s).");
         return 0;
     }
 
@@ -139,7 +140,8 @@ public sealed class GitOpsCommands
             $"OK: {config.Standards.Count} standard(s), {config.Requirements.Count} requirement(s), "
             + $"{config.Controls.Count} control(s), {config.Organisations.Count} organisation(s), "
             + $"{config.Scopes.Count} scope(s), {config.RequirementScopes.Count} requirement-scope(s), "
-            + $"{config.Vendors.Count} vendor(s), {config.VendorScopes.Count} vendor-scope(s).");
+            + $"{config.Vendors.Count} vendor(s), {config.VendorScopes.Count} vendor-scope(s), "
+            + $"{config.EvidenceCollectors.Count} evidence-collector(s).");
     }
 
     private static void PrintPlannedState(GitOpsConfig config)
@@ -198,6 +200,15 @@ public sealed class GitOpsCommands
                 : $"requirement {vendorScope.Requirement}";
             Console.WriteLine(
                 $"  - {vendorScope.Id}: {vendorScope.Title} -> {vendorScope.Vendor} / {target} = {vendorScope.Disposition}");
+        }
+
+        Console.WriteLine($"EvidenceCollectors ({config.EvidenceCollectors.Count}):");
+        foreach (var collector in config.EvidenceCollectors)
+        {
+            var vendor = string.IsNullOrEmpty(collector.Vendor) ? "-" : collector.Vendor;
+            Console.WriteLine(
+                $"  - {collector.Id}: {collector.Title} -> control {collector.Control} / vendor {vendor} "
+                + $"[{collector.Type}, {collector.Frequency}]");
         }
     }
 }

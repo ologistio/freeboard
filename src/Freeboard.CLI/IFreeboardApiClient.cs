@@ -33,6 +33,12 @@ internal interface IFreeboardApiClient
 
     /// <summary>GET /vendor-scopes - list vendor-scopes (per-vendor requirement/control exceptions).</summary>
     Task<ApiResult<IReadOnlyList<ApiVendorScope>>> ListVendorScopesAsync(CancellationToken ct);
+
+    /// <summary>GET /controls - list controls with their resolved maps_to and optional evaluation rule.</summary>
+    Task<ApiResult<IReadOnlyList<ApiControl>>> ListControlsAsync(CancellationToken ct);
+
+    /// <summary>GET /evidence-collectors - list evidence-collectors attached to controls.</summary>
+    Task<ApiResult<IReadOnlyList<ApiEvidenceCollector>>> ListEvidenceCollectorsAsync(CancellationToken ct);
 }
 
 /// <summary>The public user fields returned by the API (snake_case on the wire).</summary>
@@ -58,6 +64,23 @@ internal sealed record ApiVendor(string Id, string Title);
 /// </summary>
 internal sealed record ApiVendorScope(
     string Id, string Title, string Vendor, string? Requirement, string? Control, string Disposition, string? Justification);
+
+/// <summary>A control as returned by the API, with its resolved maps_to and optional evaluation rule.</summary>
+internal sealed record ApiControl(string Id, string Title, IReadOnlyList<string> MapsTo, string? Evaluation);
+
+/// <summary>
+/// An evidence-collector as returned by the API. <see cref="Vendor"/> and <see cref="Threshold"/> are
+/// null when unset; <see cref="Config"/> is the type-specific settings map (empty when unset).
+/// </summary>
+internal sealed record ApiEvidenceCollector(
+    string Id,
+    string Title,
+    string Control,
+    string? Vendor,
+    string Type,
+    string Frequency,
+    int? Threshold,
+    IReadOnlyDictionary<string, string> Config);
 
 /// <summary>A void success payload for calls that return no body of interest.</summary>
 internal sealed record Unit

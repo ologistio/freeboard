@@ -79,6 +79,18 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json => json.EnumerateArray().Select(ReadVendorScope).ToList(),
             ct);
 
+    public Task<ApiResult<IReadOnlyList<ApiControl>>> ListControlsAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiControl>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/controls", body: null,
+            json => json.EnumerateArray().Select(ReadControl).ToList(),
+            ct);
+
+    public Task<ApiResult<IReadOnlyList<ApiEvidenceCollector>>> ListEvidenceCollectorsAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiEvidenceCollector>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/evidence-collectors", body: null,
+            json => json.EnumerateArray().Select(ReadEvidenceCollector).ToList(),
+            ct);
+
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpMethod method, string path, object? body, Func<JsonElement, T> map, CancellationToken ct)
     {
@@ -159,6 +171,42 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             OptionalString(json, "control"),
             json.GetProperty("disposition").GetString()!,
             OptionalString(json, "justification"));
+
+    private static ApiControl ReadControl(JsonElement json) =>
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("title").GetString()!,
+            json.TryGetProperty("maps_to", out var mapsTo) && mapsTo.ValueKind == JsonValueKind.Array
+                ? mapsTo.EnumerateArray().Select(e => e.GetString()!).ToList()
+                : [],
+            OptionalString(json, "evaluation"));
+
+    private static ApiEvidenceCollector ReadEvidenceCollector(JsonElement json) =>
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("title").GetString()!,
+            json.GetProperty("control").GetString()!,
+            OptionalString(json, "vendor"),
+            json.GetProperty("type").GetString()!,
+            json.GetProperty("frequency").GetString()!,
+            json.TryGetProperty("threshold", out var threshold) && threshold.ValueKind == JsonValueKind.Number
+                ? threshold.GetInt32()
+                : null,
+            ReadConfig(json));
+
+    private static IReadOnlyDictionary<string, string> ReadConfig(JsonElement json)
+    {
+        var config = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (json.TryGetProperty("config", out var value) && value.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in value.EnumerateObject())
+            {
+                config[entry.Name] = entry.Value.GetString() ?? string.Empty;
+            }
+        }
+
+        return config;
+    }
 
     /// <summary>Reads a property that may be JSON null or absent, returning null in either case.</summary>
     private static string? OptionalString(JsonElement json, string name) =>
