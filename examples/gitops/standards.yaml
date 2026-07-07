@@ -1,17 +1,11 @@
-# Sample standards. Placeholder ids; not a conformance claim.
+# Sample standards. Placeholder ids; not a conformance claim. Cyber Essentials
+# Plus and its requirements live in the shared catalog
+# (../shared/cyber-essentials-plus.yaml), symlinked in as
+# cyber-essentials-plus.yaml; the standards below are declared locally.
 apiVersion: freeboard.dev/v1alpha1
 kind: Standard
 id: std-cyber-essentials
 title: Cyber Essentials
-version: "3.3"
-authority: National Cyber Security Centre
-publisher: IASME Consortium
-source_url: https://www.ncsc.gov.uk/files/cyber-essentials-requirements-for-it-infrastructure-v3-3.pdf
----
-apiVersion: freeboard.dev/v1alpha1
-kind: Standard
-id: std-cyber-essentials-plus
-title: Cyber Essentials Plus
 version: "3.3"
 authority: National Cyber Security Centre
 publisher: IASME Consortium

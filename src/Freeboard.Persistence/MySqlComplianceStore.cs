@@ -93,6 +93,26 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         return rows.ToList();
     }
 
+    public async Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<VendorRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title FROM vendors ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<VendorScopeRow>> GetVendorScopesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<VendorScopeRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, vendor_id AS Vendor, requirement_id AS Requirement, "
+            + "control_id AS Control, disposition AS Disposition, justification AS Justification "
+            + "FROM vendor_scopes ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.ToList();
+    }
+
     public async Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -138,16 +158,19 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes, int Vendors, int VendorScopes)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
             + "(SELECT COUNT(*) FROM requirements) AS Requirements, "
             + "(SELECT COUNT(*) FROM organisations) AS Organisations, "
             + "(SELECT COUNT(*) FROM scopes) AS Scopes, "
-            + "(SELECT COUNT(*) FROM requirement_scopes) AS RequirementScopes;",
+            + "(SELECT COUNT(*) FROM requirement_scopes) AS RequirementScopes, "
+            + "(SELECT COUNT(*) FROM vendors) AS Vendors, "
+            + "(SELECT COUNT(*) FROM vendor_scopes) AS VendorScopes;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return new ComplianceCounts(
-            counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes, counts.RequirementScopes);
+            counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes,
+            counts.RequirementScopes, counts.Vendors, counts.VendorScopes);
     }
 }

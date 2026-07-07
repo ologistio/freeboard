@@ -1,0 +1,23 @@
+# Requirement-level exceptions within the CE+ scope. These layer under the
+# company-wide In scope and follow nearest-ancestor inheritance with child
+# override.
+#
+# Engineering runs a legacy build server on a frozen image and excludes the
+# 14-day patch requirement while it is decommissioned; the Platform team, which
+# owns the modern build infrastructure, re-includes it. This shows an exclusion
+# at a parent department overridden by a child department.
+apiVersion: freeboard.dev/v1alpha1
+kind: RequirementScope
+id: rs-fixture-corp-eng-updates-05-out
+title: Exclude 14-day patch requirement for Engineering legacy build server
+organisation: fixture-corp-eng
+requirement: req-ce-plus-security-update-management-05
+disposition: Out
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: RequirementScope
+id: rs-fixture-corp-eng-platform-updates-05-in
+title: Re-include 14-day patch requirement for the Platform team
+organisation: fixture-corp-eng-platform
+requirement: req-ce-plus-security-update-management-05
+disposition: In

@@ -1,0 +1,90 @@
+@page "/compliance/vendors"
+@model Freeboard.Pages.Compliance.VendorsModel
+@{
+    ViewData["Title"] = "Vendor Register";
+}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Vendor Register</h1>
+    <p class="mt-1 text-sm text-neutral-600">Vendors in use and their per-requirement or per-control exceptions.</p>
+</div>
+
+@if (Model.StoreUnreachable)
+{
+    <p class="notice-error max-w-2xl">The compliance store could not be reached. Check the database connection.</p>
+}
+else if (Model.Vendors.Count == 0)
+{
+    <p class="text-sm text-neutral-600" data-empty>No vendors are registered.</p>
+}
+else
+{
+    <div class="space-y-6">
+        @foreach (var vendor in Model.Vendors)
+        {
+            var scopes = Model.ScopesFor(vendor.Id);
+            <section class="card p-0" data-vendor-id="@vendor.Id">
+                <div class="border-b border-neutral-200 px-4 py-3">
+                    <h2 class="font-semibold">@vendor.Title</h2>
+                    <p class="font-mono text-xs text-neutral-600">@vendor.Id</p>
+                </div>
+                @if (scopes.Count == 0)
+                {
+                    <p class="px-4 py-3 text-sm text-neutral-500">No exceptions recorded.</p>
+                }
+                else
+                {
+                    <table class="vendor-scopes w-full text-sm">
+                        <thead class="border-b border-neutral-200 text-left text-neutral-600">
+                            <tr>
+                                <th class="px-4 py-3 font-medium">Target</th>
+                                <th class="px-4 py-3 font-medium">Disposition</th>
+                                <th class="px-4 py-3 font-medium">Justification</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-neutral-100">
+                            @foreach (var scope in scopes)
+                            {
+                                var target = Freeboard.Pages.Compliance.VendorsModel.TargetLabel(scope);
+                                var targetKind = Freeboard.Pages.Compliance.VendorsModel.TargetKind(scope);
+                                <tr data-scope-id="@scope.Id">
+                                    <td class="px-4 py-3">
+                                        <span class="font-mono text-xs" data-target="@target">@target</span>
+                                        <span class="text-xs text-neutral-500">(@targetKind)</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @if (scope.Disposition == "Out")
+                                        {
+                                            <span class="badge badge-danger">Out</span>
+                                        }
+                                        else if (scope.Disposition == "In")
+                                        {
+                                            <span class="badge badge-success">In</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge badge-warn">@scope.Disposition</span>
+                                        }
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @if (scope.Disposition == "Out")
+                                        {
+                                            <span data-justification>@scope.Justification</span>
+                                        }
+                                        else if (!string.IsNullOrWhiteSpace(scope.Justification))
+                                        {
+                                            <span class="text-neutral-600" data-justification>@scope.Justification</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-neutral-500">-</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+        }
+    </div>
+}

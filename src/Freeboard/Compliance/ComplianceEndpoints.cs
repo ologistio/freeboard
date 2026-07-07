@@ -140,6 +140,45 @@ public static class ComplianceEndpoints
             }
         });
 
+        // Vendors and vendor-scopes are org-independent reference data (the flat model, no
+        // organisation dimension), so - unlike /organisations, /scopes, /requirement-scopes - they are
+        // intentionally NOT narrowed by IOrgAccess: any authenticated user reads every vendor and every
+        // exception justification. Revisit if a later change adds an organisation dimension.
+        reads.MapGet("/vendors", async (IComplianceStore store, CancellationToken ct) =>
+        {
+            try
+            {
+                var rows = await store.GetVendorsAsync(ct);
+                return Results.Ok(rows.Select(r => new { id = r.Id, title = r.Title }));
+            }
+            catch (Exception ex) when (IsStoreFailure(ex))
+            {
+                return Unreachable();
+            }
+        });
+
+        reads.MapGet("/vendor-scopes", async (IComplianceStore store, CancellationToken ct) =>
+        {
+            try
+            {
+                var rows = await store.GetVendorScopesAsync(ct);
+                return Results.Ok(rows.Select(r => new
+                {
+                    id = r.Id,
+                    title = r.Title,
+                    vendor = r.Vendor,
+                    requirement = r.Requirement,
+                    control = r.Control,
+                    disposition = r.Disposition,
+                    justification = r.Justification,
+                }));
+            }
+            catch (Exception ex) when (IsStoreFailure(ex))
+            {
+                return Unreachable();
+            }
+        });
+
         reads.MapGet("/statement-of-applicability/{standardId}",
             async (string standardId, IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
             {
@@ -194,6 +233,8 @@ public static class ComplianceEndpoints
                         organisations = (int?)counts.Organisations,
                         scopes = (int?)counts.Scopes,
                         requirementScopes = (int?)counts.RequirementScopes,
+                        vendors = (int?)counts.Vendors,
+                        vendorScopes = (int?)counts.VendorScopes,
                     },
                 });
             }
@@ -210,6 +251,8 @@ public static class ComplianceEndpoints
                         organisations = (int?)null,
                         scopes = (int?)null,
                         requirementScopes = (int?)null,
+                        vendors = (int?)null,
+                        vendorScopes = (int?)null,
                     },
                 });
             }

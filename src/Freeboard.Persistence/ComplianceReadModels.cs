@@ -53,6 +53,24 @@ public sealed record SoaInputs(
     IReadOnlyList<RequirementRow> Requirements,
     IReadOnlyList<RequirementScopeRow> RequirementScopes);
 
+/// <summary>A persisted vendor (a piece of software or platform in use).</summary>
+public sealed record VendorRow(string Id, string Title);
+
+/// <summary>
+/// A persisted vendor-scope binding one vendor to exactly one target (a requirement or a control,
+/// the other null) with a disposition (<c>In</c> or <c>Out</c>). <see cref="Justification"/> is null
+/// when unset; it is always present for an <c>Out</c> exception.
+/// </summary>
+public sealed record VendorScopeRow(
+    string Id, string Title, string Vendor, string? Requirement, string? Control, string Disposition, string? Justification);
+
 /// <summary>Per-kind row counts for the status summary.</summary>
 public sealed record ComplianceCounts(
-    int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes);
+    int Standards,
+    int Controls,
+    int Requirements,
+    int Organisations,
+    int Scopes,
+    int RequirementScopes,
+    int Vendors,
+    int VendorScopes);

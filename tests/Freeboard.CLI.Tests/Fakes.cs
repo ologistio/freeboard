@@ -92,6 +92,10 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public int BootstrapCalls { get; private set; }
 
+    public int VendorListCalls { get; private set; }
+
+    public int VendorScopeListCalls { get; private set; }
+
     public string? LastId { get; private set; }
 
     public ApiResult<CreatedUser> CreateResult { get; init; } =
@@ -110,8 +114,19 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public ApiResult<BootstrapResult> BootstrapResult { get; init; } =
         ApiResult<BootstrapResult>.Success(new BootstrapResult(SampleUser, "admin-token-xyz"));
 
+    public ApiResult<IReadOnlyList<ApiVendor>> VendorListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiVendor>>.Success([SampleVendor]);
+
+    public ApiResult<IReadOnlyList<ApiVendorScope>> VendorScopeListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiVendorScope>>.Success([SampleVendorScope]);
+
     public static ApiUser SampleUser { get; } =
         new("01HZZ0000000000000000000AA", "user@example.test", "User", "member", true);
+
+    public static ApiVendor SampleVendor { get; } = new("vendor-a", "Vendor A");
+
+    public static ApiVendorScope SampleVendorScope { get; } =
+        new("vs-a", "Except req-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO.");
 
     public Task<ApiResult<CreatedUser>> CreateUserAsync(string email, string name, string role, CancellationToken ct)
     {
@@ -151,5 +166,17 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     {
         BootstrapCalls++;
         return Task.FromResult(BootstrapResult);
+    }
+
+    public Task<ApiResult<IReadOnlyList<ApiVendor>>> ListVendorsAsync(CancellationToken ct)
+    {
+        VendorListCalls++;
+        return Task.FromResult(VendorListResult);
+    }
+
+    public Task<ApiResult<IReadOnlyList<ApiVendorScope>>> ListVendorScopesAsync(CancellationToken ct)
+    {
+        VendorScopeListCalls++;
+        return Task.FromResult(VendorScopeListResult);
     }
 }

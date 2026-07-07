@@ -18,10 +18,10 @@ public sealed class UserCommands
     public int Create(
         string email, string name, string role = "member", string? apiUrl = null, string? token = null)
     {
-        return Run(apiUrl, token, async (client, ct) =>
+        return ApiCommandRunner.Run(apiUrl, token, async (client, ct) =>
         {
             var result = await client.CreateUserAsync(email, name, role, ct).ConfigureAwait(false);
-            return Translate(result, payload =>
+            return ApiCommandRunner.Translate(result, payload =>
             {
                 Console.WriteLine($"Created user {payload.User.Email} (id {payload.User.Id}).");
                 PrintTempPassword(payload.TemporaryPassword);
@@ -34,10 +34,10 @@ public sealed class UserCommands
     /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
     public int List(string? apiUrl = null, string? token = null)
     {
-        return Run(apiUrl, token, async (client, ct) =>
+        return ApiCommandRunner.Run(apiUrl, token, async (client, ct) =>
         {
             var result = await client.ListUsersAsync(ct).ConfigureAwait(false);
-            return Translate(result, users =>
+            return ApiCommandRunner.Translate(result, users =>
             {
                 foreach (var user in users)
                 {
@@ -70,7 +70,7 @@ public sealed class UserCommands
     /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
     public int ResetPassword(string emailOrId, string? apiUrl = null, string? token = null)
     {
-        return Run(apiUrl, token, async (client, ct) =>
+        return ApiCommandRunner.Run(apiUrl, token, async (client, ct) =>
         {
             var idResult = await ResolveIdAsync(client, emailOrId, ct).ConfigureAwait(false);
             if (idResult.Code is not null)
@@ -79,7 +79,7 @@ public sealed class UserCommands
             }
 
             var result = await client.ResetPasswordAsync(idResult.Id!, ct).ConfigureAwait(false);
-            return Translate(result, payload =>
+            return ApiCommandRunner.Translate(result, payload =>
             {
                 Console.WriteLine($"Reset password for {emailOrId}.");
                 PrintTempPassword(payload.TemporaryPassword);
@@ -109,10 +109,10 @@ public sealed class UserCommands
         }
 
         // No admin token exists yet during bootstrap, so the client carries none.
-        return Run(apiUrl, token: null, async (client, ct) =>
+        return ApiCommandRunner.Run(apiUrl, token: null, async (client, ct) =>
         {
             var result = await client.BootstrapAsync(email, name, password, secret, ct).ConfigureAwait(false);
-            return Translate(result, payload =>
+            return ApiCommandRunner.Translate(result, payload =>
             {
                 Console.WriteLine($"Created first admin {payload.User.Email} (id {payload.User.Id}).");
                 Console.WriteLine($"Admin token: {payload.Token}");
@@ -129,7 +129,7 @@ public sealed class UserCommands
         string? apiUrl, string? token, string emailOrId, string verb,
         Func<IFreeboardApiClient, string, CancellationToken, Task<ApiResult<Unit>>> act)
     {
-        return Run(apiUrl, token, async (client, ct) =>
+        return ApiCommandRunner.Run(apiUrl, token, async (client, ct) =>
         {
             var idResult = await ResolveIdAsync(client, emailOrId, ct).ConfigureAwait(false);
             if (idResult.Code is not null)
@@ -138,7 +138,7 @@ public sealed class UserCommands
             }
 
             var result = await act(client, idResult.Id!, ct).ConfigureAwait(false);
-            return Translate(result, _ => Console.WriteLine($"User {emailOrId} {verb}."));
+            return ApiCommandRunner.Translate(result, _ => Console.WriteLine($"User {emailOrId} {verb}."));
         });
     }
 
@@ -159,7 +159,7 @@ public sealed class UserCommands
         if (list.Outcome != ApiOutcome.Success)
         {
             // The lookup failed (auth/operational); surface that, not a spurious validation error.
-            return (null, Translate(list, _ => { }));
+            return (null, ApiCommandRunner.Translate(list, _ => { }));
         }
 
         var match = list.Payload!
@@ -171,54 +171,6 @@ public sealed class UserCommands
         }
 
         return (match.Id, null);
-    }
-
-    private static int Run(string? apiUrl, string? token, Func<IFreeboardApiClient, CancellationToken, Task<int>> action)
-    {
-        var baseUrl = ApiClientFactory.ResolveApiUrl(apiUrl);
-        if (baseUrl is null)
-        {
-            Console.Error.WriteLine(
-                $"No API URL. Pass --api-url or set {ApiClientFactory.ApiUrlEnvVar}.");
-            return 3;
-        }
-
-        var resolvedToken = ApiClientFactory.ResolveToken(token);
-
-        // Building the client parses the base URL (and may otherwise fail to construct). A
-        // malformed --api-url throws UriFormatException here; map it to an operational failure (exit
-        // 3) instead of letting it escape the 0/1/3 exit-code contract as an unhandled exception.
-        IFreeboardApiClient client;
-        try
-        {
-            client = ApiClientFactory.Create(baseUrl, resolvedToken);
-        }
-        catch (Exception ex) when (ex is UriFormatException or FormatException or ArgumentException)
-        {
-            Console.Error.WriteLine($"Invalid API URL '{baseUrl}': {ex.Message}");
-            return 3;
-        }
-
-        using var disposableClient = client as IDisposable;
-        return action(client, CancellationToken.None).GetAwaiter().GetResult();
-    }
-
-    /// <summary>Maps an API outcome to an exit code, running <paramref name="onSuccess"/> on 2xx.</summary>
-    private static int Translate<T>(ApiResult<T> result, Action<T> onSuccess)
-    {
-        switch (result.Outcome)
-        {
-            case ApiOutcome.Success:
-                onSuccess(result.Payload!);
-                return 0;
-            case ApiOutcome.Validation:
-                Console.Error.WriteLine(result.Message);
-                return 1;
-            default:
-                // Conflict / Unauthorized / Failure are all operational from the CLI's view.
-                Console.Error.WriteLine(result.Message);
-                return 3;
-        }
     }
 
     private static void PrintTempPassword(string tempPassword)

@@ -13,6 +13,8 @@ public static class GitOpsSchema
     public const string KindOrganisation = "Organisation";
     public const string KindScope = "Scope";
     public const string KindRequirementScope = "RequirementScope";
+    public const string KindVendor = "Vendor";
+    public const string KindVendorScope = "VendorScope";
 }
 
 /// <summary>
@@ -161,6 +163,51 @@ public sealed record RequirementScope
 }
 
 /// <summary>
+/// A piece of software or a platform in use (for example Crowdstrike, FleetDM, Google Workspace,
+/// an outsourced accountant). Identity is <see cref="Id"/>; <see cref="Title"/> is display only.
+/// Carries no other required fields in this increment.
+/// </summary>
+public sealed record Vendor
+{
+    public string ApiVersion { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Records whether one <see cref="Requirement"/> or one <see cref="Control"/> applies to one
+/// <see cref="Vendor"/>, with an exception rationale. Identity is <see cref="Id"/>. Exactly one of
+/// <see cref="Requirement"/> or <see cref="Control"/> is set (the target); the other is empty.
+/// <see cref="Disposition"/> reuses the <see cref="Scope"/> disposition (<c>In</c>/<c>Out</c>):
+/// <c>In</c> means the target applies to the vendor, <c>Out</c> means it is excepted. A
+/// <see cref="VendorScope"/> is a flat per-<c>(vendor, target)</c> statement with no organisation
+/// dimension. <see cref="Justification"/> is required when <see cref="Disposition"/> is <c>Out</c>
+/// and optional otherwise. At most one exists per <c>(vendor, requirement)</c> and per
+/// <c>(vendor, control)</c> pair.
+/// </summary>
+public sealed record VendorScope
+{
+    public string ApiVersion { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string Vendor { get; init; } = string.Empty;
+
+    /// <summary>Target Requirement id, empty when the target is a control.</summary>
+    public string Requirement { get; init; } = string.Empty;
+
+    /// <summary>Target Control id, empty when the target is a requirement.</summary>
+    public string Control { get; init; } = string.Empty;
+
+    /// <summary>Raw disposition text as authored; validation maps it to <see cref="ScopeDisposition"/>.</summary>
+    public string Disposition { get; init; } = string.Empty;
+
+    /// <summary>Exception rationale; required when the disposition is <c>Out</c>, else optional.</summary>
+    public string Justification { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// The aggregate config model loaded from a directory.
 /// </summary>
 public sealed record GitOpsConfig
@@ -171,4 +218,6 @@ public sealed record GitOpsConfig
     public List<Organisation> Organisations { get; init; } = [];
     public List<Scope> Scopes { get; init; } = [];
     public List<RequirementScope> RequirementScopes { get; init; } = [];
+    public List<Vendor> Vendors { get; init; } = [];
+    public List<VendorScope> VendorScopes { get; init; } = [];
 }

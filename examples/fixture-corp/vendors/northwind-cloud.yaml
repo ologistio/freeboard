@@ -1,0 +1,15 @@
+# Northwind Cloud (invented) - the IaaS host running Fixture Corp's production
+# platform. Perimeter firewalling is provided by cloud security groups rather
+# than on-prem hardware.
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-northwind-cloud
+title: Northwind Cloud (example)
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-northwind-cloud-firewall-in
+title: Northwind Cloud security groups provide perimeter firewalling
+vendor: vendor-northwind-cloud
+control: ctrl-fc-firewall
+disposition: In

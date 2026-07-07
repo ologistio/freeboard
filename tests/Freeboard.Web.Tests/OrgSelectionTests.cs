@@ -132,10 +132,16 @@ public sealed class OrgSelectionTests
         public Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<RequirementScopeRow>)[]);
 
+        public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult((IReadOnlyList<VendorRow>)[]);
+
+        public Task<IReadOnlyList<VendorScopeRow>> GetVendorScopesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult((IReadOnlyList<VendorScopeRow>)[]);
+
         public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new SoaInputs(Organisations, [], [], []));
 
         public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0));
+            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0, 0));
     }
 }

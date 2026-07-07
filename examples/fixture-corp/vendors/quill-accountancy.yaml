@@ -1,0 +1,18 @@
+# Quill Accountancy Ltd (invented) - the external accountancy firm. It has no
+# logins to Fixture Corp's systems, so the MFA control does not apply to it; an
+# Out scope with a justification records why.
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-quill-accountancy
+title: Quill Accountancy Ltd (example)
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-quill-mfa-out
+title: Quill Accountancy excluded from the MFA control
+vendor: vendor-quill-accountancy
+control: ctrl-fc-mfa
+disposition: Out
+justification: >-
+  Quill Accountancy is an external firm with no logins to our systems - N/A.
+  Documents are exchanged over an encrypted client portal.

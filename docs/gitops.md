@@ -17,19 +17,21 @@ reconciling apply, soft-delete on removal, and drift detection are not built yet
 
 Freeboard borrows Fleet's structure but renames the nouns for compliance:
 
-| Fleet    | Freeboard          | Meaning                                                   |
-| -------- | ------------------ | --------------------------------------------------------- |
-| (n/a)    | organisations      | the tree of entities being assessed (company/department)  |
-| labels   | scopes             | maps an organisation to a standard with a disposition     |
-| (n/a)    | requirement-scopes | maps an organisation to a requirement with a disposition  |
-| policies | checks             | executable conformance checks (deferred, not built)       |
-| (n/a)    | controls           | an implemented control mapped to one or more requirements |
-| (n/a)    | requirements       | a standard's published normative statements               |
-| (n/a)    | standards          | a compliance standard in scope                            |
+| Fleet    | Freeboard          | Meaning                                                        |
+| -------- | ------------------ | -------------------------------------------------------------- |
+| (n/a)    | organisations      | the tree of entities being assessed (company/department)       |
+| labels   | scopes             | maps an organisation to a standard with a disposition          |
+| (n/a)    | requirement-scopes | maps an organisation to a requirement with a disposition       |
+| policies | checks             | executable conformance checks (deferred, not built)            |
+| (n/a)    | controls           | an implemented control mapped to one or more requirements      |
+| (n/a)    | requirements       | a standard's published normative statements                    |
+| (n/a)    | standards          | a compliance standard in scope                                 |
+| (n/a)    | vendors            | a piece of software or platform in use                         |
+| (n/a)    | vendor-scopes      | maps a vendor to one requirement or control with a disposition |
 
 This increment ships `standards`, `requirements`, `controls`, `organisations`,
-`scopes`, and `requirement-scopes`. `checks` are named for the trajectory but are
-not built.
+`scopes`, `requirement-scopes`, `vendors`, and `vendor-scopes`. `checks` are named
+for the trajectory but are not built.
 
 ## Format
 
@@ -38,7 +40,7 @@ or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.dev/v1alpha1`.
 - `kind` - one of `Standard`, `Requirement`, `Control`, `Organisation`, `Scope`,
-  or `RequirementScope`.
+  `RequirementScope`, `Vendor`, or `VendorScope`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -170,6 +172,47 @@ an `In` standard, requirement-scopes inherit by the same nearest-ancestor rule a
 scopes, and a child re-includes (`In`) a requirement an ancestor excluded (`Out`).
 A requirement-level `In` cannot re-include a requirement whose standard is `Out`.
 
+### Vendor
+
+A vendor names a piece of software or platform in use. It carries only identity
+and display text (`id`, `title`); there is no scoring or further structure.
+
+```yaml
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-okta
+title: Okta
+```
+
+### VendorScope
+
+A vendor-scope records whether one `Requirement` or one `Control` applies to one
+`Vendor`, with a `disposition` (`In` or `Out`). `vendor` names the `Vendor`.
+Exactly one of `requirement` or `control` must be set (never both, never neither),
+so a vendor-scope targets a single requirement or a single control. At most one
+vendor-scope may exist per `(vendor, requirement)` pair and per `(vendor, control)`
+pair. `justification` is required when `disposition` is `Out` (it explains the
+exception) and optional when `In`.
+
+```yaml
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-okta-mfa-in
+title: Okta enforces MFA
+vendor: vendor-okta
+requirement: req-ce-plus-user-access-control-04
+disposition: In
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-okta-firewall-out
+title: Okta firewall control not applicable
+vendor: vendor-okta
+control: ctrl-firewall
+disposition: Out
+justification: SaaS identity provider - no host firewall under our control.
+```
+
 ## Validation
 
 Validation collects every error in one pass (not just the first). It fails when:
@@ -193,6 +236,15 @@ Validation collects every error in one pass (not just the first). It fails when:
   that does not exist;
 - a `RequirementScope.disposition` is not `In` or `Out`;
 - two requirement-scopes name the same `(organisation, requirement)` pair;
+- a `VendorScope` does not name exactly one of `requirement` or `control` (both
+  set, or neither);
+- a `VendorScope.vendor` names a `Vendor` id that does not exist;
+- a `VendorScope.requirement` or `VendorScope.control` names an id that does not
+  exist;
+- a `VendorScope.disposition` is not `In` or `Out`;
+- a `VendorScope` has `disposition: Out` but no `justification`;
+- two vendor-scopes name the same `(vendor, requirement)` or `(vendor, control)`
+  pair;
 - `apiVersion` is not exactly `freeboard.dev/v1alpha1`.
 
 A missing or unknown `kind`, and malformed YAML, are reported as diagnostics by
@@ -215,24 +267,31 @@ freeboard gitops apply <dir> --dry-run
 
 ## Persistence
 
-The compliance domain (standards, requirements, controls, organisations, scopes) is persisted
-in MySQL. The data is the general compliance store; GitOps `sync` is one writer
-into it.
+The compliance domain (standards, requirements, controls, organisations, scopes,
+vendors) is persisted in MySQL. The data is the general compliance store; GitOps
+`sync` is one writer into it.
 
 ### Schema
 
-Six domain tables (`standards`, `requirements`, `controls`, `organisations`,
-`scopes`, `requirement_scopes`), each keyed on `id` with `api_version`, `title`,
-`created_at`, and `updated_at`. `standards` also carries nullable `version`,
-`authority`, `publisher`, and `source_url` metadata columns. `requirements` has a
-`standard_id` foreign key (`ON DELETE RESTRICT`), a `theme`, a `statement`,
-nullable `guidance`, and `citation_label`/`citation_url`. `organisations` has a
-nullable self-referential `parent_id` foreign key and a `kind` column. `scopes`
-has `organisation_id` and `standard_id` foreign keys, a `disposition` column, and
-a unique key on `(organisation_id, standard_id)`. `requirement_scopes` has
-`organisation_id` and `requirement_id` foreign keys (both `ON DELETE RESTRICT`, no
-`standard_id`: the standard is derived from the requirement), a `disposition`
-column, and a unique key on `(organisation_id, requirement_id)`. One relation table
+Eight domain tables (`standards`, `requirements`, `controls`, `organisations`,
+`scopes`, `requirement_scopes`, `vendors`, `vendor_scopes`), each keyed on `id`
+with `api_version`, `title`, `created_at`, and `updated_at`. `standards` also
+carries nullable `version`, `authority`, `publisher`, and `source_url` metadata
+columns. `requirements` has a `standard_id` foreign key (`ON DELETE RESTRICT`), a
+`theme`, a `statement`, nullable `guidance`, and `citation_label`/`citation_url`.
+`organisations` has a nullable self-referential `parent_id` foreign key and a
+`kind` column. `scopes` has `organisation_id` and `standard_id` foreign keys, a
+`disposition` column, and a unique key on `(organisation_id, standard_id)`.
+`requirement_scopes` has `organisation_id` and `requirement_id` foreign keys (both
+`ON DELETE RESTRICT`, no `standard_id`: the standard is derived from the
+requirement), a `disposition` column, and a unique key on
+`(organisation_id, requirement_id)`. `vendors` holds identity and display text
+only. `vendor_scopes` has a `vendor_id` foreign key, nullable `requirement_id` and
+`control_id` foreign keys (all three `ON DELETE RESTRICT`), a `disposition` column,
+and a nullable `justification`; a `CHECK` constraint enforces that exactly one of
+`requirement_id` or `control_id` is set, and unique keys on
+`(vendor_id, requirement_id)` and `(vendor_id, control_id)` bound each target pair.
+One relation table
 (`control_requirements` for `Control.maps_to`) with a composite primary key and
 `ON DELETE CASCADE` foreign keys. One migration-tracking table
 (`schema_migrations`) bootstrapped by the migration runner.
@@ -302,6 +361,12 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
   `organisation`, `standard`, `disposition`).
 - `GET /api/v1/freeboard/requirement-scopes` - persisted requirement-scopes
   (`id`, `title`, `organisation`, `requirement`, `disposition`).
+- `GET /api/v1/freeboard/vendors` - persisted vendors (`id`, `title`).
+- `GET /api/v1/freeboard/vendor-scopes` - persisted vendor-scopes (`id`, `title`,
+  `vendor`, `requirement`, `control`, `disposition`, `justification`; exactly one
+  of `requirement`/`control` is set, the other null; `justification` is null when
+  unset). Unlike the org-scoped reads, vendors and vendor-scopes are not narrowed
+  by organisation access - any authenticated user reads every row.
 - `GET /api/v1/freeboard/statement-of-applicability/{standardId}` - the SoA
   projection for a standard: every organisation node with its resolved
   `disposition` and whether that value is `Explicit`, `Inherited`, or
@@ -316,7 +381,7 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
 Resources are ordered by `id`; relation arrays are ordered by id. When the store
 is unreachable, the read endpoints return HTTP 503 with an RFC 7807 problem body,
 and `/api/v1/freeboard/compliance/status` returns HTTP 200 with
-`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null } }`
+`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null } }`
 (`null` marks the count as unknown, not zero). `GET /api/v1/freeboard/gitops/status`
 is unchanged and does not depend on the store.
 

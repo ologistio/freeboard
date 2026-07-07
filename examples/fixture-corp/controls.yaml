@@ -1,0 +1,38 @@
+# The controls Fixture Corp actually operates, each mapping to one or more CE+
+# requirements it satisfies. Vendor-scopes in vendors/ reference these control
+# ids to record which supplier stands behind each control.
+apiVersion: freeboard.dev/v1alpha1
+kind: Control
+id: ctrl-fc-mfa
+title: Multi-factor authentication enforced on all accounts
+maps_to:
+  - req-ce-plus-user-access-control-04
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Control
+id: ctrl-fc-edr
+title: Endpoint malware protection on every device
+maps_to:
+  - req-ce-plus-malware-protection-01
+  - req-ce-plus-malware-protection-02
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Control
+id: ctrl-fc-device-mgmt
+title: Device inventory and secure configuration baseline
+maps_to:
+  - req-ce-plus-secure-configuration-01
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Control
+id: ctrl-fc-patching
+title: Automated patch management within 14 days
+maps_to:
+  - req-ce-plus-security-update-management-04
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Control
+id: ctrl-fc-firewall
+title: Host and cloud perimeter firewalling
+maps_to:
+  - req-ce-plus-firewalls-01

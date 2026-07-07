@@ -1,0 +1,18 @@
+# LedgerLeaf Accounting (invented) - the SaaS accounting package used by Finance.
+# It supports MFA but not SSO, so it cannot join the central user-access control;
+# an Out scope with a justification records the exception (never silent).
+apiVersion: freeboard.dev/v1alpha1
+kind: Vendor
+id: vendor-ledgerleaf
+title: LedgerLeaf Accounting (example)
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: VendorScope
+id: vs-ledgerleaf-user-access-out
+title: LedgerLeaf excluded from centralised user access control
+vendor: vendor-ledgerleaf
+requirement: req-ce-plus-user-access-control-01
+disposition: Out
+justification: >-
+  LedgerLeaf supports MFA but not SSO, so accounts are provisioned and removed
+  manually by Finance; a quarterly access review is the compensating control.

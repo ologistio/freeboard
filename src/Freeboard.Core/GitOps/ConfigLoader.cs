@@ -32,6 +32,11 @@ public static class ConfigLoader
             [GitOpsSchema.KindOrganisation] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "parent" },
             [GitOpsSchema.KindScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "standard", "disposition" },
             [GitOpsSchema.KindRequirementScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "requirement", "disposition" },
+            [GitOpsSchema.KindVendor] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title" },
+            [GitOpsSchema.KindVendorScope] = new(StringComparer.Ordinal)
+            {
+                "apiVersion", "kind", "id", "title", "vendor", "requirement", "control", "disposition", "justification",
+            },
         };
 
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
@@ -44,6 +49,8 @@ public static class ConfigLoader
         .WithAttributeOverride<Organisation>(o => o.OrgKind, new YamlMemberAttribute { Alias = "type", ApplyNamingConventions = false })
         .WithAttributeOverride<Scope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<RequirementScope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<Vendor>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<VendorScope>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .IgnoreUnmatchedProperties()
         .Build();
 
@@ -147,7 +154,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}.",
             });
             return;
         }
@@ -178,6 +185,12 @@ public static class ConfigLoader
                     break;
                 case GitOpsSchema.KindRequirementScope:
                     config.RequirementScopes.Add(Deserialize<RequirementScope>(mapping));
+                    break;
+                case GitOpsSchema.KindVendor:
+                    config.Vendors.Add(Deserialize<Vendor>(mapping));
+                    break;
+                case GitOpsSchema.KindVendorScope:
+                    config.VendorScopes.Add(Deserialize<VendorScope>(mapping));
                     break;
             }
         }

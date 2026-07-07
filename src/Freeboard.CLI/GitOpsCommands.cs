@@ -120,7 +120,8 @@ public sealed class GitOpsCommands
         Console.WriteLine(
             $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Requirements.Count} requirement(s), "
             + $"{result.Config.Controls.Count} control(s), {result.Config.Organisations.Count} organisation(s), "
-            + $"{result.Config.Scopes.Count} scope(s), {result.Config.RequirementScopes.Count} requirement-scope(s).");
+            + $"{result.Config.Scopes.Count} scope(s), {result.Config.RequirementScopes.Count} requirement-scope(s), "
+            + $"{result.Config.Vendors.Count} vendor(s), {result.Config.VendorScopes.Count} vendor-scope(s).");
         return 0;
     }
 
@@ -137,7 +138,8 @@ public sealed class GitOpsCommands
         Console.WriteLine(
             $"OK: {config.Standards.Count} standard(s), {config.Requirements.Count} requirement(s), "
             + $"{config.Controls.Count} control(s), {config.Organisations.Count} organisation(s), "
-            + $"{config.Scopes.Count} scope(s), {config.RequirementScopes.Count} requirement-scope(s).");
+            + $"{config.Scopes.Count} scope(s), {config.RequirementScopes.Count} requirement-scope(s), "
+            + $"{config.Vendors.Count} vendor(s), {config.VendorScopes.Count} vendor-scope(s).");
     }
 
     private static void PrintPlannedState(GitOpsConfig config)
@@ -180,6 +182,22 @@ public sealed class GitOpsCommands
             Console.WriteLine(
                 $"  - {requirementScope.Id}: {requirementScope.Title} -> {requirementScope.Organisation} / "
                 + $"{requirementScope.Requirement} = {requirementScope.Disposition}");
+        }
+
+        Console.WriteLine($"Vendors ({config.Vendors.Count}):");
+        foreach (var vendor in config.Vendors)
+        {
+            Console.WriteLine($"  - {vendor.Id}: {vendor.Title}");
+        }
+
+        Console.WriteLine($"VendorScopes ({config.VendorScopes.Count}):");
+        foreach (var vendorScope in config.VendorScopes)
+        {
+            var target = string.IsNullOrEmpty(vendorScope.Requirement)
+                ? $"control {vendorScope.Control}"
+                : $"requirement {vendorScope.Requirement}";
+            Console.WriteLine(
+                $"  - {vendorScope.Id}: {vendorScope.Title} -> {vendorScope.Vendor} / {target} = {vendorScope.Disposition}");
         }
     }
 }
