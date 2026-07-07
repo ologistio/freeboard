@@ -210,12 +210,14 @@ public static class ConfigLoader
                     break;
                 case GitOpsSchema.KindAttestationTemplate:
                     var template = Deserialize<AttestationTemplate>(mapping);
-                    // An explicit-null `fields:`/`quiz:`/`options:` deserializes the list to null;
-                    // normalize every nested list to empty so ImportPlan, the page, and the CLI never NRE.
+                    // An explicit-null `fields:`/`quiz:`/`options:` deserializes the list to null, and
+                    // an explicit-null sequence item (`fields:\n  -`) deserializes to a null element.
+                    // Drop null items and normalize every nested list to empty so the loader keeps its
+                    // never-throw contract and ImportPlan, the page, and the CLI never NRE.
                     config.AttestationTemplates.Add(template with
                     {
-                        Fields = (template.Fields ?? []).Select(f => f with { Options = f.Options ?? [] }).ToList(),
-                        Quiz = (template.Quiz ?? []).Select(q => q with { Options = q.Options ?? [] }).ToList(),
+                        Fields = (template.Fields ?? []).Where(f => f is not null).Select(f => f with { Options = f.Options ?? [] }).ToList(),
+                        Quiz = (template.Quiz ?? []).Where(q => q is not null).Select(q => q with { Options = q.Options ?? [] }).ToList(),
                     });
                     break;
             }

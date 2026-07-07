@@ -300,7 +300,7 @@ public sealed class ImportPlanTests
         var dir = Directory.CreateTempSubdirectory("fb-importplan-");
         try
         {
-            File.WriteAllText(Path.Combine(dir.FullName, "template.yaml"), """
+            File.WriteAllText(Path.Join(dir.FullName, "template.yaml"), """
                 apiVersion: freeboard.dev/v1alpha1
                 kind: AttestationTemplate
                 id: attest-manual

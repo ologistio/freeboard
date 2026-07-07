@@ -436,6 +436,32 @@ public sealed class ConfigLoaderTests
     }
 
     [Fact]
+    public void ExplicitNullFieldAndQuizItemsAreDroppedNotThrown()
+    {
+        // A null sequence item (`fields:\n  -`) deserializes to a null element; the loader must
+        // drop it rather than NRE while normalizing, keeping its never-throw contract.
+        using var dir = TempConfig.Create(
+            ("template.yaml", """
+                apiVersion: freeboard.dev/v1alpha1
+                kind: AttestationTemplate
+                id: attest-manual
+                title: T
+                control: ctrl-a
+                type: manual
+                fields:
+                  -
+                quiz:
+                  -
+                """));
+
+        var result = ConfigLoader.Load(dir.Path);
+
+        var template = Assert.Single(result.Config.AttestationTemplates);
+        Assert.Empty(template.Fields);
+        Assert.Empty(template.Quiz);
+    }
+
+    [Fact]
     public void LoadOrderMatchesNormalizedPathThenInFileOrder()
     {
         var fixtureDir = Path.Combine(AppContext.BaseDirectory, "fixtures", "order");

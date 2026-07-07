@@ -52,10 +52,9 @@ public sealed class GitOpsCommandTests
 
     private static string WriteTempConfig(string content)
     {
-        var dir = Path.Combine(Path.GetTempPath(), "fb-gitops-cli-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        File.WriteAllText(Path.Combine(dir, "config.yaml"), content);
-        return dir;
+        var dir = Directory.CreateTempSubdirectory("fb-gitops-cli-");
+        File.WriteAllText(Path.Join(dir.FullName, "config.yaml"), content);
+        return dir.FullName;
     }
 
     [Fact]
