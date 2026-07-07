@@ -1,3 +1,5 @@
+using Freeboard.Core.GitOps;
+
 namespace Freeboard.Persistence;
 
 /// <summary>
@@ -82,6 +84,29 @@ public sealed record EvidenceCollectorRow(
     int? Threshold,
     IReadOnlyDictionary<string, string> Config);
 
+/// <summary>
+/// A quiz item as exposed on a read surface: prompt and option labels only. It deliberately has NO
+/// answer property - the correct answer is a quiz secret redacted at the read-store boundary so no read
+/// surface can leak it. A future grading runtime must read the answer through a separate privileged path.
+/// </summary>
+public sealed record QuizItemView(string Id, string Prompt, IReadOnlyList<string> Options);
+
+/// <summary>
+/// A persisted attestation-template attached to one control. Identity is <see cref="Id"/>.
+/// <see cref="Body"/> and <see cref="PassMark"/> are null when unset. <see cref="Fields"/> reuses the
+/// Core <see cref="AttestationField"/> value record; <see cref="Quiz"/> uses the answer-free
+/// <see cref="QuizItemView"/> so the correct answer never reaches a read surface.
+/// </summary>
+public sealed record AttestationTemplateRow(
+    string Id,
+    string Title,
+    string Control,
+    string Type,
+    string? Body,
+    IReadOnlyList<AttestationField> Fields,
+    int? PassMark,
+    IReadOnlyList<QuizItemView> Quiz);
+
 /// <summary>Per-kind row counts for the status summary.</summary>
 public sealed record ComplianceCounts(
     int Standards,
@@ -92,4 +117,5 @@ public sealed record ComplianceCounts(
     int RequirementScopes,
     int Vendors,
     int VendorScopes,
-    int EvidenceCollectors);
+    int EvidenceCollectors,
+    int AttestationTemplates);

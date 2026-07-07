@@ -12,8 +12,9 @@ namespace Freeboard.Core.GitOps;
 /// vendor-scope mapping (exactly-one target, resolvable references, disposition enum, unique
 /// vendor/target pair, justification required when Out), and the evidence-collectors (resolvable
 /// control/vendor references, type/frequency/threshold checks, and the control evaluation rule
-/// required once a control has an attached collector). Does NOT re-check kind (the loader owns
-/// kind-routing).
+/// required once a control has an attached collector), and the attestation-templates (resolvable
+/// control reference, type token, field/quiz shape, pass_mark range, and the training-vs-manual
+/// conditional rules). Does NOT re-check kind (the loader owns kind-routing).
 /// </summary>
 public static class ConfigValidator
 {
@@ -30,6 +31,15 @@ public static class ConfigValidator
     private static readonly HashSet<string> FrequencyTokens = new(StringComparer.Ordinal)
     {
         "continuous", "daily", "weekly", "monthly", "quarterly", "annual",
+    };
+
+    /// <summary>Closed token set for an attestation-template's type (case-sensitive).</summary>
+    private static readonly HashSet<string> AttestationTypeTokens = new(StringComparer.Ordinal) { "manual", "training" };
+
+    /// <summary>Closed token set for an attestation field's type (case-sensitive).</summary>
+    private static readonly HashSet<string> FieldTypeTokens = new(StringComparer.Ordinal)
+    {
+        "boolean", "single-choice", "short-text",
     };
 
     /// <summary>
@@ -63,6 +73,7 @@ public static class ConfigValidator
         var vendorIds = ValidateVendors(config, diagnostics);
         ValidateVendorScopes(config, vendorIds, requirementIds, controlIds, diagnostics);
         ValidateEvidenceCollectors(config, controlIds, vendorIds, diagnostics);
+        ValidateAttestationTemplates(config, controlIds, diagnostics);
 
         return diagnostics;
     }
@@ -665,6 +676,221 @@ public static class ConfigValidator
             {
                 Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' has attached evidence-collectors but is "
                     + "missing required field 'evaluation'.",
+            });
+        }
+    }
+
+    private static void ValidateAttestationTemplates(
+        GitOpsConfig config,
+        HashSet<string> controlIds,
+        List<Diagnostic> diagnostics)
+    {
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var template in config.AttestationTemplates)
+        {
+            CheckApiVersion(template.ApiVersion, GitOpsSchema.KindAttestationTemplate, template.Id, diagnostics);
+            CheckRequired(template.Id, GitOpsSchema.KindAttestationTemplate, "id", template.Title, diagnostics);
+            CheckRequired(template.Title, GitOpsSchema.KindAttestationTemplate, "title", template.Id, diagnostics);
+            CheckRequired(template.Control, GitOpsSchema.KindAttestationTemplate, "control", template.Id, diagnostics);
+            CheckRequired(template.Type, GitOpsSchema.KindAttestationTemplate, "type", template.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(template.Control) && !controlIds.Contains(template.Control))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' references unknown Control id "
+                        + $"'{template.Control}'.",
+                });
+            }
+
+            var typeParsed = !string.IsNullOrEmpty(template.Type) && AttestationTypeTokens.Contains(template.Type);
+            if (!string.IsNullOrEmpty(template.Type) && !typeParsed)
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has unknown type "
+                        + $"'{template.Type}'. Expected 'manual' or 'training'.",
+                });
+            }
+
+            // pass_mark is optional here; when present it must be an integer percent in [0, 100]. Parsing the
+            // raw authored text turns a malformed value into a diagnostic instead of a YAML binding crash.
+            var hasPassMark = !string.IsNullOrWhiteSpace(template.PassMark);
+            if (hasPassMark
+                && (!int.TryParse(template.PassMark, NumberStyles.Integer, CultureInfo.InvariantCulture, out var passMark)
+                    || passMark < 0 || passMark > 100))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has invalid pass_mark "
+                        + $"'{template.PassMark}'. Expected an integer percent from 0 to 100.",
+                });
+            }
+
+            ValidateAttestationFields(template, diagnostics);
+            ValidateAttestationQuiz(template, diagnostics);
+
+            // Type-conditional rules: training needs a pass mark and a quiz to grade against; manual has
+            // neither, so declaring them is an authoring mistake.
+            var hasQuiz = template.Quiz.Count > 0;
+            if (template.Type == "training")
+            {
+                if (!hasPassMark)
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'training' but is "
+                            + "missing required field 'pass_mark'.",
+                    });
+                }
+
+                if (!hasQuiz)
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'training' but is "
+                            + "missing a non-empty 'quiz'.",
+                    });
+                }
+            }
+            else if (template.Type == "manual")
+            {
+                if (hasPassMark)
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'manual' but declares "
+                            + "'pass_mark', which is only valid for a training template.",
+                    });
+                }
+
+                if (hasQuiz)
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'manual' but declares "
+                            + "a 'quiz', which is only valid for a training template.",
+                    });
+                }
+            }
+
+            if (!string.IsNullOrEmpty(template.Id) && !seenIds.Add(template.Id))
+            {
+                diagnostics.Add(Dup(GitOpsSchema.KindAttestationTemplate, template.Id));
+            }
+        }
+    }
+
+    private static void ValidateAttestationFields(AttestationTemplate template, List<Diagnostic> diagnostics)
+    {
+        var seenFieldIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var field in template.Fields)
+        {
+            CheckRequired(field.Id, GitOpsSchema.KindAttestationTemplate, "field id", template.Id, diagnostics);
+            CheckRequired(field.Label, GitOpsSchema.KindAttestationTemplate, "field label", template.Id, diagnostics);
+            CheckRequired(field.Type, GitOpsSchema.KindAttestationTemplate, "field type", template.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(field.Id) && !seenFieldIds.Add(field.Id))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has duplicate field id "
+                        + $"'{field.Id}'.",
+                });
+            }
+
+            var typeKnown = !string.IsNullOrEmpty(field.Type) && FieldTypeTokens.Contains(field.Type);
+            if (!string.IsNullOrEmpty(field.Type) && !typeKnown)
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' field '{Describe(field.Id)}' has "
+                        + $"unknown type '{field.Type}'. Expected one of: boolean, single-choice, short-text.",
+                });
+            }
+
+            if (field.Type == "single-choice")
+            {
+                if (field.Options.Count < 2)
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' field '{Describe(field.Id)}' is "
+                            + "single-choice but has fewer than two options.",
+                    });
+                }
+
+                CheckDuplicateOptions(template.Id, field.Id, "field", field.Options, diagnostics);
+            }
+            else if (typeKnown && field.Options.Count > 0)
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' field '{Describe(field.Id)}' has "
+                        + $"type '{field.Type}' but declares options, which are only valid for a single-choice field.",
+                });
+            }
+        }
+    }
+
+    private static void ValidateAttestationQuiz(AttestationTemplate template, List<Diagnostic> diagnostics)
+    {
+        var seenQuizIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var item in template.Quiz)
+        {
+            CheckRequired(item.Id, GitOpsSchema.KindAttestationTemplate, "quiz id", template.Id, diagnostics);
+            CheckRequired(item.Prompt, GitOpsSchema.KindAttestationTemplate, "quiz prompt", template.Id, diagnostics);
+            CheckRequired(item.Answer, GitOpsSchema.KindAttestationTemplate, "quiz answer", template.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(item.Id) && !seenQuizIds.Add(item.Id))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has duplicate quiz id "
+                        + $"'{item.Id}'.",
+                });
+            }
+
+            if (item.Options.Count < 2)
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' quiz item '{Describe(item.Id)}' has "
+                        + "fewer than two options.",
+                });
+            }
+
+            CheckDuplicateOptions(template.Id, item.Id, "quiz item", item.Options, diagnostics);
+
+            // The answer is a value reference into the option labels; option-label uniqueness makes it
+            // unambiguous. Only check membership when an answer is present (a blank is caught above).
+            if (!string.IsNullOrEmpty(item.Answer) && !item.Options.Contains(item.Answer, StringComparer.Ordinal))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' quiz item '{Describe(item.Id)}' has "
+                        + $"answer '{item.Answer}' that is not one of its options.",
+                });
+            }
+        }
+    }
+
+    private static void CheckDuplicateOptions(
+        string templateId, string ownerId, string ownerKind, IReadOnlyList<string> options, List<Diagnostic> diagnostics)
+    {
+        var duplicates = options
+            .GroupBy(option => option, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key);
+        foreach (var duplicate in duplicates)
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(templateId)}' {ownerKind} '{Describe(ownerId)}' has "
+                    + $"duplicate option '{duplicate}'.",
             });
         }
     }

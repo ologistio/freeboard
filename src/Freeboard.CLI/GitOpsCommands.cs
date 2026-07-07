@@ -122,7 +122,8 @@ public sealed class GitOpsCommands
             + $"{result.Config.Controls.Count} control(s), {result.Config.Organisations.Count} organisation(s), "
             + $"{result.Config.Scopes.Count} scope(s), {result.Config.RequirementScopes.Count} requirement-scope(s), "
             + $"{result.Config.Vendors.Count} vendor(s), {result.Config.VendorScopes.Count} vendor-scope(s), "
-            + $"{result.Config.EvidenceCollectors.Count} evidence-collector(s).");
+            + $"{result.Config.EvidenceCollectors.Count} evidence-collector(s), "
+            + $"{result.Config.AttestationTemplates.Count} attestation-template(s).");
         return 0;
     }
 
@@ -141,7 +142,8 @@ public sealed class GitOpsCommands
             + $"{config.Controls.Count} control(s), {config.Organisations.Count} organisation(s), "
             + $"{config.Scopes.Count} scope(s), {config.RequirementScopes.Count} requirement-scope(s), "
             + $"{config.Vendors.Count} vendor(s), {config.VendorScopes.Count} vendor-scope(s), "
-            + $"{config.EvidenceCollectors.Count} evidence-collector(s).");
+            + $"{config.EvidenceCollectors.Count} evidence-collector(s), "
+            + $"{config.AttestationTemplates.Count} attestation-template(s).");
     }
 
     private static void PrintPlannedState(GitOpsConfig config)
@@ -209,6 +211,18 @@ public sealed class GitOpsCommands
             Console.WriteLine(
                 $"  - {collector.Id}: {collector.Title} -> control {collector.Control} / vendor {vendor} "
                 + $"[{collector.Type}, {collector.Frequency}]");
+        }
+
+        // Per-template line only (id/title/control/type, plus pass_mark for training); body, fields, quiz,
+        // and the confidential quiz answer are deliberately omitted from authoring output.
+        Console.WriteLine($"AttestationTemplates ({config.AttestationTemplates.Count}):");
+        foreach (var template in config.AttestationTemplates)
+        {
+            var passMark = template.Type == "training" && !string.IsNullOrWhiteSpace(template.PassMark)
+                ? $", pass_mark {template.PassMark}"
+                : string.Empty;
+            Console.WriteLine(
+                $"  - {template.Id}: {template.Title} -> control {template.Control} [{template.Type}{passMark}]");
         }
     }
 }

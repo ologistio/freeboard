@@ -205,6 +205,33 @@ public static class ComplianceEndpoints
             }
         });
 
+        // Attestation-templates are org-independent reference data (no organisation dimension), so - like
+        // /vendors and /evidence-collectors - they are intentionally NOT narrowed by IOrgAccess: any
+        // authenticated user reads every template. The quiz items carry no answer: the store returns an
+        // answer-free QuizItemView, so the correct answer never appears in the JSON.
+        reads.MapGet("/attestation-templates", async (IComplianceStore store, CancellationToken ct) =>
+        {
+            try
+            {
+                var rows = await store.GetAttestationTemplatesAsync(ct);
+                return Results.Ok(rows.Select(r => new
+                {
+                    id = r.Id,
+                    title = r.Title,
+                    control = r.Control,
+                    type = r.Type,
+                    body = r.Body,
+                    fields = r.Fields.Select(f => new { id = f.Id, label = f.Label, type = f.Type, options = f.Options }),
+                    pass_mark = r.PassMark,
+                    quiz = r.Quiz.Select(q => new { id = q.Id, prompt = q.Prompt, options = q.Options }),
+                }));
+            }
+            catch (Exception ex) when (IsStoreFailure(ex))
+            {
+                return Unreachable();
+            }
+        });
+
         reads.MapGet("/statement-of-applicability/{standardId}",
             async (string standardId, IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
             {
@@ -262,6 +289,7 @@ public static class ComplianceEndpoints
                         vendors = (int?)counts.Vendors,
                         vendorScopes = (int?)counts.VendorScopes,
                         evidenceCollectors = (int?)counts.EvidenceCollectors,
+                        attestationTemplates = (int?)counts.AttestationTemplates,
                     },
                 });
             }
@@ -281,6 +309,7 @@ public static class ComplianceEndpoints
                         vendors = (int?)null,
                         vendorScopes = (int?)null,
                         evidenceCollectors = (int?)null,
+                        attestationTemplates = (int?)null,
                     },
                 });
             }

@@ -91,6 +91,12 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json => json.EnumerateArray().Select(ReadEvidenceCollector).ToList(),
             ct);
 
+    public Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiAttestationTemplate>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/attestation-templates", body: null,
+            json => json.EnumerateArray().Select(ReadAttestationTemplate).ToList(),
+            ct);
+
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpMethod method, string path, object? body, Func<JsonElement, T> map, CancellationToken ct)
     {
@@ -193,6 +199,42 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
                 ? threshold.GetInt32()
                 : null,
             ReadConfig(json));
+
+    private static ApiAttestationTemplate ReadAttestationTemplate(JsonElement json) =>
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("title").GetString()!,
+            json.GetProperty("control").GetString()!,
+            json.GetProperty("type").GetString()!,
+            OptionalString(json, "body"),
+            ReadArray(json, "fields", ReadAttestationField),
+            json.TryGetProperty("pass_mark", out var passMark) && passMark.ValueKind == JsonValueKind.Number
+                ? passMark.GetInt32()
+                : null,
+            ReadArray(json, "quiz", ReadQuizItem));
+
+    private static ApiAttestationField ReadAttestationField(JsonElement json) =>
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("label").GetString()!,
+            json.GetProperty("type").GetString()!,
+            ReadStringArray(json, "options"));
+
+    private static ApiQuizItem ReadQuizItem(JsonElement json) =>
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("prompt").GetString()!,
+            ReadStringArray(json, "options"));
+
+    private static IReadOnlyList<T> ReadArray<T>(JsonElement json, string name, Func<JsonElement, T> map) =>
+        json.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray().Select(map).ToList()
+            : [];
+
+    private static IReadOnlyList<string> ReadStringArray(JsonElement json, string name) =>
+        json.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray().Select(e => e.GetString() ?? string.Empty).ToList()
+            : [];
 
     private static IReadOnlyDictionary<string, string> ReadConfig(JsonElement json)
     {

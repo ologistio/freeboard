@@ -39,6 +39,9 @@ internal interface IFreeboardApiClient
 
     /// <summary>GET /evidence-collectors - list evidence-collectors attached to controls.</summary>
     Task<ApiResult<IReadOnlyList<ApiEvidenceCollector>>> ListEvidenceCollectorsAsync(CancellationToken ct);
+
+    /// <summary>GET /attestation-templates - list attestation-templates attached to controls.</summary>
+    Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct);
 }
 
 /// <summary>The public user fields returned by the API (snake_case on the wire).</summary>
@@ -81,6 +84,30 @@ internal sealed record ApiEvidenceCollector(
     string Frequency,
     int? Threshold,
     IReadOnlyDictionary<string, string> Config);
+
+/// <summary>An attestation form field as returned by the API.</summary>
+internal sealed record ApiAttestationField(string Id, string Label, string Type, IReadOnlyList<string> Options);
+
+/// <summary>
+/// A quiz item as returned by the API: prompt and options only. It has NO answer - the API redacts the
+/// correct answer, so the CLI never receives or prints it.
+/// </summary>
+internal sealed record ApiQuizItem(string Id, string Prompt, IReadOnlyList<string> Options);
+
+/// <summary>
+/// An attestation-template as returned by the API. <see cref="Body"/> and <see cref="PassMark"/> are null
+/// when unset; <see cref="Fields"/> and <see cref="Quiz"/> are the ordered lists (empty when unset). The
+/// quiz carries no answer.
+/// </summary>
+internal sealed record ApiAttestationTemplate(
+    string Id,
+    string Title,
+    string Control,
+    string Type,
+    string? Body,
+    IReadOnlyList<ApiAttestationField> Fields,
+    int? PassMark,
+    IReadOnlyList<ApiQuizItem> Quiz);
 
 /// <summary>A void success payload for calls that return no body of interest.</summary>
 internal sealed record Unit

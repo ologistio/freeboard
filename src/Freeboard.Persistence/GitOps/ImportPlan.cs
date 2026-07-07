@@ -31,6 +31,24 @@ public sealed record EvidenceCollectorRowPlan(
     string? ConfigJson);
 
 /// <summary>
+/// An attestation-template row to upsert: a required control foreign key, the type token, an optional
+/// <see cref="Body"/> (null when blank), an optional <see cref="PassMark"/> integer percent (null when
+/// blank), and <see cref="FieldsJson"/>/<see cref="QuizJson"/> - the ordered field and quiz lists
+/// serialized to a JSON array string (null when the list is empty). The serialized quiz includes each
+/// item's answer for the later grading runtime; the answer is redacted at the read-model boundary.
+/// </summary>
+public sealed record AttestationTemplateRowPlan(
+    string Id,
+    string ApiVersion,
+    string Title,
+    string Control,
+    string Type,
+    string? Body,
+    string? FieldsJson,
+    int? PassMark,
+    string? QuizJson);
+
+/// <summary>
 /// A standard row to upsert. Carries the metadata columns; optional <see cref="Publisher"/> and
 /// <see cref="SourceUrl"/> are null when absent.
 /// </summary>
@@ -110,6 +128,8 @@ public sealed class ImportPlan
 
     public IReadOnlyList<EvidenceCollectorRowPlan> EvidenceCollectors { get; }
 
+    public IReadOnlyList<AttestationTemplateRowPlan> AttestationTemplates { get; }
+
     private ImportPlan(GitOpsConfig config)
     {
         // Optional fields normalize to null here (blank means absent), mirroring Organisation.Parent.
@@ -163,6 +183,15 @@ public sealed class ImportPlan
                 c.Id, c.ApiVersion, c.Title, c.Control, NullIfBlank(c.Vendor), c.Type, c.Frequency,
                 ParseThreshold(c.Threshold), SerializeConfig(c.Config)))
             .ToList();
+
+        // pass_mark is parsed to int? only here, after Core validation has range-checked the raw text; a
+        // blank stays null. fields/quiz serialize to a JSON array string, null when the list is empty. The
+        // serialized quiz keeps each item's answer for the later grading runtime.
+        AttestationTemplates = config.AttestationTemplates
+            .Select(t => new AttestationTemplateRowPlan(
+                t.Id, t.ApiVersion, t.Title, t.Control, t.Type, NullIfBlank(t.Body),
+                SerializeList(t.Fields), ParseThreshold(t.PassMark), SerializeList(t.Quiz)))
+            .ToList();
     }
 
     public static ImportPlan From(GitOpsConfig config) => new(config);
@@ -174,6 +203,9 @@ public sealed class ImportPlan
 
     private static string? SerializeConfig(IReadOnlyDictionary<string, string> config) =>
         config.Count == 0 ? null : JsonSerializer.Serialize(config);
+
+    private static string? SerializeList<T>(IReadOnlyList<T> items) =>
+        items.Count == 0 ? null : JsonSerializer.Serialize(items);
 
     public IReadOnlyList<string> StandardIds => Standards.Select(r => r.Id).ToList();
 
@@ -193,6 +225,8 @@ public sealed class ImportPlan
     public IReadOnlyList<string> VendorScopeIds => VendorScopes.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> EvidenceCollectorIds => EvidenceCollectors.Select(r => r.Id).ToList();
+
+    public IReadOnlyList<string> AttestationTemplateIds => AttestationTemplates.Select(r => r.Id).ToList();
 
     /// <summary>
     /// Orders organisations so every parent precedes its children (topological by depth).

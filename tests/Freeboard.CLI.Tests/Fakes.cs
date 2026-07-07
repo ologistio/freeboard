@@ -100,6 +100,8 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public int CollectorListCalls { get; private set; }
 
+    public int TemplateListCalls { get; private set; }
+
     public string? LastId { get; private set; }
 
     public ApiResult<CreatedUser> CreateResult { get; init; } =
@@ -130,6 +132,9 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public ApiResult<IReadOnlyList<ApiEvidenceCollector>> CollectorListResult { get; init; } =
         ApiResult<IReadOnlyList<ApiEvidenceCollector>>.Success([SampleCollector]);
 
+    public ApiResult<IReadOnlyList<ApiAttestationTemplate>> TemplateListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiAttestationTemplate>>.Success([SampleManualTemplate, SampleTrainingTemplate]);
+
     public static ApiUser SampleUser { get; } =
         new("01HZZ0000000000000000000AA", "user@example.test", "User", "member", true);
 
@@ -143,6 +148,14 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public static ApiEvidenceCollector SampleCollector { get; } =
         new("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "daily", 100,
             new Dictionary<string, string> { ["endpoint"] = "policies.mfa" });
+
+    public static ApiAttestationTemplate SampleManualTemplate { get; } =
+        new("attest-manual", "Firewall attestation", "ctrl-a", "manual", "Confirm review.",
+            [new ApiAttestationField("reviewed", "Ruleset reviewed?", "boolean", [])], null, []);
+
+    public static ApiAttestationTemplate SampleTrainingTemplate { get; } =
+        new("attest-training", "Phishing awareness", "ctrl-a", "training", null, [], 80,
+            [new ApiQuizItem("q1", "What should you do with an unexpected attachment?", ["Open it", "Report it"])]);
 
     public Task<ApiResult<CreatedUser>> CreateUserAsync(string email, string name, string role, CancellationToken ct)
     {
@@ -206,5 +219,11 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     {
         CollectorListCalls++;
         return Task.FromResult(CollectorListResult);
+    }
+
+    public Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct)
+    {
+        TemplateListCalls++;
+        return Task.FromResult(TemplateListResult);
     }
 }

@@ -1,0 +1,84 @@
+@page "/compliance/attestation-templates"
+@model Freeboard.Pages.Compliance.AttestationTemplatesModel
+@{
+    ViewData["Title"] = "Attestation Template Register";
+}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Attestation Template Register</h1>
+    <p class="mt-1 text-sm text-neutral-600">Controls and the attestation forms and training quizzes attached to each.</p>
+</div>
+
+@if (Model.StoreUnreachable)
+{
+    <p class="notice-error max-w-2xl">The compliance store could not be reached. Check the database connection.</p>
+}
+else if (Model.Controls.Count == 0)
+{
+    <p class="text-sm text-neutral-600" data-empty>No attestation templates are registered.</p>
+}
+else
+{
+    <div class="space-y-6">
+        @foreach (var control in Model.Controls)
+        {
+            <section class="card p-0" data-control-id="@control.Id">
+                <div class="border-b border-neutral-200 px-4 py-3">
+                    <h2 class="font-semibold">@control.Title</h2>
+                    <p class="font-mono text-xs text-neutral-600">@control.Id</p>
+                </div>
+                <div class="divide-y divide-neutral-100">
+                    @foreach (var template in Model.TemplatesFor(control.Id))
+                    {
+                        <div class="px-4 py-3" data-template-id="@template.Id">
+                            <div class="flex items-center justify-between gap-2">
+                                <div>
+                                    <span>@template.Title</span>
+                                    <span class="block font-mono text-xs text-neutral-500">@template.Id</span>
+                                </div>
+                                <span class="badge badge-brand" data-type>@template.Type</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(template.Body))
+                            {
+                                @* Body is authored markdown rendered as HTML-encoded text: a git-authored *@
+                                @* body must never become live HTML (stored-XSS). No @@Html.Raw, no markdown step. *@
+                                <p class="mt-2 whitespace-pre-line text-sm text-neutral-700" data-body>@template.Body</p>
+                            }
+                            @if (template.Fields.Count > 0)
+                            {
+                                <ul class="mt-2 space-y-1 text-sm" data-fields>
+                                    @foreach (var field in template.Fields)
+                                    {
+                                        <li data-field-id="@field.Id">
+                                            <span>@field.Label</span>
+                                            <span class="font-mono text-xs text-neutral-500" data-field-type>[@field.Type]</span>
+                                            @if (field.Options.Count > 0)
+                                            {
+                                                <span class="text-xs text-neutral-500" data-field-options>(@string.Join(", ", field.Options))</span>
+                                            }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            @if (template.PassMark is int passMark)
+                            {
+                                <p class="mt-2 text-sm text-neutral-700">Pass mark: <span data-pass-mark>@passMark%</span></p>
+                            }
+                            @if (template.Quiz.Count > 0)
+                            {
+                                <ul class="mt-2 space-y-1 text-sm" data-quiz>
+                                    @foreach (var item in template.Quiz)
+                                    {
+                                        <li data-quiz-id="@item.Id">
+                                            <span data-quiz-prompt>@item.Prompt</span>
+                                            <span class="text-xs text-neutral-500" data-quiz-options>(@string.Join(", ", item.Options))</span>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+    </div>
+}

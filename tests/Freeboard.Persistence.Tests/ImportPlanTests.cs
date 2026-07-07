@@ -239,6 +239,93 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
+    public void AttestationTemplateRowSerializesFieldsQuizAndParsesPassMark()
+    {
+        var config = new GitOpsConfig
+        {
+            AttestationTemplates =
+            [
+                new AttestationTemplate
+                {
+                    Id = "attest-training", ApiVersion = "v1", Title = "T", Control = "ctrl-a", Type = "training",
+                    Body = "Read this.", PassMark = "80",
+                    Quiz =
+                    [
+                        new QuizItem { Id = "q1", Prompt = "P", Options = ["a", "b"], Answer = "a" },
+                    ],
+                },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).AttestationTemplates);
+
+        Assert.Equal("ctrl-a", row.Control);
+        Assert.Equal("training", row.Type);
+        Assert.Equal("Read this.", row.Body);
+        Assert.Equal(80, row.PassMark);
+        Assert.Null(row.FieldsJson);
+        // The serialized quiz keeps the answer for the grading runtime; redaction happens at read.
+        Assert.Contains("\"Answer\":\"a\"", row.QuizJson);
+        Assert.Equal(["attest-training"], ImportPlan.From(config).AttestationTemplateIds);
+    }
+
+    [Fact]
+    public void AttestationTemplateRowNullsOptionalFieldsWhenAbsent()
+    {
+        var config = new GitOpsConfig
+        {
+            AttestationTemplates =
+            [
+                new AttestationTemplate
+                {
+                    Id = "attest-manual", ApiVersion = "v1", Title = "T", Control = "ctrl-a", Type = "manual",
+                },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).AttestationTemplates);
+
+        Assert.Null(row.Body);
+        Assert.Null(row.PassMark);
+        // Empty field and quiz lists serialize to null (stored as SQL NULL), never throwing.
+        Assert.Null(row.FieldsJson);
+        Assert.Null(row.QuizJson);
+    }
+
+    [Fact]
+    public void ExplicitNullNestedListsLoadedFromYamlSerializeToNull()
+    {
+        // A template authored with explicit-null `fields:`/`quiz:` normalizes to empty lists on load,
+        // then serializes to null (SQL NULL) in the import plan without throwing.
+        var dir = Directory.CreateTempSubdirectory("fb-importplan-");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir.FullName, "template.yaml"), """
+                apiVersion: freeboard.dev/v1alpha1
+                kind: AttestationTemplate
+                id: attest-manual
+                title: T
+                control: ctrl-a
+                type: manual
+                fields:
+                quiz:
+                """);
+
+            var loaded = ConfigLoader.Load(dir.FullName);
+            Assert.Empty(loaded.Diagnostics);
+
+            var row = Assert.Single(ImportPlan.From(loaded.Config).AttestationTemplates);
+
+            Assert.Null(row.FieldsJson);
+            Assert.Null(row.QuizJson);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void ExplicitNullConfigLoadedFromYamlSerializesToNullConfigJson()
     {
         // A collector authored with an explicit-null `config:` normalizes to an empty map on load,
