@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Freeboard.Core.GitOps;
 
 /// <summary>
@@ -8,11 +10,28 @@ namespace Freeboard.Core.GitOps;
 /// disposition enum, unique organisation/standard pair), the requirement-scope mapping
 /// (resolvable references, disposition enum, unique organisation/requirement pair), and the
 /// vendor-scope mapping (exactly-one target, resolvable references, disposition enum, unique
-/// vendor/target pair, justification required when Out). Does NOT re-check kind (the loader owns
+/// vendor/target pair, justification required when Out), and the evidence-collectors (resolvable
+/// control/vendor references, type/frequency/threshold checks, and the control evaluation rule
+/// required once a control has an attached collector). Does NOT re-check kind (the loader owns
 /// kind-routing).
 /// </summary>
 public static class ConfigValidator
 {
+    /// <summary>Closed token set for a control's evaluation rule (case-sensitive).</summary>
+    private static readonly HashSet<string> EvaluationTokens = new(StringComparer.Ordinal) { "all", "any", "manual" };
+
+    /// <summary>Closed token set for an evidence-collector's type (case-sensitive).</summary>
+    private static readonly HashSet<string> CollectorTypeTokens = new(StringComparer.Ordinal)
+    {
+        "integration", "script", "manual-attestation", "training-attestation", "agent",
+    };
+
+    /// <summary>Closed token set for an evidence-collector's collection cadence (case-sensitive).</summary>
+    private static readonly HashSet<string> FrequencyTokens = new(StringComparer.Ordinal)
+    {
+        "continuous", "daily", "weekly", "monthly", "quarterly", "annual",
+    };
+
     /// <summary>
     /// Loads <paramref name="directory"/> then validates it, returning the model and
     /// the combined loader plus validator diagnostics.
@@ -43,6 +62,7 @@ public static class ConfigValidator
         ValidateRequirementScopes(config, organisationIds, requirementIds, diagnostics);
         var vendorIds = ValidateVendors(config, diagnostics);
         ValidateVendorScopes(config, vendorIds, requirementIds, controlIds, diagnostics);
+        ValidateEvidenceCollectors(config, controlIds, vendorIds, diagnostics);
 
         return diagnostics;
     }
@@ -167,6 +187,17 @@ public static class ConfigValidator
 
             CheckNoDuplicateRefs(
                 control.MapsTo, GitOpsSchema.KindControl, control.Id, "maps_to", "Requirement", diagnostics);
+
+            // The evaluation rule is optional here (the required-when-collectors check runs in the
+            // collector phase, once the attached-control set is known); when present it must be a token.
+            if (!string.IsNullOrEmpty(control.Evaluation) && !EvaluationTokens.Contains(control.Evaluation))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' has unknown evaluation "
+                        + $"'{control.Evaluation}'. Expected 'all', 'any', or 'manual'.",
+                });
+            }
 
             if (!string.IsNullOrEmpty(control.Id))
             {
@@ -537,6 +568,104 @@ public static class ConfigValidator
                         + $"'{vendorScope.Control}' more than once.",
                 });
             }
+        }
+    }
+
+    private static void ValidateEvidenceCollectors(
+        GitOpsConfig config,
+        HashSet<string> controlIds,
+        HashSet<string> vendorIds,
+        List<Diagnostic> diagnostics)
+    {
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var controlsWithCollector = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var collector in config.EvidenceCollectors)
+        {
+            CheckApiVersion(collector.ApiVersion, GitOpsSchema.KindEvidenceCollector, collector.Id, diagnostics);
+            CheckRequired(collector.Id, GitOpsSchema.KindEvidenceCollector, "id", collector.Title, diagnostics);
+            CheckRequired(collector.Title, GitOpsSchema.KindEvidenceCollector, "title", collector.Id, diagnostics);
+            CheckRequired(collector.Control, GitOpsSchema.KindEvidenceCollector, "control", collector.Id, diagnostics);
+            CheckRequired(collector.Type, GitOpsSchema.KindEvidenceCollector, "type", collector.Id, diagnostics);
+            CheckRequired(collector.Frequency, GitOpsSchema.KindEvidenceCollector, "frequency", collector.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(collector.Control))
+            {
+                if (!controlIds.Contains(collector.Control))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' references unknown Control id "
+                            + $"'{collector.Control}'.",
+                    });
+                }
+                else
+                {
+                    // Track only resolved controls, so the missing-evaluation check below never fires
+                    // for an id no document defines (that stays a pure unknown-control diagnostic).
+                    controlsWithCollector.Add(collector.Control);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(collector.Vendor) && !vendorIds.Contains(collector.Vendor))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' references unknown Vendor id "
+                        + $"'{collector.Vendor}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(collector.Type) && !CollectorTypeTokens.Contains(collector.Type))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has unknown type "
+                        + $"'{collector.Type}'. Expected one of: integration, script, manual-attestation, "
+                        + "training-attestation, agent.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(collector.Frequency) && !FrequencyTokens.Contains(collector.Frequency))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has unknown frequency "
+                        + $"'{collector.Frequency}'. Expected one of: continuous, daily, weekly, monthly, quarterly, annual.",
+                });
+            }
+
+            // threshold is optional; when present it must be an integer percent in [0, 100]. Parsing the
+            // raw authored text here (not at YAML bind time) turns a malformed value into this diagnostic
+            // instead of a binding crash.
+            if (!string.IsNullOrWhiteSpace(collector.Threshold)
+                && (!int.TryParse(collector.Threshold, NumberStyles.Integer, CultureInfo.InvariantCulture, out var threshold)
+                    || threshold < 0 || threshold > 100))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has invalid threshold "
+                        + $"'{collector.Threshold}'. Expected an integer percent from 0 to 100.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(collector.Id) && !seenIds.Add(collector.Id))
+            {
+                diagnostics.Add(Dup(GitOpsSchema.KindEvidenceCollector, collector.Id));
+            }
+        }
+
+        // A control with at least one attached collector must declare an evaluation rule. Iterate the
+        // real controls and test membership in the attached set, not the collectors' control-refs, so an
+        // unresolved control-ref cannot raise a spurious missing-evaluation diagnostic for an undefined id.
+        foreach (var control in config.Controls.Where(c =>
+            controlsWithCollector.Contains(c.Id) && string.IsNullOrWhiteSpace(c.Evaluation)))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' has attached evidence-collectors but is "
+                    + "missing required field 'evaluation'.",
+            });
         }
     }
 

@@ -162,6 +162,73 @@ public sealed class ConfigLoaderTests
     }
 
     [Fact]
+    public void ValidMultiKindConfigIncludingEvidenceCollectorsLoadsAndValidates()
+    {
+        using var dir = TempConfig.Create(
+            ("all.yaml", """
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Standard
+                id: std-a
+                title: Standard A
+                version: "1.0"
+                authority: Example Authority
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Requirement
+                id: req-a
+                title: Requirement A
+                standard: std-a
+                theme: Theme A
+                statement: Do the thing.
+                citation_label: Source A
+                citation_url: https://example.com/a
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Control
+                id: ctrl-a
+                title: Control A
+                maps_to:
+                  - req-a
+                evaluation: all
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Vendor
+                id: vendor-a
+                title: Vendor A
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: EvidenceCollector
+                id: collector-integration
+                title: Endpoint MFA via Crowdstrike
+                control: ctrl-a
+                vendor: vendor-a
+                type: integration
+                frequency: daily
+                threshold: 100
+                config:
+                  endpoint: policies.mfa
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: EvidenceCollector
+                id: collector-manual
+                title: Annual policy attestation
+                control: ctrl-a
+                type: manual-attestation
+                frequency: annual
+                """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        Assert.Equal("all", result.Config.Controls[0].Evaluation);
+        Assert.Equal(["collector-integration", "collector-manual"], result.Config.EvidenceCollectors.Select(c => c.Id).ToArray());
+        var integration = result.Config.EvidenceCollectors[0];
+        Assert.Equal("vendor-a", integration.Vendor);
+        Assert.Equal("policies.mfa", integration.Config["endpoint"]);
+        Assert.Empty(result.Config.EvidenceCollectors[1].Config);
+    }
+
+    [Fact]
     public void MultipleDocumentsInOneFileAllParse()
     {
         using var dir = TempConfig.Create(
