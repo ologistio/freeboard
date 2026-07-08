@@ -308,6 +308,24 @@ public sealed class EvidenceIngestEndpointTests
     }
 
     [Fact]
+    public async Task DefaultedInOrganisationIsAccepted()
+    {
+        // org-default has no Scope for the standard, so under opt-out it defaults In and ingest accepts.
+        using var factory = FactoryFor("col-1");
+        var token = factory.SeedCollectorCredential("col-1");
+        using var client = ClientWith(factory, token);
+
+        factory.Compliance.Organisations =
+            [.. factory.Compliance.Organisations, new OrganisationRow("org-default", "Default", "Company", null)];
+
+        var response = await client.PostAsync(Route, Body(Valid(organisationId: "org-default")));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var run = Assert.Single(factory.EvidenceStore.Appended);
+        Assert.Equal("org-default", run.OrganisationId);
+    }
+
+    [Fact]
     public Task OverLongCollectorRefIs422() =>
         // collector_id (5) + ':' + a 190-char run_id exceeds the 190-char collector_ref cap.
         AssertUnprocessable(Valid(runId: new string('r', 190)));

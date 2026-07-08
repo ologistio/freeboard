@@ -483,6 +483,24 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
+    public async Task StatementOfApplicabilityDefaultsInWithNoScope()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        // std-b has no Scope rows, so every node defaults In marked "default".
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/statement-of-applicability/std-b");
+
+        var nodes = json.GetProperty("nodes");
+        Assert.Equal(2, nodes.GetArrayLength());
+        Assert.All(nodes.EnumerateArray(), n =>
+        {
+            Assert.Equal("In", n.GetProperty("disposition").GetString());
+            Assert.Equal("default", n.GetProperty("resolution").GetString());
+        });
+    }
+
+    [Fact]
     public async Task StatementOfApplicabilityServedInReadOnlyModeToAuthenticatedUser()
     {
         using var factory = Factory(PopulatedStore(), readOnly: true);

@@ -134,6 +134,28 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
+    public async Task DefaultedInNodeRendersInScope()
+    {
+        // A store with no Scope rows: every node defaults In marked "default" under opt-out.
+        var store = new FakeComplianceStore
+        {
+            Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
+            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+        };
+        using var factory = Factory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+        var row = table[table.IndexOf("data-node-id=\"org-a\"", StringComparison.Ordinal)..];
+        Assert.Contains("badge-success", row, StringComparison.Ordinal);
+        Assert.Contains(">In<", row, StringComparison.Ordinal);
+        Assert.Contains("default", row, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoStandardChosenRendersSelectorWithoutNodes()
     {
         using var factory = Factory(PopulatedStore());
