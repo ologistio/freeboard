@@ -1,0 +1,26 @@
+{
+  "schema_version": "freeboard.evidence.v1",
+  "collector_id": "google-workspace-mfa",
+  "organisation_id": "org-acme",
+  "requirement_id": "req-mfa",
+  "run_id": "2026-07-08T09-00-00Z-a1b2c3",
+  "collector_version": "sha256:abc123def456",
+  "collected_at": "2026-07-08T09:00:12Z",
+  "checks": [
+    {
+      "name": "admin-2sv-enforced",
+      "severity": "hard",
+      "result": "pass",
+      "detail": "All 4 super-admins are enrolled in 2-step verification."
+    },
+    {
+      "name": "user-2sv-coverage",
+      "severity": "soft",
+      "result": "fail",
+      "detail": "3 of 42 users are not enrolled in 2-step verification."
+    }
+  ],
+  "metadata": {
+    "tenant": "ologist.io"
+  }
+}

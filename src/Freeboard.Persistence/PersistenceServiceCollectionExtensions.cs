@@ -78,6 +78,19 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory and <see cref="ICollectorCredentialStore"/>, the per-collector
+    /// machine credential store the Evidence ingest scheme authenticates against. Registered beside
+    /// <see cref="AddEvidenceWriteStore"/>; both TryAdd the shared <see cref="Auth.IUlidFactory"/>.
+    /// </summary>
+    public static IServiceCollection AddCollectorCredentialStore(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<Auth.IUlidFactory, Auth.UlidFactory>();
+        services.TryAddSingleton<ICollectorCredentialStore, MySqlCollectorCredentialStore>();
+        return services;
+    }
+
     /// <summary>Registers the connection factory and <see cref="IGitOpsImporter"/>.</summary>
     public static IServiceCollection AddGitOpsImport(this IServiceCollection services, string connectionString)
     {

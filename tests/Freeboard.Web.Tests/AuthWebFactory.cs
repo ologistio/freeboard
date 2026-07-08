@@ -56,6 +56,12 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// <summary>The compliance read store the app serves. Seed it to drive the read pages/endpoints.</summary>
     public FakeComplianceStore Compliance { get; init; } = new();
 
+    /// <summary>The in-memory evidence write store the ingest route serves. Assert its <c>Appended</c> runs.</summary>
+    public FakeEvidenceWriteStore EvidenceStore { get; init; } = new();
+
+    /// <summary>The in-memory collector-credential store. Seed a credential to drive collector auth.</summary>
+    public FakeCollectorCredentialStore CollectorCreds { get; init; } = new();
+
     /// <summary>The in-memory authz read store. Seed grants to drive authorization decisions.</summary>
     public FakeAuthzStore Authz { get; init; } = new();
 
@@ -141,6 +147,11 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IComplianceStore>();
             services.AddSingleton<IComplianceStore>(Compliance);
+
+            services.RemoveAll<IEvidenceWriteStore>();
+            services.AddSingleton<IEvidenceWriteStore>(EvidenceStore);
+            services.RemoveAll<ICollectorCredentialStore>();
+            services.AddSingleton<ICollectorCredentialStore>(CollectorCreds);
 
             // Share the custom-role dictionary so a write on AuthzAdmin is visible to a read on Authz,
             // mirroring the two real stores over one database.
@@ -267,6 +278,27 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
             new SessionRow($"sudo-{user.Id}", user.Id, minted.KeyVersion, SessionAuthState.Full, credentialVersion,
                 DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow.AddHours(1), null),
             minted.Hash);
+        return minted.Token;
+    }
+
+    /// <summary>
+    /// Seeds a per-collector machine credential (token minted with the real ITokenHasher so it hashes
+    /// exactly as the collector scheme expects) and returns the raw bearer token. Pass
+    /// <paramref name="revokedAt"/>/<paramref name="expiresAt"/> to seed a revoked or expired credential,
+    /// or <paramref name="storedKeyVersion"/> to store a key version that differs from the token's (the
+    /// integrity-mismatch case).
+    /// </summary>
+    public string SeedCollectorCredential(
+        string collectorId, string credentialId = "cred-1",
+        DateTime? expiresAt = null, DateTime? revokedAt = null, int? storedKeyVersion = null)
+    {
+        var hasher = Services.GetRequiredService<ITokenHasher>();
+        var minted = hasher.MintPrefixed();
+        CollectorCreds.Add(
+            minted.Hash,
+            new Persistence.CollectorCredentialRow(
+                credentialId, collectorId, storedKeyVersion ?? minted.KeyVersion, DateTime.UtcNow, null,
+                expiresAt, revokedAt));
         return minted.Token;
     }
 

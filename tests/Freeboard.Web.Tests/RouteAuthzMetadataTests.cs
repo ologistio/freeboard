@@ -1,5 +1,7 @@
+using Freeboard.Auth;
 using Freeboard.Authz;
 using Freeboard.Core.Authz;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +46,8 @@ public sealed class RouteAuthzMetadataTests
     [InlineData("POST", "custom-roles", AuthzActions.SystemAdmin)]
     [InlineData("PUT", "custom-roles/{roleKey}", AuthzActions.SystemAdmin)]
     [InlineData("DELETE", "custom-roles/{roleKey}", AuthzActions.SystemAdmin)]
+    [InlineData("POST", "evidence-collectors/{id}/credentials", AuthzActions.SystemAdmin)]
+    [InlineData("DELETE", "evidence-collectors/{id}/credentials/{credId}", AuthzActions.SystemAdmin)]
     public void MutatingRouteCarriesPermissionAndAlwaysEnforce(string method, string patternSuffix, string action)
     {
         var endpoint = Endpoints().FirstOrDefault(e =>
@@ -122,12 +126,53 @@ public sealed class RouteAuthzMetadataTests
 
             var path = raw[(idx + prefix.Length)..];
             var forceEnforced = endpoint.Metadata.GetMetadata<AuthzPermissionMetadata>() is { AlwaysEnforce: true };
-            if (!forceEnforced && !Allowlisted(path))
+            if (!forceEnforced && !Allowlisted(path) && !IsIngestGated(endpoint))
             {
                 offenders.Add(path);
             }
         }
 
         Assert.True(offenders.Count == 0, "Ungated mutating API routes: " + string.Join(", ", offenders));
+    }
+
+    /// <summary>
+    /// The ingest route is gated by the collector scheme + named ingest policy, not by a permission
+    /// filter, so it passes the universal guard by carrying the <see cref="Freeboard.Api.IngestEndpoint"/>
+    /// marker AND being bound to the ingest policy (an IAuthorizeData whose Policy is the ingest policy
+    /// name). A route missing either half is NOT recognised as gated - so an accidentally-ungated ingest
+    /// route still fails the build.
+    /// </summary>
+    private static bool IsIngestGated(RouteEndpoint endpoint)
+    {
+        var hasMarker = endpoint.Metadata.GetMetadata<Freeboard.Api.IngestEndpoint>() is not null;
+        var boundToPolicy = endpoint.Metadata.OfType<IAuthorizeData>()
+            .Any(a => string.Equals(
+                a.Policy, CollectorBearerAuthenticationHandler.IngestPolicyName, StringComparison.Ordinal));
+        return hasMarker && boundToPolicy;
+    }
+
+    [Fact]
+    public async Task EvidenceIngestRouteCarriesMarkerAndBindsCollectorScheme()
+    {
+        var factory = new AuthWebFactory();
+        _ = factory.CreateClient();
+
+        var ingest = Endpoints().FirstOrDefault(e =>
+            (e.RoutePattern.RawText?.EndsWith("evidence", StringComparison.Ordinal) ?? false)
+            && (e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("POST") ?? false));
+        Assert.NotNull(ingest);
+
+        // The marker (read by the read-only middleware and by the universal guard above).
+        Assert.NotNull(ingest!.Metadata.GetMetadata<Freeboard.Api.IngestEndpoint>());
+
+        // The route is bound to the ingest policy, and that policy binds the collector scheme - so the
+        // route cannot silently fall back to the session scheme or drop its gate.
+        Assert.Contains(ingest.Metadata.OfType<IAuthorizeData>(), a => string.Equals(
+            a.Policy, CollectorBearerAuthenticationHandler.IngestPolicyName, StringComparison.Ordinal));
+
+        var provider = factory.Services.GetRequiredService<IAuthorizationPolicyProvider>();
+        var policy = await provider.GetPolicyAsync(CollectorBearerAuthenticationHandler.IngestPolicyName);
+        Assert.NotNull(policy);
+        Assert.Contains(CollectorBearerAuthenticationHandler.SchemeName, policy!.AuthenticationSchemes);
     }
 }

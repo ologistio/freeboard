@@ -147,4 +147,65 @@ public sealed class CollectorCommandTests : IDisposable
         Assert.Equal(3, exit);
         Assert.Contains("reach", err, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void CredentialIssuePrintsRawTokenAndExitsZero()
+    {
+        var fake = Install(new FakeApiClient
+        {
+            IssueResult = ApiResult<IssuedCredential>.Success(
+                new IssuedCredential("cred-9", "collector-a", "v1.the-raw-token", "2027-01-01T00:00:00Z")),
+        });
+
+        var (exit, output, _) = Capture(() =>
+            new CollectorCommands().CredentialIssue("collector-a", expiresAt: "2027-01-01T00:00:00Z"));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(1, fake.CredentialIssueCalls);
+        Assert.Equal("collector-a", fake.LastId);
+        Assert.Equal("2027-01-01T00:00:00Z", fake.LastExpiresAt);
+        // The raw token is printed on stdout exactly as returned.
+        Assert.Contains("v1.the-raw-token", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CredentialIssueUnknownCollectorExitsOne()
+    {
+        Install(new FakeApiClient
+        {
+            IssueResult = ApiResult<IssuedCredential>.Validation("Evidence-collector 'nope' does not exist."),
+        });
+
+        var (exit, _, err) = Capture(() => new CollectorCommands().CredentialIssue("nope"));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("does not exist", err, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CredentialIssueOperationalFailureExitsThree()
+    {
+        Install(new FakeApiClient
+        {
+            IssueResult = ApiResult<IssuedCredential>.Failure("Could not reach the API."),
+        });
+
+        var (exit, _, err) = Capture(() => new CollectorCommands().CredentialIssue("collector-a"));
+
+        Assert.Equal(3, exit);
+        Assert.Contains("reach", err, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CredentialRevokeExitsZero()
+    {
+        var fake = Install(new FakeApiClient());
+
+        var (exit, _, _) = Capture(() => new CollectorCommands().CredentialRevoke("collector-a", "cred-9"));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(1, fake.CredentialRevokeCalls);
+        Assert.Equal("collector-a", fake.LastId);
+        Assert.Equal("cred-9", fake.LastCredentialId);
+    }
 }

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freeboard.dev/schemas/evidence-ingest.v1.schema.json",
+  "title": "Freeboard evidence ingest payload (v1)",
+  "description": "The request body accepted by POST /api/v1/freeboard/evidence. schema_version must be exactly 'freeboard.evidence.v1'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "collector_id",
+    "organisation_id",
+    "requirement_id",
+    "run_id",
+    "collected_at",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "freeboard.evidence.v1"
+    },
+    "collector_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 190,
+      "pattern": "^(?=.*\\S)[^:]+$",
+      "description": "Non-blank; must not contain ':' (the collector_id:run_id idempotency delimiter)."
+    },
+    "organisation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 190,
+      "pattern": "\\S"
+    },
+    "requirement_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 190,
+      "pattern": "\\S"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 190,
+      "pattern": "^(?=.*\\S)[^:]+$",
+      "description": "Non-blank; must not contain ':' (the collector_id:run_id idempotency delimiter)."
+    },
+    "collector_version": {
+      "type": ["string", "null"]
+    },
+    "collected_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d+)?(Z|\\+00:00)$",
+      "description": "UTC ISO 8601 instant with a Z or +00:00 designator."
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "severity", "result"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 190,
+            "pattern": "\\S"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["hard", "soft"]
+          },
+          "result": {
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "detail": {
+            "type": ["string", "null"],
+            "maxLength": 4096
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": ["object", "null"]
+    }
+  }
+}
