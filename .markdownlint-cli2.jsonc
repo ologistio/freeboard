@@ -8,9 +8,18 @@
   // OpenSpec change files under openspec/changes/** use a `## ...`-first
   // convention (no top-level H1) that conflicts with MD041, and are authored and
   // managed through the OpenSpec workflow. Exclude all of these from linting.
+  //
+  // bin/ and obj/ hold build output (e.g. a Playwright-bundled README.md),
+  // node_modules/ holds bun-installed front-end dependencies, and tmp/ holds
+  // gitignored scratch files; none are source we lint.
   "ignores": [
     ".claude/skills/openspec-*/**",
     ".claude/commands/opsx/**",
-    "openspec/changes/**"
+    "openspec/changes/**",
+    "openspec/specs/**",
+    "**/bin/**",
+    "**/obj/**",
+    "**/node_modules/**",
+    "tmp/**"
   ]
 }

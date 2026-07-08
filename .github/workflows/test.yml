@@ -10,11 +10,46 @@ permissions:
   contents: read
   code-quality: write
 
-# The four jobs below have no `needs`, so they run in parallel. The suite splits
-# its tiers by environment variable rather than by project (a single project can
-# hold both fast and infrastructure-backed tests, gated with Xunit.SkippableFact),
-# so each job selects its tier by which FREEBOARD_TEST_* gates it sets.
+# The jobs below have no `needs`, so they run in parallel. The test tiers split by
+# environment variable rather than by project (a single project can hold both fast
+# and infrastructure-backed tests, gated with Xunit.SkippableFact), so each test job
+# selects its tier by which FREEBOARD_TEST_* gates it sets. The lint job is separate:
+# it enforces code and docs hygiene without running any tests.
 jobs:
+  # Strict lint: fails on any formatting drift, compiler/analyzer warning, or
+  # Markdown lint error. Formatting is `dotnet format` (the .NET default style);
+  # -warnaserror turns every build warning into a failure; Markdown uses the repo
+  # .markdownlint*.jsonc config. Runs no tests, so it is fast and independent.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # A solution build compiles the web projects, whose front-end assets are
+      # built by bun (see the BuildAssets MSBuild target).
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Verify formatting
+        run: dotnet format Freeboard.slnx --verify-no-changes --no-restore
+
+      - name: Build (warnings as errors)
+        run: dotnet build Freeboard.slnx --configuration Release --no-restore -warnaserror
+
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v24.0.0
+        with:
+          globs: "**/*.md"
+
   # Fast deterministic tests: pure logic, no network, no database, no filesystem
   # dependency beyond temporary directories. With no FREEBOARD_TEST_* set and no
   # services running, the database, SMTP, and browser suites all skip, leaving
