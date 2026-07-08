@@ -36,9 +36,13 @@ public sealed class GitOpsReadOnlyMiddleware(RequestDelegate next, IOptions<GitO
             return;
         }
 
-        // Exempt only endpoints explicitly marked as auth endpoints. Routing has already
-        // run (UseRouting precedes this middleware), so the matched endpoint is available.
-        if (context.GetEndpoint()?.Metadata.GetMetadata<AuthEndpoint>() is not null)
+        // Exempt only endpoints explicitly marked as auth or ingest endpoints. Routing has already
+        // run (UseRouting precedes this middleware), so the matched endpoint is available. The ingest
+        // exemption lets an authenticated collector land Evidence in read-only mode; credential
+        // issuance/revocation carry neither marker, so they still 409.
+        var endpoint = context.GetEndpoint();
+        if (endpoint?.Metadata.GetMetadata<AuthEndpoint>() is not null
+            || endpoint?.Metadata.GetMetadata<IngestEndpoint>() is not null)
         {
             await next(context);
             return;

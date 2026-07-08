@@ -31,6 +31,27 @@ public static class AuthEndpointExtensions
 }
 
 /// <summary>
+/// Endpoint metadata marker for the runtime Evidence ingest endpoint. Distinct from
+/// <see cref="AuthEndpoint"/> so the read-only middleware's intent stays clear. Two readers share this
+/// one marker: the GitOps read-only middleware exempts a marked endpoint from its 409 (a collector must
+/// still land Evidence in read-only mode), and the route-metadata guard test recognises a marked route,
+/// bound to the ingest policy, as legitimately gated by the collector scheme rather than a permission.
+/// Only the ingest POST is marked; credential issuance/revocation are admin config and are NOT marked.
+/// </summary>
+public sealed class IngestEndpoint;
+
+/// <summary>Convenience for tagging an endpoint with the <see cref="IngestEndpoint"/> marker.</summary>
+public static class IngestEndpointExtensions
+{
+    public static TBuilder MarkIngestEndpoint<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        builder.WithMetadata(new IngestEndpoint());
+        return builder;
+    }
+}
+
+/// <summary>
 /// Endpoint metadata marker for the page routes a force-reset (limited) session is allowed to
 /// reach: the forced-reset completion page, logout, and the account landing. The force-reset guard
 /// reads this off the matched endpoint and permits the request in addition to its exact-path API
