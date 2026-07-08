@@ -102,7 +102,20 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public int TemplateListCalls { get; private set; }
 
+    public int CredentialIssueCalls { get; private set; }
+
+    public int CredentialRevokeCalls { get; private set; }
+
     public string? LastId { get; private set; }
+
+    public string? LastCredentialId { get; private set; }
+
+    public string? LastExpiresAt { get; private set; }
+
+    public ApiResult<IssuedCredential> IssueResult { get; init; } =
+        ApiResult<IssuedCredential>.Success(new IssuedCredential("cred-1", "collector-a", "v1.rawtoken", null));
+
+    public ApiResult<Unit> RevokeResult { get; init; } = ApiResult<Unit>.Success(Unit.Value);
 
     public ApiResult<CreatedUser> CreateResult { get; init; } =
         ApiResult<CreatedUser>.Success(new CreatedUser(SampleUser, "temp-create-pw"));
@@ -225,5 +238,23 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     {
         TemplateListCalls++;
         return Task.FromResult(TemplateListResult);
+    }
+
+    public Task<ApiResult<IssuedCredential>> IssueCollectorCredentialAsync(
+        string collectorId, string? expiresAt, CancellationToken ct)
+    {
+        CredentialIssueCalls++;
+        LastId = collectorId;
+        LastExpiresAt = expiresAt;
+        return Task.FromResult(IssueResult);
+    }
+
+    public Task<ApiResult<Unit>> RevokeCollectorCredentialAsync(
+        string collectorId, string credentialId, CancellationToken ct)
+    {
+        CredentialRevokeCalls++;
+        LastId = collectorId;
+        LastCredentialId = credentialId;
+        return Task.FromResult(RevokeResult);
     }
 }

@@ -42,7 +42,22 @@ internal interface IFreeboardApiClient
 
     /// <summary>GET /attestation-templates - list attestation-templates attached to controls.</summary>
     Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct);
+
+    /// <summary>
+    /// POST /evidence-collectors/{id}/credentials - issue a machine credential (optional expiry);
+    /// returns the raw token once.
+    /// </summary>
+    Task<ApiResult<IssuedCredential>> IssueCollectorCredentialAsync(string collectorId, string? expiresAt, CancellationToken ct);
+
+    /// <summary>DELETE /evidence-collectors/{id}/credentials/{credId} - revoke a machine credential.</summary>
+    Task<ApiResult<Unit>> RevokeCollectorCredentialAsync(string collectorId, string credentialId, CancellationToken ct);
 }
+
+/// <summary>
+/// POST evidence-collector credential response: the new credential id, its collector, the once-only raw
+/// token, and the optional expiry.
+/// </summary>
+internal sealed record IssuedCredential(string CredentialId, string CollectorId, string Token, string? ExpiresAt);
 
 /// <summary>The public user fields returned by the API (snake_case on the wire).</summary>
 internal sealed record ApiUser(
