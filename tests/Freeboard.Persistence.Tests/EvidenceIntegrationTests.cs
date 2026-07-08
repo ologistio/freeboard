@@ -342,11 +342,11 @@ public sealed class EvidenceIntegrationTests
         // row wins exactly one level while losing every lower-priority key, and the ids run counter to the
         // higher keys, so dropping any ORDER BY term reorders the result. Inserts set created_at and id
         // directly, which the write store does not expose.
-        await InsertRunAsync(conn, Id(10), collected: c.AddSeconds(1), received: c,               created: c,               collectorRef: "r1");
-        await InsertRunAsync(conn, Id(11), collected: c,               received: c.AddSeconds(1), created: c,               collectorRef: "r2");
-        await InsertRunAsync(conn, Id(1),  collected: c,               received: c,               created: c.AddSeconds(1), collectorRef: "r3");
-        await InsertRunAsync(conn, Id(3),  collected: c,               received: c,               created: c,               collectorRef: "r4");
-        await InsertRunAsync(conn, Id(2),  collected: c,               received: c,               created: c,               collectorRef: "r5");
+        await InsertRunAsync(conn, Id(10), collected: c.AddSeconds(1), received: c, created: c, collectorRef: "r1");
+        await InsertRunAsync(conn, Id(11), collected: c, received: c.AddSeconds(1), created: c, collectorRef: "r2");
+        await InsertRunAsync(conn, Id(1), collected: c, received: c, created: c.AddSeconds(1), collectorRef: "r3");
+        await InsertRunAsync(conn, Id(3), collected: c, received: c, created: c, collectorRef: "r4");
+        await InsertRunAsync(conn, Id(2), collected: c, received: c, created: c, collectorRef: "r5");
 
         var store = new MySqlEvidenceStore(db.ConnectionFactory);
         var runs = await store.GetEvidenceRunsAsync("org-tie", "req-tie");
