@@ -97,6 +97,28 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json => json.EnumerateArray().Select(ReadAttestationTemplate).ToList(),
             ct);
 
+    public Task<ApiResult<IssuedCredential>> IssueCollectorCredentialAsync(
+        string collectorId, string? expiresAt, CancellationToken ct)
+        => SendAsync(
+            HttpMethod.Post,
+            $"{ApiRoutePrefix}/evidence-collectors/{Uri.EscapeDataString(collectorId)}/credentials",
+            string.IsNullOrWhiteSpace(expiresAt) ? new { } : new { expires_at = expiresAt },
+            json => new IssuedCredential(
+                json.GetProperty("credential_id").GetString()!,
+                json.GetProperty("collector_id").GetString()!,
+                json.GetProperty("token").GetString()!,
+                OptionalString(json, "expires_at")),
+            ct);
+
+    public Task<ApiResult<Unit>> RevokeCollectorCredentialAsync(
+        string collectorId, string credentialId, CancellationToken ct)
+        => SendAsync(
+            HttpMethod.Delete,
+            $"{ApiRoutePrefix}/evidence-collectors/{Uri.EscapeDataString(collectorId)}/credentials/{Uri.EscapeDataString(credentialId)}",
+            body: null,
+            _ => Unit.Value,
+            ct);
+
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpMethod method, string path, object? body, Func<JsonElement, T> map, CancellationToken ct)
     {
@@ -126,6 +148,8 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
         {
             HttpStatusCode.OK or HttpStatusCode.Created
                 => MapSuccess(content, map),
+            HttpStatusCode.NoContent
+                => ApiResult<T>.Success(map(default)),
             HttpStatusCode.UnprocessableEntity
                 => ApiResult<T>.Validation(ValidationMessage(content)),
             HttpStatusCode.Conflict

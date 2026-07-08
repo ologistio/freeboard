@@ -1,3 +1,5 @@
+using ConsoleAppFramework;
+
 namespace Freeboard.CLI;
 
 /// <summary>
@@ -24,6 +26,46 @@ public sealed class CollectorCommands
 
             var collectorsResult = await client.ListEvidenceCollectorsAsync(ct).ConfigureAwait(false);
             return ApiCommandRunner.Translate(collectorsResult, collectors => Print(controlsResult.Payload!, collectors));
+        });
+    }
+
+    /// <summary>Issue a machine credential for an evidence-collector. Prints the raw token once.</summary>
+    /// <param name="collectorId">The evidence-collector id to issue a credential for.</param>
+    /// <param name="expiresAt">Optional ISO 8601 expiry (e.g. 2027-01-01T00:00:00Z). Omit for no expiry.</param>
+    /// <param name="apiUrl">Base URL of the Freeboard API. Overrides FREEBOARD_API_URL.</param>
+    /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
+    [Command("credential issue")]
+    public int CredentialIssue(
+        [Argument] string collectorId, string? expiresAt = null, string? apiUrl = null, string? token = null)
+    {
+        return ApiCommandRunner.Run(apiUrl, token, async (client, ct) =>
+        {
+            var result = await client.IssueCollectorCredentialAsync(collectorId, expiresAt, ct).ConfigureAwait(false);
+            return ApiCommandRunner.Translate(result, issued =>
+            {
+                // The raw token is shown exactly once; the server stores only its keyed HMAC.
+                Console.WriteLine(issued.Token);
+                Console.Error.WriteLine(
+                    $"Issued credential {issued.CredentialId} for collector {issued.CollectorId}"
+                    + (issued.ExpiresAt is { Length: > 0 } e ? $" (expires {e})." : "."));
+            });
+        });
+    }
+
+    /// <summary>Revoke a machine credential for an evidence-collector.</summary>
+    /// <param name="collectorId">The evidence-collector id that owns the credential.</param>
+    /// <param name="credentialId">The credential id to revoke.</param>
+    /// <param name="apiUrl">Base URL of the Freeboard API. Overrides FREEBOARD_API_URL.</param>
+    /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
+    [Command("credential revoke")]
+    public int CredentialRevoke(
+        [Argument] string collectorId, [Argument] string credentialId, string? apiUrl = null, string? token = null)
+    {
+        return ApiCommandRunner.Run(apiUrl, token, async (client, ct) =>
+        {
+            var result = await client.RevokeCollectorCredentialAsync(collectorId, credentialId, ct).ConfigureAwait(false);
+            return ApiCommandRunner.Translate(
+                result, _ => Console.Error.WriteLine($"Revoked credential {credentialId} for collector {collectorId}."));
         });
     }
 
