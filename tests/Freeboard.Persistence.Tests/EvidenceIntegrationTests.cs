@@ -175,6 +175,8 @@ public sealed class EvidenceIntegrationTests
         Assert.True((await writes.AppendEvidenceAsync(Run("org-a", "req-a", "vendor-a", "ref-1"))).Ok);
         var dup = await writes.AppendEvidenceAsync(Run("org-a", "req-a", "vendor-a", "ref-1"));
         Assert.False(dup.Ok);
+        // The ingest endpoint's 200-replay-vs-422 branch depends on a duplicate mapping to IsConflict.
+        Assert.True(dup.IsConflict);
 
         // Only the first append survives.
         Assert.Single(await store.GetEvidenceRunsAsync("org-a", "req-a"));
