@@ -52,6 +52,67 @@ public sealed record SoaNode(
     SoaResolution Resolution,
     IReadOnlyList<SoaRequirementResolution> Requirements);
 
+/// <summary>The kind of configured check attached to a control.</summary>
+public enum SoaCheckKind
+{
+    /// <summary>An evidence-collector attached to the control.</summary>
+    Collector,
+
+    /// <summary>An attestation-template attached to the control.</summary>
+    Attestation,
+}
+
+/// <summary>Wire names for <see cref="SoaCheckKind"/>: lowercase.</summary>
+public static class SoaCheckKindNames
+{
+    public static string ToWireValue(this SoaCheckKind kind) => kind switch
+    {
+        SoaCheckKind.Collector => "collector",
+        _ => "attestation",
+    };
+}
+
+/// <summary>
+/// One configured check under a control: an evidence-collector (<see cref="SoaCheckKind.Collector"/>)
+/// or an attestation-template (<see cref="SoaCheckKind.Attestation"/>). Metadata only. Collector rows
+/// carry <see cref="Type"/>, <see cref="Frequency"/>, and an optional <see cref="Vendor"/> display (the
+/// vendor's title, or its id when unknown); attestation rows carry <see cref="Type"/> with the other two
+/// null. Quiz answers are never surfaced.
+/// </summary>
+public sealed record SoaCheckNode(
+    string Id, string Title, SoaCheckKind Kind, string Type, string? Frequency, string? Vendor);
+
+/// <summary>
+/// One control under a requirement, attached by <c>maps_to</c>. <see cref="Evaluation"/> is the
+/// control roll-up rule shown as metadata (null when unset). Checks are ordered by <c>(Kind, Id)</c>.
+/// </summary>
+public sealed record SoaControlNode(
+    string Id, string Title, string? Evaluation, IReadOnlyList<SoaCheckNode> Checks);
+
+/// <summary>
+/// One requirement under an in-scope organisation node: its resolved <see cref="Disposition"/>
+/// (<c>In</c> or <c>Out</c>) and provenance (explicit/inherited/default), with the controls that map
+/// to it. Unlike the flat <see cref="SoaNode"/>, this is the full requirement set of the standard, not
+/// only deviations. An excluded (<c>Out</c>) requirement is a leaf: <see cref="Controls"/> is empty, so
+/// only an <c>In</c> requirement carries controls (and their checks).
+/// </summary>
+public sealed record SoaRequirementNode(
+    string Id, string Title, string Disposition, SoaResolution Resolution, IReadOnlyList<SoaControlNode> Controls);
+
+/// <summary>
+/// One organisation node in the Statement of Applicability drill-down: the org scalar fields projected
+/// from the resolved <see cref="SoaNode"/> plus its <see cref="Requirements"/>. A node whose standard
+/// resolves <c>Out</c> carries no requirement children.
+/// </summary>
+public sealed record SoaDrilldownNode(
+    string Id,
+    string Title,
+    string Kind,
+    string? Parent,
+    string Disposition,
+    SoaResolution Resolution,
+    IReadOnlyList<SoaRequirementNode> Requirements);
+
 /// <summary>
 /// Resolves a Statement of Applicability for a standard: a projection over the
 /// organisation tree that assigns each node a disposition by nearest-ancestor
@@ -119,6 +180,190 @@ public static class StatementOfApplicability
         }
 
         return nodes.OrderBy(n => n.Id, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// Projects the four-level drill-down (organisation -> requirement -> control -> check) for a
+    /// standard. Reuses <see cref="Resolve"/> for each node's org-level disposition and provenance, then
+    /// enumerates every requirement of the standard per node (not only deviations), each tagged with its
+    /// resolved disposition (<c>In</c>/<c>Out</c>) and provenance. An <c>In</c> requirement carries its
+    /// controls (by <c>maps_to</c>) and checks (collectors and templates by their <c>Control</c>, tagged
+    /// by kind); an <c>Out</c> requirement is a leaf and carries no controls. The
+    /// requirement -> control -> check catalogue is org-independent, so it is built once and shared. A
+    /// collector's vendor is shown by title (falling back to its id when unknown). Pure (no I/O).
+    /// </summary>
+    public static IReadOnlyList<SoaDrilldownNode> ResolveDrilldown(
+        IReadOnlyList<OrganisationRow> organisations,
+        IReadOnlyList<ScopeRow> scopes,
+        IReadOnlyList<RequirementRow> requirements,
+        IReadOnlyList<RequirementScopeRow> requirementScopes,
+        IReadOnlyList<ControlRow> controls,
+        IReadOnlyList<EvidenceCollectorRow> collectors,
+        IReadOnlyList<AttestationTemplateRow> templates,
+        IReadOnlyList<VendorRow> vendors,
+        string standardId)
+    {
+        // Org-level disposition/provenance: reuse the flat resolver so the inheritance rule is not
+        // duplicated. The full in-scope requirement enumeration below is new: Resolve yields only
+        // deviations and never a requirement-level Default.
+        var resolved = Resolve(organisations, scopes, requirements, requirementScopes, standardId);
+
+        var byId = organisations.ToDictionary(o => o.Id, StringComparer.Ordinal);
+
+        var standardRequirements = requirements
+            .Where(r => string.Equals(r.Standard, standardId, StringComparison.Ordinal))
+            .OrderBy(r => r.Id, StringComparer.Ordinal)
+            .ToList();
+        var standardRequirementIds = standardRequirements.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+
+        var requirementScopeByOrg = requirementScopes
+            .Where(rs => standardRequirementIds.Contains(rs.Requirement))
+            .GroupBy(rs => rs.Organisation, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g.GroupBy(rs => rs.Requirement, StringComparer.Ordinal)
+                    .ToDictionary(rg => rg.Key, rg => rg.First().Disposition, StringComparer.Ordinal),
+                StringComparer.Ordinal);
+
+        var vendorTitleById = vendors.ToDictionary(v => v.Id, v => v.Title, StringComparer.Ordinal);
+        var controlsByRequirement = BuildControlCatalogue(standardRequirementIds, controls, collectors, templates, vendorTitleById);
+
+        var nodes = new List<SoaDrilldownNode>(resolved.Count);
+        foreach (var node in resolved)
+        {
+            // Standard Out dominates: no requirement children. Otherwise enumerate every requirement of
+            // the standard with its resolved disposition and provenance.
+            IReadOnlyList<SoaRequirementNode> requirementNodes;
+            if (string.Equals(node.Disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal))
+            {
+                var ancestry = OrgAncestry.InclusiveAncestors(node.Id, byId);
+                var list = new List<SoaRequirementNode>(standardRequirements.Count);
+                foreach (var requirement in standardRequirements)
+                {
+                    var (disposition, resolution) = ResolveRequirement(node.Id, ancestry, requirement.Id, requirementScopeByOrg);
+
+                    // An excluded (Out) requirement is a leaf: it carries no controls, so it renders
+                    // without an expand toggle. Only an In requirement carries its mapped controls.
+                    var reqControls =
+                        string.Equals(disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal)
+                        && controlsByRequirement.TryGetValue(requirement.Id, out var c)
+                            ? c
+                            : [];
+                    list.Add(new SoaRequirementNode(requirement.Id, requirement.Title, disposition, resolution, reqControls));
+                }
+
+                requirementNodes = list;
+            }
+            else
+            {
+                requirementNodes = [];
+            }
+
+            nodes.Add(new SoaDrilldownNode(
+                node.Id, node.Title, node.Kind, node.Parent, node.Disposition, node.Resolution, requirementNodes));
+        }
+
+        return nodes;
+    }
+
+    /// <summary>
+    /// Builds the org-independent requirement -> controls (each with its checks) catalogue. Controls
+    /// attach to a requirement by <c>maps_to</c> (bounded to the standard's requirements); checks attach
+    /// to a control by their <c>Control</c> field, tagged Collector or Attestation. Ordering: controls by
+    /// id, checks by <c>(Kind, Id)</c> (collectors before attestations, each by id).
+    /// </summary>
+    private static IReadOnlyDictionary<string, IReadOnlyList<SoaControlNode>> BuildControlCatalogue(
+        IReadOnlySet<string> standardRequirementIds,
+        IReadOnlyList<ControlRow> controls,
+        IReadOnlyList<EvidenceCollectorRow> collectors,
+        IReadOnlyList<AttestationTemplateRow> templates,
+        IReadOnlyDictionary<string, string> vendorTitleById)
+    {
+        var checksByControl = new Dictionary<string, List<SoaCheckNode>>(StringComparer.Ordinal);
+        foreach (var collector in collectors)
+        {
+            // Show the vendor's title, not its raw id; fall back to the id when no vendor matches.
+            var vendor = collector.Vendor is null
+                ? null
+                : vendorTitleById.TryGetValue(collector.Vendor, out var title) ? title : collector.Vendor;
+            AddCheck(checksByControl, collector.Control, new SoaCheckNode(
+                collector.Id, collector.Title, SoaCheckKind.Collector, collector.Type, collector.Frequency, vendor));
+        }
+
+        foreach (var template in templates)
+        {
+            AddCheck(checksByControl, template.Control, new SoaCheckNode(
+                template.Id, template.Title, SoaCheckKind.Attestation, template.Type, null, null));
+        }
+
+        var controlNodeById = controls.ToDictionary(
+            c => c.Id,
+            c => new SoaControlNode(
+                c.Id,
+                c.Title,
+                string.IsNullOrEmpty(c.Evaluation) ? null : c.Evaluation,
+                checksByControl.TryGetValue(c.Id, out var checks)
+                    ? checks.OrderBy(ch => ch.Kind).ThenBy(ch => ch.Id, StringComparer.Ordinal).ToList()
+                    : []),
+            StringComparer.Ordinal);
+
+        var byRequirement = new Dictionary<string, List<SoaControlNode>>(StringComparer.Ordinal);
+        foreach (var control in controls.OrderBy(c => c.Id, StringComparer.Ordinal))
+        {
+            foreach (var requirementId in control.MapsTo)
+            {
+                if (!standardRequirementIds.Contains(requirementId))
+                {
+                    continue;
+                }
+
+                if (!byRequirement.TryGetValue(requirementId, out var list))
+                {
+                    list = [];
+                    byRequirement[requirementId] = list;
+                }
+
+                list.Add(controlNodeById[control.Id]);
+            }
+        }
+
+        return byRequirement.ToDictionary(
+            kv => kv.Key, kv => (IReadOnlyList<SoaControlNode>)kv.Value, StringComparer.Ordinal);
+    }
+
+    private static void AddCheck(Dictionary<string, List<SoaCheckNode>> checksByControl, string controlId, SoaCheckNode check)
+    {
+        if (!checksByControl.TryGetValue(controlId, out var list))
+        {
+            list = [];
+            checksByControl[controlId] = list;
+        }
+
+        list.Add(check);
+    }
+
+    /// <summary>
+    /// Resolves one requirement's disposition and provenance for a node by walking its inclusive
+    /// ancestry: the node's own requirement-scope wins (explicit); else the nearest ancestor's
+    /// (inherited); else the requirement follows the node's standard disposition In (default).
+    /// </summary>
+    private static (string Disposition, SoaResolution Resolution) ResolveRequirement(
+        string nodeId,
+        IReadOnlyList<string> ancestry,
+        string requirementId,
+        IReadOnlyDictionary<string, Dictionary<string, string>> requirementScopeByOrg)
+    {
+        foreach (var orgId in ancestry)
+        {
+            if (TryGetRequirementDisposition(orgId, requirementId, requirementScopeByOrg, out var found))
+            {
+                return string.Equals(orgId, nodeId, StringComparison.Ordinal)
+                    ? (found, SoaResolution.Explicit)
+                    : (found, SoaResolution.Inherited);
+            }
+        }
+
+        return (nameof(ScopeDisposition.In), SoaResolution.Default);
     }
 
     private static IReadOnlyList<SoaRequirementResolution> ResolveRequirements(

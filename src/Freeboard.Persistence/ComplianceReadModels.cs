@@ -58,6 +58,23 @@ public sealed record SoaInputs(
     IReadOnlyList<RequirementRow> Requirements,
     IReadOnlyList<RequirementScopeRow> RequirementScopes);
 
+/// <summary>
+/// The inputs the Statement of Applicability drill-down projection needs, read together in one
+/// repeatable-read snapshot so they cannot straddle a concurrent importer commit. Extends the flat
+/// <see cref="SoaInputs"/> with controls (resolved <c>maps_to</c>), evidence-collectors,
+/// attestation-templates, and vendors so the requirement -> control -> check hierarchy resolves from one
+/// consistent read and a collector's vendor id maps to a vendor title.
+/// </summary>
+public sealed record SoaDrilldownInputs(
+    IReadOnlyList<OrganisationRow> Organisations,
+    IReadOnlyList<ScopeRow> Scopes,
+    IReadOnlyList<RequirementRow> Requirements,
+    IReadOnlyList<RequirementScopeRow> RequirementScopes,
+    IReadOnlyList<ControlRow> Controls,
+    IReadOnlyList<EvidenceCollectorRow> Collectors,
+    IReadOnlyList<AttestationTemplateRow> Templates,
+    IReadOnlyList<VendorRow> Vendors);
+
 /// <summary>A persisted vendor (a piece of software or platform in use).</summary>
 public sealed record VendorRow(string Id, string Title);
 

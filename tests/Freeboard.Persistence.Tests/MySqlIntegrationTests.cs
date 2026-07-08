@@ -1265,6 +1265,67 @@ public sealed class MySqlIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task DrilldownInputsReadAllListsInOneSnapshot()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        var fields = new List<AttestationField>
+        {
+            new() { Id = "reviewed", Label = "Ruleset reviewed?", Type = "boolean" },
+        };
+        var quiz = new List<QuizItem>
+        {
+            new() { Id = "q1", Prompt = "What should you do?", Options = ["Open it", "Report it"], Answer = "Report it" },
+        };
+
+        await importer.ImportAsync(Config(
+            [Std("std-a")],
+            [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
+            organisations: [Org("org-a")],
+            scopes: [Scp("scope-a", "org-a", "std-a", "In")],
+            requirements: [Req("req-a", "std-a")],
+            requirementScopes: [Rqs("rs-a", "org-a", "req-a", "Out")],
+            vendors: [Vnd("vendor-a")],
+            evidenceCollectors:
+            [
+                Ec("coll-a", "ctrl-a", vendor: "vendor-a", config: new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
+            ],
+            attestationTemplates:
+            [
+                AttManual("tmpl-manual", "ctrl-a", fields: fields),
+                AttTraining("tmpl-training", "ctrl-a", "80", quiz),
+            ]));
+
+        var inputs = await store.GetStatementOfApplicabilityDrilldownInputsAsync();
+
+        Assert.Equal(["org-a"], inputs.Organisations.Select(o => o.Id).ToArray());
+        Assert.Equal(["scope-a"], inputs.Scopes.Select(s => s.Id).ToArray());
+        Assert.Equal(["req-a"], inputs.Requirements.Select(r => r.Id).ToArray());
+        Assert.Equal(["rs-a"], inputs.RequirementScopes.Select(rs => rs.Id).ToArray());
+
+        var control = Assert.Single(inputs.Controls);
+        Assert.Equal("ctrl-a", control.Id);
+        Assert.Equal(["req-a"], control.MapsTo); // resolved maps_to
+        Assert.Equal("all", control.Evaluation);
+
+        var collector = Assert.Single(inputs.Collectors);
+        Assert.Equal("coll-a", collector.Id);
+        Assert.Equal("policies.mfa", collector.Config["endpoint"]); // deserialized config
+
+        Assert.Equal(["vendor-a"], inputs.Vendors.Select(v => v.Id).ToArray()); // vendors read in the same snapshot
+
+        var templates = inputs.Templates.ToDictionary(t => t.Id);
+        Assert.Equal(["reviewed"], templates["tmpl-manual"].Fields.Select(f => f.Id).ToArray()); // deserialized fields
+        var item = Assert.Single(templates["tmpl-training"].Quiz);
+        Assert.Equal(["Open it", "Report it"], item.Options.ToArray());
+        // The read model carries no answer property, so the quiz answer cannot reach this snapshot.
+        Assert.DoesNotContain("Answer", typeof(QuizItemView).GetProperties().Select(p => p.Name));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ResyncRemovesControlAttachedByAttestationTemplate()
     {
         await using var db = await RequireDbAsync();

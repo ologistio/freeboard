@@ -84,6 +84,16 @@ internal sealed class FakeComplianceStore : IComplianceStore
         return Guard(() => new SoaInputs(Organisations, Scopes, Requirements, RequirementScopes));
     }
 
+    public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
+    {
+        if (OrganisationsUnreachable)
+        {
+            throw new InvalidOperationException("organisations unreachable");
+        }
+
+        return Guard(() => new SoaDrilldownInputs(Organisations, Scopes, Requirements, RequirementScopes, Controls, Collectors, Templates, Vendors));
+    }
+
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => new ComplianceCounts(
             Standards.Count, Controls.Count, Requirements.Count, Organisations.Count, Scopes.Count,

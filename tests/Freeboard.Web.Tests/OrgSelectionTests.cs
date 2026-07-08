@@ -147,6 +147,9 @@ public sealed class OrgSelectionTests
         public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new SoaInputs(Organisations, [], [], []));
 
+        public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SoaDrilldownInputs([], [], [], [], [], [], [], []));
+
         public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
     }

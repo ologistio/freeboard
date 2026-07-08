@@ -1,3 +1,4 @@
+using Deque.AxeCore.Playwright;
 using Freeboard.Persistence;
 using Freeboard.TestInfrastructure;
 using Microsoft.Playwright;
@@ -89,5 +90,69 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
         await page.WaitForFunctionAsync(
             "() => document.querySelectorAll('table.soa-nodes tbody tr').length === 3");
         Assert.Equal("All Organisations", await page.Locator("[data-active-scope]").InnerTextAsync());
+    }
+
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
+    public async Task DrillingDown_RevealsRequirementsControlsChecks_AndCollapsesAgain()
+    {
+        Gate();
+
+        App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
+        App.Compliance.Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)];
+        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")];
+        App.Compliance.Requirements =
+        [
+            new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
+        ];
+        App.Compliance.Controls = [new ControlRow("ctrl-a", "Control A", ["req-a"], "all")];
+        App.Compliance.Collectors =
+        [
+            new EvidenceCollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "daily", null, new Dictionary<string, string>()),
+        ];
+        App.Compliance.Templates =
+        [
+            new AttestationTemplateRow("tmpl-a", "Template A", "ctrl-a", "manual", null, [], null, []),
+        ];
+
+        await using var context = await NewContextAsync();
+        await SignInWithRecentSudoAsync(context, "soa-drill-e2e");
+        var page = await context.NewPageAsync();
+
+        await page.GotoAsync($"{App.BaseUrl}/compliance/statement-of-applicability?standard=std-a");
+
+        var reqRow = page.Locator("li[data-requirement-id='req-a']");
+        var ctrlRow = page.Locator("li[data-control-id='ctrl-a']");
+        var collectorCheck = page.Locator("li[data-check-kind='collector']");
+        var attestationCheck = page.Locator("li[data-check-kind='attestation']");
+
+        // All collapsed on load: the nested rows are server-rendered into the DOM but hidden.
+        Assert.False(await reqRow.IsVisibleAsync());
+
+        var orgToggle = page.GetByRole(AriaRole.Button, new() { Name = "Toggle organisation org-a" });
+        Assert.Equal("false", await orgToggle.GetAttributeAsync("aria-expanded"));
+        await orgToggle.ClickAsync();
+        Assert.Equal("true", await orgToggle.GetAttributeAsync("aria-expanded"));
+        await reqRow.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Toggle requirement req-a" }).ClickAsync();
+        await ctrlRow.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Toggle control ctrl-a" }).ClickAsync();
+        await collectorCheck.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+
+        // Both check kinds are visible once fully expanded.
+        Assert.True(await collectorCheck.IsVisibleAsync());
+        Assert.True(await attestationCheck.IsVisibleAsync());
+
+        // Axe audit on the fully expanded tree.
+        var result = await page.RunAxe();
+        Assert.True(
+            result.Violations.Length == 0,
+            $"{result.Violations.Length} accessibility violation(s) on the expanded SoA drill-down");
+
+        // Collapsing the organisation hides the whole subtree again.
+        await orgToggle.ClickAsync();
+        Assert.Equal("false", await orgToggle.GetAttributeAsync("aria-expanded"));
+        await reqRow.WaitForAsync(new() { State = WaitForSelectorState.Hidden });
     }
 }

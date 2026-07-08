@@ -257,4 +257,149 @@ public sealed class StatementOfApplicabilityTests
         Assert.Equal("Out", deptReq.Disposition);
         Assert.Equal(SoaResolution.Inherited, deptReq.Resolution);
     }
+
+    private static ControlRow Ctrl(string id, string[] mapsTo, string? evaluation = null) =>
+        new(id, "Control " + id, mapsTo, evaluation);
+
+    private static EvidenceCollectorRow Coll(string id, string control, string? vendor = null, string type = "integration", string frequency = "daily") =>
+        new(id, "Collector " + id, control, vendor, type, frequency, null, new Dictionary<string, string>());
+
+    private static AttestationTemplateRow Tmpl(string id, string control, string type = "manual") =>
+        new(id, "Template " + id, control, type, null, [], null, []);
+
+    [Fact]
+    public void DrilldownEnumeratesEveryRequirementTaggedInOrOutAndExcludedIsLeaf()
+    {
+        var scopes = new[] { new ScopeRow("s1", "In at company", "company", "std", "In") };
+        // req-a is excluded explicitly; req-b has no requirement-scope so it defaults In.
+        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude a", "company", "req-a", "Out") };
+        // A control maps to each requirement, so the excluded requirement's leaf behaviour is provable.
+        var controls = new[] { Ctrl("ctrl-a", ["req-a"]), Ctrl("ctrl-b", ["req-b"]) };
+
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            [Company, Department], scopes, [ReqA, ReqB], requirementScopes, controls, [], [], [], "std");
+
+        // The node lists every requirement of the standard (In and Out), ordered by id, not only the deviation.
+        var company = nodes.Single(n => n.Id == "company");
+        Assert.Equal(["req-a", "req-b"], company.Requirements.Select(r => r.Id).ToArray());
+
+        var reqA = company.Requirements.Single(r => r.Id == "req-a");
+        Assert.Equal("Out", reqA.Disposition);
+        Assert.Equal(SoaResolution.Explicit, reqA.Resolution);
+        // An excluded (Out) requirement is a leaf: no controls even though ctrl-a maps to it.
+        Assert.Empty(reqA.Controls);
+
+        var reqB = company.Requirements.Single(r => r.Id == "req-b");
+        Assert.Equal("In", reqB.Disposition);
+        Assert.Equal(SoaResolution.Default, reqB.Resolution);
+        // An In requirement still carries its mapped controls.
+        Assert.Equal("ctrl-b", Assert.Single(reqB.Controls).Id);
+
+        // The department inherits the company's req-a exclusion, and it is still a leaf.
+        var deptReqA = nodes.Single(n => n.Id == "company-dept").Requirements.Single(r => r.Id == "req-a");
+        Assert.Equal("Out", deptReqA.Disposition);
+        Assert.Equal(SoaResolution.Inherited, deptReqA.Resolution);
+        Assert.Empty(deptReqA.Controls);
+    }
+
+    [Fact]
+    public void DrilldownStandardOutYieldsNoRequirementChildren()
+    {
+        var scopes = new[] { new ScopeRow("s1", "Out at company", "company", "std", "Out") };
+
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            [Company], scopes, [ReqA, ReqB], [], [], [], [], [], "std");
+
+        Assert.Empty(Assert.Single(nodes).Requirements);
+    }
+
+    [Fact]
+    public void DrilldownAttachesControlsByMapsToAndChecksByControl()
+    {
+        var controls = new[]
+        {
+            Ctrl("ctrl-a", ["req-a"], evaluation: "all"),
+            Ctrl("ctrl-b", ["req-b"]),
+        };
+        var collectors = new[] { Coll("coll-a", "ctrl-a", vendor: "vendor-x") };
+        var templates = new[] { Tmpl("tmpl-a", "ctrl-a") };
+        var vendors = new[] { new VendorRow("vendor-x", "Vendor X") };
+
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            [Company], [], [ReqA, ReqB], [], controls, collectors, templates, vendors, "std");
+
+        var company = Assert.Single(nodes);
+        var reqA = company.Requirements.Single(r => r.Id == "req-a");
+        var control = Assert.Single(reqA.Controls);
+        Assert.Equal("ctrl-a", control.Id);
+        Assert.Equal("all", control.Evaluation);
+
+        // Both check kinds present and tagged; collector carries type/frequency and its vendor by title,
+        // attestation does not.
+        Assert.Equal(["coll-a", "tmpl-a"], control.Checks.Select(c => c.Id).ToArray());
+        var coll = control.Checks[0];
+        Assert.Equal(SoaCheckKind.Collector, coll.Kind);
+        Assert.Equal("integration", coll.Type);
+        Assert.Equal("daily", coll.Frequency);
+        Assert.Equal("Vendor X", coll.Vendor);
+        var tmpl = control.Checks[1];
+        Assert.Equal(SoaCheckKind.Attestation, tmpl.Kind);
+        Assert.Null(tmpl.Frequency);
+        Assert.Null(tmpl.Vendor);
+
+        // req-b maps only to ctrl-b, which has no checks.
+        var reqB = company.Requirements.Single(r => r.Id == "req-b");
+        Assert.Equal("ctrl-b", Assert.Single(reqB.Controls).Id);
+        Assert.Empty(reqB.Controls[0].Checks);
+    }
+
+    [Fact]
+    public void DrilldownOrdersControlsByIdAndChecksByKindThenId()
+    {
+        var controls = new[]
+        {
+            Ctrl("ctrl-b", ["req-a"]),
+            Ctrl("ctrl-a", ["req-a"]),
+        };
+        // Two collectors and two templates on ctrl-a, seeded out of order to prove the sort.
+        var collectors = new[] { Coll("coll-b", "ctrl-a"), Coll("coll-a", "ctrl-a") };
+        var templates = new[] { Tmpl("tmpl-b", "ctrl-a"), Tmpl("tmpl-a", "ctrl-a") };
+
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            [Company], [], [ReqA], [], controls, collectors, templates, [], "std");
+
+        var reqA = Assert.Single(Assert.Single(nodes).Requirements);
+        Assert.Equal(["ctrl-a", "ctrl-b"], reqA.Controls.Select(c => c.Id).ToArray());
+
+        var ctrlA = reqA.Controls.Single(c => c.Id == "ctrl-a");
+        // Collectors (by id) before attestations (by id).
+        Assert.Equal(["coll-a", "coll-b", "tmpl-a", "tmpl-b"], ctrlA.Checks.Select(c => c.Id).ToArray());
+    }
+
+    [Fact]
+    public void DrilldownRequirementWithNoMappedControlHasEmptyControls()
+    {
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            [Company], [], [ReqA], [], [], [], [], [], "std");
+
+        var reqA = Assert.Single(Assert.Single(nodes).Requirements);
+        Assert.Empty(reqA.Controls);
+    }
+
+    [Fact]
+    public void DrilldownVendorIsMetadataAndFallsBackToIdWhenUnknown()
+    {
+        var controls = new[] { Ctrl("ctrl-a", ["req-a"]) };
+        var collectors = new[] { Coll("coll-a", "ctrl-a", vendor: "vendor-x") };
+
+        // No matching vendor row, so the display falls back to the raw id.
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            [Company], [], [ReqA], [], controls, collectors, [], [], "std");
+
+        // The collector's vendor is carried as metadata; the requirement still resolves In (default).
+        var reqA = Assert.Single(Assert.Single(nodes).Requirements);
+        Assert.Equal("In", reqA.Disposition);
+        Assert.Equal(SoaResolution.Default, reqA.Resolution);
+        Assert.Equal("vendor-x", reqA.Controls[0].Checks[0].Vendor);
+    }
 }
