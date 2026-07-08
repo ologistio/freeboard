@@ -72,8 +72,8 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAc
         }
     }
 
-    /// <summary>Human label for a node's disposition: In, Out, or Undetermined.</summary>
-    public static string DispositionLabel(SoaNode node) => node.Disposition ?? "Undetermined";
+    /// <summary>Human label for a node's disposition: In or Out.</summary>
+    public static string DispositionLabel(SoaNode node) => node.Disposition;
 
     private static bool IsStoreFailure(Exception ex) =>
         ex is global::System.Data.Common.DbException or InvalidOperationException or TimeoutException;
