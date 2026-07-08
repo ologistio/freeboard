@@ -1,4 +1,5 @@
 using System.Data.Common;
+using Freeboard.Core.GitOps;
 using Freeboard.Persistence;
 
 namespace Freeboard.Web.Tests;
@@ -62,6 +63,135 @@ internal sealed class FakeEvidenceWriteStore : IEvidenceWriteStore
     public Task<WriteResult> AppendAttestationResponseAsync(
         NewEvidenceRun run, NewAttestationResponse attestation, CancellationToken cancellationToken = default)
         => AppendEvidenceAsync(run, cancellationToken);
+}
+
+/// <summary>
+/// In-memory <see cref="IEvidenceStore"/> read double. Holds seeded runs and derives the returned
+/// per-collector status set exactly as the real store does: the latest run per
+/// <c>(organisation, requirement, collector)</c> with the shared staleness rule applied and the
+/// precedence <c>HardFailure &gt; Stale &gt; SoftFailure &gt; Passing</c> - not a full-history dump. So a
+/// <c>Stale</c>-vs-<c>Unknown</c> render test exercises realistic store output. <see cref="Clock"/> is
+/// the clock staleness is judged against (default system).
+/// </summary>
+internal sealed class FakeEvidenceStore : IEvidenceStore
+{
+    // Same latest-run tie-break as the real store: collected_at, received_at, created_at, id descending.
+    private static readonly Comparison<EvidenceRunRow> LatestFirst = (a, b) =>
+    {
+        var c = b.CollectedAt.CompareTo(a.CollectedAt);
+        if (c != 0)
+        {
+            return c;
+        }
+
+        c = Nullable.Compare(b.ReceivedAt, a.ReceivedAt);
+        if (c != 0)
+        {
+            return c;
+        }
+
+        c = b.CreatedAt.CompareTo(a.CreatedAt);
+        return c != 0 ? c : string.CompareOrdinal(b.Id, a.Id);
+    };
+
+    public bool Unreachable { get; init; }
+
+    public TimeProvider Clock { get; init; } = TimeProvider.System;
+
+    public List<EvidenceRunRow> Runs { get; } = [];
+
+    /// <summary>Seeds a collector run with its checks. Id and created_at follow insertion for a stable order.</summary>
+    public FakeEvidenceStore AddCollectorRun(
+        string organisationId, string requirementId, string collectorId, string? frequency,
+        DateTime collectedAt, params (string Severity, string Result)[] checks)
+    {
+        var n = Runs.Count + 1;
+        var checkRows = checks
+            .Select((c, i) => new EvidenceCheckRow($"chk-{n}-{i}", $"run-{n:D22}", $"c{i}", c.Severity, c.Result, i, null))
+            .ToList();
+        Runs.Add(new EvidenceRunRow(
+            $"run-{n:D22}", "Collector", organisationId, requirementId, "vendor", $"{collectorId}:run{n}",
+            "Pass", collectedAt, collectedAt, null, collectedAt, checkRows, null, collectorId, frequency));
+        return this;
+    }
+
+    public Task<IReadOnlyList<EvidenceRunRow>> GetEvidenceRunsAsync(
+        string organisationId, string requirementId, CancellationToken cancellationToken = default)
+    {
+        Guard();
+        var runs = Runs
+            .Where(r => string.Equals(r.OrganisationId, organisationId, StringComparison.Ordinal)
+                && string.Equals(r.RequirementId, requirementId, StringComparison.Ordinal))
+            .ToList();
+        runs.Sort(LatestFirst);
+        return Task.FromResult<IReadOnlyList<EvidenceRunRow>>(runs);
+    }
+
+    public async Task<EvidenceRunRow?> GetLatestEvidenceRunAsync(
+        string organisationId, string requirementId, CancellationToken cancellationToken = default)
+        => (await GetEvidenceRunsAsync(organisationId, requirementId, cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault();
+
+    public Task<IReadOnlyList<CollectorEvidenceStatusRow>> GetCollectorEvidenceStatusesAsync(
+        IReadOnlyCollection<string> organisationIds, CancellationToken cancellationToken = default)
+    {
+        Guard();
+        var orgs = organisationIds.ToHashSet(StringComparer.Ordinal);
+        var nowUtc = Clock.GetUtcNow().UtcDateTime;
+
+        var results = Runs
+            .Where(r => string.Equals(r.Kind, "Collector", StringComparison.Ordinal) && orgs.Contains(r.OrganisationId))
+            .Select(r => (Run: r, CollectorId: EffectiveCollectorId(r)))
+            .Where(x => x.CollectorId is not null)
+            .GroupBy(
+                x => (x.Run.OrganisationId, x.Run.RequirementId, x.CollectorId!),
+                x => x.Run)
+            .Select(g =>
+            {
+                var latest = g.OrderBy(r => r, Comparer<EvidenceRunRow>.Create(LatestFirst)).First();
+                var stale = EvidenceCollectorFrequency.IsStale(latest.CollectedAt, latest.Frequency, nowUtc);
+                return new CollectorEvidenceStatusRow(
+                    g.Key.OrganisationId, g.Key.RequirementId, g.Key.Item3, DeriveStatus(latest.Checks, stale),
+                    latest.CollectedAt);
+            })
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<CollectorEvidenceStatusRow>>(results);
+    }
+
+    private static string? EffectiveCollectorId(EvidenceRunRow run)
+    {
+        if (!string.IsNullOrEmpty(run.CollectorId))
+        {
+            return run.CollectorId;
+        }
+
+        var delimiter = run.CollectorRef.IndexOf(':', StringComparison.Ordinal);
+        return delimiter > 0 ? run.CollectorRef[..delimiter] : null;
+    }
+
+    private static string DeriveStatus(IReadOnlyList<EvidenceCheckRow> checks, bool stale)
+    {
+        if (checks.Any(c => c.Severity == "Hard" && c.Result == "Fail"))
+        {
+            return "HardFailure";
+        }
+
+        if (stale)
+        {
+            return "Stale";
+        }
+
+        return checks.Any(c => c.Severity == "Soft" && c.Result == "Fail") ? "SoftFailure" : "Passing";
+    }
+
+    private void Guard()
+    {
+        if (Unreachable)
+        {
+            throw new FakeStoreDbException("evidence store unreachable");
+        }
+    }
 }
 
 /// <summary>

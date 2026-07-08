@@ -12,7 +12,10 @@ public sealed record NewEvidenceCheck(string Name, string Severity, string Resul
 /// and together form the idempotency key: <see cref="CollectorRef"/> is the vendor's stable id for this
 /// specific observation/submission, so a re-delivery collides and is rejected. <see cref="Result"/> must
 /// be <c>Pass</c> or <c>Fail</c>. <see cref="ReceivedAt"/> and <see cref="RawPayload"/> are optional.
-/// The run's kind is set by the append method, not carried here.
+/// The run's kind is set by the append method, not carried here. <see cref="CollectorId"/> and
+/// <see cref="Frequency"/> denormalise the producing collector's identity and collection cadence onto the
+/// run so staleness is evaluated from the evidence tables alone; both are null for an attestation append
+/// and for a collector run whose cadence is unset.
 /// </summary>
 public sealed record NewEvidenceRun(
     string OrganisationId,
@@ -23,7 +26,9 @@ public sealed record NewEvidenceRun(
     DateTime CollectedAt,
     DateTime? ReceivedAt,
     string? RawPayload,
-    IReadOnlyList<NewEvidenceCheck> Checks);
+    IReadOnlyList<NewEvidenceCheck> Checks,
+    string? CollectorId = null,
+    string? Frequency = null);
 
 /// <summary>
 /// The attestation-only fields appended alongside an attestation evidence run. <see cref="UserId"/> is

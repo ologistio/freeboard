@@ -8,9 +8,9 @@ using MySqlConnector;
 namespace Freeboard.Persistence.Tests;
 
 /// <summary>
-/// Integration tests for the evidence schema (migration 011), the append-only store pair, and the
-/// computed AssessmentResult, against a real MySQL discovered via FREEBOARD_TEST_DB. Each test SKIPS
-/// cleanly when the env var is absent.
+/// Integration tests for the evidence schema (migrations 011 and 015), the append-only store pair, and
+/// the computed per-collector evidence status (including Stale), against a real MySQL discovered via
+/// FREEBOARD_TEST_DB. Each test SKIPS cleanly when the env var is absent.
 /// </summary>
 [Trait("Category", TestCategories.Integration)]
 public sealed class EvidenceIntegrationTests
@@ -34,9 +34,11 @@ public sealed class EvidenceIntegrationTests
         DateTime? collectedAt = null,
         DateTime? receivedAt = null,
         string? rawPayload = null,
+        string? collectorId = null,
+        string? frequency = null,
         params NewEvidenceCheck[] checks) =>
         new(org, requirement, vendor, collectorRef, result,
-            collectedAt ?? DateTime.UtcNow, receivedAt, rawPayload, checks);
+            collectedAt ?? DateTime.UtcNow, receivedAt, rawPayload, checks, collectorId, frequency);
 
     private static NewEvidenceCheck Check(string name, string severity, string result, string? detail = null) =>
         new(name, severity, result, detail);
@@ -267,7 +269,7 @@ public sealed class EvidenceIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task AssessmentDerivesHardSoftAndPassing()
+    public async Task StatusDerivesHardSoftPassingAndStalePerCollector()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -275,27 +277,159 @@ public sealed class EvidenceIntegrationTests
         var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
         var store = new MySqlEvidenceStore(db.ConnectionFactory);
 
-        // req-hard: a failing Hard check dominates a passing Soft => HardFailure.
-        Assert.True((await writes.AppendEvidenceAsync(Run(
-            "org-a", "req-hard", "v", "ref-hard",
-            checks: [Check("h", "Hard", "Fail"), Check("s", "Soft", "Pass")]))).Ok);
-        // req-soft: no failing Hard, one failing Soft => SoftFailure.
-        Assert.True((await writes.AppendEvidenceAsync(Run(
-            "org-a", "req-soft", "v", "ref-soft",
-            checks: [Check("h", "Hard", "Pass"), Check("s", "Soft", "Fail")]))).Ok);
-        // req-pass: all checks pass => Passing.
-        Assert.True((await writes.AppendEvidenceAsync(Run(
-            "org-a", "req-pass", "v", "ref-pass",
-            checks: [Check("h", "Hard", "Pass"), Check("s", "Soft", "Pass")]))).Ok);
+        var fresh = DateTime.UtcNow;
+        var overdue = DateTime.UtcNow.AddDays(-2); // daily window+grace is 30h, so 2d is stale
 
-        var results = (await store.GetAssessmentResultsAsync("org-a"))
-            .ToDictionary(r => r.RequirementId, r => r.Status, StringComparer.Ordinal);
+        // A fresh daily collector, all checks pass => Passing.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-pass", "v", "coll-pass:r1", collectorId: "coll-pass", frequency: "daily",
+            collectedAt: fresh, checks: [Check("h", "Hard", "Pass"), Check("s", "Soft", "Pass")]))).Ok);
+        // A fresh daily collector, failing Soft => SoftFailure.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-soft", "v", "coll-soft:r1", collectorId: "coll-soft", frequency: "daily",
+            collectedAt: fresh, checks: [Check("h", "Hard", "Pass"), Check("s", "Soft", "Fail")]))).Ok);
+        // An overdue daily collector whose checks pass => downgraded to Stale.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-stale", "v", "coll-stale:r1", collectorId: "coll-stale", frequency: "daily",
+            collectedAt: overdue, checks: [Check("h", "Hard", "Pass")]))).Ok);
+        // An overdue daily collector that also hard-fails stays HardFailure (Stale sits below HardFailure).
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-hardstale", "v", "coll-hs:r1", collectorId: "coll-hs", frequency: "daily",
+            collectedAt: overdue, checks: [Check("h", "Hard", "Fail")]))).Ok);
+        // An overdue run with NO recorded cadence is never Stale: it keeps its passing verdict.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-nocadence", "v", "coll-nc:r1", collectorId: "coll-nc", frequency: null,
+            collectedAt: overdue, checks: [Check("h", "Hard", "Pass")]))).Ok);
 
-        Assert.Equal("HardFailure", results["req-hard"]);
-        Assert.Equal("SoftFailure", results["req-soft"]);
-        Assert.Equal("Passing", results["req-pass"]);
-        // A pair with no evidence yields no store status (the store never emits NoEvidence).
-        Assert.False(results.ContainsKey("req-absent"));
+        var results = (await store.GetCollectorEvidenceStatusesAsync(["org-a"]))
+            .ToDictionary(r => r.CollectorId, r => r.Status, StringComparer.Ordinal);
+
+        Assert.Equal("Passing", results["coll-pass"]);
+        Assert.Equal("SoftFailure", results["coll-soft"]);
+        Assert.Equal("Stale", results["coll-stale"]);
+        Assert.Equal("HardFailure", results["coll-hs"]);
+        Assert.Equal("Passing", results["coll-nc"]);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task LegacyNullCollectorIdIsAttributedByCollectorRefPrefix()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        // A pre-migration-shaped row: null collector_id and null frequency, collector_ref = id:run.
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        var runId = Id(1);
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, received_at, raw_payload, created_at, collector_id, frequency) "
+            + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', 'legacy-coll:run1', 'Pass', "
+            + "@Old, NULL, NULL, @Old, NULL, NULL);",
+            new { Id = runId, Old = DateTime.UtcNow.AddDays(-400) });
+
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var results = await store.GetCollectorEvidenceStatusesAsync(["org-a"]);
+
+        var row = Assert.Single(results);
+        // Identity recovered from the collector_ref prefix; null cadence keeps it out of Stale despite age.
+        Assert.Equal("legacy-coll", row.CollectorId);
+        Assert.Equal("Passing", row.Status);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task RunsWithNoRecoverableCollectorIdentityAreNotAttributed()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        // A legacy Collector run whose collector_ref has no ':' delimiter: no first-class collector_id and
+        // no prefix to recover, so it has no collector identity to attribute.
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, received_at, raw_payload, created_at, collector_id, frequency) "
+            + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', 'legacy-no-delimiter', 'Pass', "
+            + "@Now, NULL, NULL, @Now, NULL, NULL);",
+            new { Id = Id(1), Now = DateTime.UtcNow });
+
+        // A non-Collector run whose collector_ref does contain a ':': its prefix must not be mined for a
+        // collector identity, because per-collector status covers Collector-kind runs only.
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        Assert.True((await writes.AppendAttestationResponseAsync(
+            Run("org-a", "req-a", "quiz-system", "attn-coll:submission-1",
+                checks: [Check("q1", "Hard", "Pass")]),
+            new NewAttestationResponse("user-1", QuizPassed: true, Score: null))).Ok);
+
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        Assert.Empty(await store.GetCollectorEvidenceStatusesAsync(["org-a"]));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task LatestRunPerCollectorFollowsTieBreakOrdering()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        // Two runs of one collector share collected_at, so the id tie-break (ULID, DESC) decides which run
+        // pins the group's status. The higher id passes; if the pin fell to the lower id the status would
+        // be HardFailure, so a Passing result proves the tie-break carries into the per-collector pin.
+        // Recent, well inside the daily window (24h + 6h grace = 30h), so the correctly-picked higher-id
+        // run reads Passing rather than being downgraded to Stale by age - isolating the tie-break from
+        // staleness. id is the only field that differs between the two runs.
+        var collected = DateTime.UtcNow.AddMinutes(-5);
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, received_at, raw_payload, created_at, collector_id, frequency) "
+            + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', @Ref, 'Pass', @C, @C, NULL, @C, 'coll-x', 'daily');",
+            new[]
+            {
+                new { Id = Id(1), Ref = "coll-x:low", C = collected },
+                new { Id = Id(2), Ref = "coll-x:high", C = collected },
+            });
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_checks (id, evidence_id, name, severity, result, ordinal, detail) "
+            + "VALUES (@Id, @Rid, 'h', 'Hard', @Result, 0, NULL);",
+            new[]
+            {
+                new { Id = Id(3), Rid = Id(1), Result = "Fail" },
+                new { Id = Id(4), Rid = Id(2), Result = "Pass" },
+            });
+
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var row = Assert.Single(await store.GetCollectorEvidenceStatusesAsync(["org-a"]));
+        Assert.Equal("coll-x", row.CollectorId);
+        Assert.Equal("Passing", row.Status);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task TwoCollectorsOnOneRequirementDoNotHideEachOther()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+
+        // Two collectors on the same requirement: one fresh, one stale. The fresh one must not hide the
+        // stale one - per-collector grouping surfaces both statuses.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "coll-fresh:r1", collectorId: "coll-fresh", frequency: "daily",
+            collectedAt: DateTime.UtcNow, checks: [Check("h", "Hard", "Pass")]))).Ok);
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "coll-stopped:r1", collectorId: "coll-stopped", frequency: "daily",
+            collectedAt: DateTime.UtcNow.AddDays(-2), checks: [Check("h", "Hard", "Pass")]))).Ok);
+
+        var results = (await store.GetCollectorEvidenceStatusesAsync(["org-a"]))
+            .ToDictionary(r => r.CollectorId, r => r.Status, StringComparer.Ordinal);
+
+        Assert.Equal("Passing", results["coll-fresh"]);
+        Assert.Equal("Stale", results["coll-stopped"]);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -312,20 +446,20 @@ public sealed class EvidenceIntegrationTests
 
         // Earlier run fails hard.
         Assert.True((await writes.AppendEvidenceAsync(Run(
-            "org-a", "req-a", "v", "ref-old", collectedAt: earlier,
+            "org-a", "req-a", "v", "coll-x:old", collectorId: "coll-x", frequency: "daily", collectedAt: earlier,
             checks: [Check("h", "Hard", "Fail")]))).Ok);
-        // Later run passes: it must win the assessment.
+        // Later run of the same collector passes: it must win the status.
         Assert.True((await writes.AppendEvidenceAsync(Run(
-            "org-a", "req-a", "v", "ref-new", collectedAt: later,
+            "org-a", "req-a", "v", "coll-x:new", collectorId: "coll-x", frequency: "daily", collectedAt: later,
             checks: [Check("h", "Hard", "Pass")]))).Ok);
 
-        var results = await store.GetAssessmentResultsAsync("org-a");
+        var results = await store.GetCollectorEvidenceStatusesAsync(["org-a"]);
         Assert.Equal("Passing", Assert.Single(results).Status);
 
         // Both runs are still present; the earlier one is unchanged (append-only history).
         var runs = await store.GetEvidenceRunsAsync("org-a", "req-a");
         Assert.Equal(2, runs.Count);
-        Assert.Equal("ref-new", runs[0].CollectorRef); // newest first
+        Assert.Equal("coll-x:new", runs[0].CollectorRef); // newest first
         Assert.Equal("Fail", runs[1].Checks.Single().Result);
     }
 
@@ -407,12 +541,67 @@ public sealed class EvidenceIntegrationTests
         Assert.Equal(6, triggerCount);
     }
 
-    private static async Task<string> ReadMigration011Async()
+    private static Task<string> ReadMigration011Async() => ReadMigrationAsync("011_evidence.sql");
+
+    private static async Task<string> ReadMigrationAsync(string fileSuffix)
     {
         var asm = typeof(IMigrationRunner).Assembly;
-        var name = asm.GetManifestResourceNames().Single(n => n.EndsWith("011_evidence.sql", StringComparison.Ordinal));
+        var name = asm.GetManifestResourceNames().Single(n => n.EndsWith(fileSuffix, StringComparison.Ordinal));
         await using var stream = asm.GetManifestResourceStream(name)!;
         using var reader = new StreamReader(stream);
         return await reader.ReadToEndAsync();
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task Migration015AddsNullableColumnsWithoutBackfill()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        // Return the table to its pre-015 shape, then seed a legacy collector run and its check as they
+        // would exist before the additive migration ran.
+        await conn.ExecuteAsync("ALTER TABLE evidence_runs DROP COLUMN collector_id, DROP COLUMN frequency;");
+        var collected = new DateTime(2025, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var runId = Id(1);
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, received_at, raw_payload, created_at) "
+            + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', 'legacy-coll:run1', 'Pass', @Collected, NULL, NULL, @Collected);",
+            new { Id = runId, Collected = collected });
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_checks (id, evidence_id, name, severity, result, ordinal, detail) "
+            + "VALUES (@Cid, @Rid, 'c', 'Hard', 'Pass', 0, NULL);",
+            new { Cid = Id(2), Rid = runId });
+
+        // Run 015 raw against the table that already holds the legacy row.
+        await conn.ExecuteAsync(await ReadMigrationAsync("015_evidence_collector_identity.sql"));
+
+        // Both columns exist and are nullable.
+        var columns = (await conn.QueryAsync<(string ColumnName, string IsNullable)>(
+            "SELECT column_name AS ColumnName, is_nullable AS IsNullable FROM information_schema.columns "
+            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_runs' "
+            + "AND column_name IN ('collector_id', 'frequency');"))
+            .ToDictionary(c => c.ColumnName, c => c.IsNullable, StringComparer.Ordinal);
+        Assert.Equal("YES", columns["collector_id"]);
+        Assert.Equal("YES", columns["frequency"]);
+
+        // No backfill: the legacy row stays null on both new columns, and its prior fields are unchanged.
+        var row = await conn.QuerySingleAsync<(string? CollectorId, string? Frequency, string Result, DateTime Collected, string CollectorRef)>(
+            "SELECT collector_id AS CollectorId, frequency AS Frequency, result AS Result, "
+            + "collected_at AS Collected, collector_ref AS CollectorRef FROM evidence_runs WHERE id = @Id;",
+            new { Id = runId });
+        Assert.Null(row.CollectorId);
+        Assert.Null(row.Frequency);
+        Assert.Equal("Pass", row.Result);
+        Assert.Equal(collected, row.Collected);
+        Assert.Equal("legacy-coll:run1", row.CollectorRef);
+
+        // The check row is untouched.
+        var checkResult = await conn.ExecuteScalarAsync<string>(
+            "SELECT result FROM evidence_checks WHERE evidence_id = @Id;", new { Id = runId });
+        Assert.Equal("Pass", checkResult);
     }
 }

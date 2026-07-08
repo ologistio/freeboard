@@ -17,8 +17,16 @@ namespace Freeboard.Pages.Compliance;
 /// the full tree first, then filters the node list to the in-scope set, so a selected department still
 /// inherits a disposition from a company above it.
 /// </summary>
-public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAccess orgAccess) : PageModel
+public sealed class StatementOfApplicabilityModel(
+    IComplianceStore store, IOrgAccess orgAccess, IEvidenceStore evidenceStore) : PageModel
 {
+    /// <summary>Default for a configured collector with no store row: never collected.</summary>
+    private const string UnknownStatus = "Unknown";
+
+    // Per-collector status keyed on (organisationId, requirementId, collectorId). Populated inside the
+    // store-failure try/catch alongside the drill-down, so a store outage renders the notice, not a 500.
+    private readonly Dictionary<(string, string, string), string> collectorStatuses = new();
+
     /// <summary>All standards, ordered by id, for the selector.</summary>
     public IReadOnlyList<StandardRow> Standards { get; private set; } = [];
 
@@ -75,6 +83,17 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAc
                 inputs.Controls, inputs.Collectors, inputs.Templates, inputs.Vendors, StandardId);
             Nodes = resolved.Where(n => inScope.Contains(n.Id)).ToList();
 
+            // One batched read for every in-scope node so the page never fans out per organisation.
+            var nodeIds = Nodes.Select(n => n.Id).ToList();
+            if (nodeIds.Count > 0)
+            {
+                var statuses = await evidenceStore.GetCollectorEvidenceStatusesAsync(nodeIds, ct).ConfigureAwait(false);
+                foreach (var status in statuses)
+                {
+                    collectorStatuses[(status.OrganisationId, status.RequirementId, status.CollectorId)] = status.Status;
+                }
+            }
+
             ActiveScope = selectedId is null
                 ? "All Organisations"
                 : inputs.Organisations.FirstOrDefault(o => string.Equals(o.Id, selectedId, StringComparison.Ordinal))?.Title
@@ -88,6 +107,16 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAc
 
     /// <summary>Human label for a node's disposition: In or Out.</summary>
     public static string DispositionLabel(SoaDrilldownNode node) => node.Disposition;
+
+    /// <summary>
+    /// The evidence status for a collector check on a node, defaulting to <c>Unknown</c> when the store
+    /// has no run for it (never collected). <c>Stale</c>, <c>Passing</c>, <c>SoftFailure</c>, and
+    /// <c>HardFailure</c> come from the store's per-collector derivation.
+    /// </summary>
+    public string CollectorStatus(string organisationId, string requirementId, string collectorId) =>
+        collectorStatuses.TryGetValue((organisationId, requirementId, collectorId), out var status)
+            ? status
+            : UnknownStatus;
 
     private static bool IsStoreFailure(Exception ex) =>
         ex is global::System.Data.Common.DbException or InvalidOperationException or TimeoutException;

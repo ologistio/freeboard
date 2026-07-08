@@ -48,6 +48,10 @@ builder.Services.AddAuth(freeboardConnectionString, builder.Configuration);
 builder.Services.AddEvidenceWriteStore(freeboardConnectionString);
 builder.Services.AddCollectorCredentialStore(freeboardConnectionString);
 
+// Read store for the per-collector evidence status shown on the Statement of Applicability. Resolves
+// lazily per request over the shared connection factory (TryAdd).
+builder.Services.AddEvidenceStore(freeboardConnectionString);
+
 // Trusted-proxy forwarded headers: the client IP for rate limiting and the WebAuthn
 // origin are only trustworthy behind a configured proxy. Read the configured proxies/networks
 // once. ONLY when at least one is configured do we add them to the trust list and apply

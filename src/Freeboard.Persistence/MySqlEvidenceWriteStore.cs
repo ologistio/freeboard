@@ -52,14 +52,19 @@ public sealed class MySqlEvidenceWriteStore(IDbConnectionFactory connectionFacto
         var evidenceId = ulidFactory.NewId();
         var now = DateTime.UtcNow;
 
+        // Collector identity and cadence belong only to a Collector-kind run. Force them null for any
+        // other kind so a non-Collector append can never persist collector fields, whatever the caller
+        // passed.
+        var isCollector = string.Equals(kind, KindCollector, StringComparison.Ordinal);
+
         try
         {
             await connection.ExecuteAsync(new CommandDefinition(
                 "INSERT INTO evidence_runs "
                 + "(id, kind, organisation_id, requirement_id, vendor, collector_ref, result, "
-                + "collected_at, received_at, raw_payload, created_at) "
+                + "collected_at, received_at, raw_payload, created_at, collector_id, frequency) "
                 + "VALUES (@Id, @Kind, @OrganisationId, @RequirementId, @Vendor, @CollectorRef, @Result, "
-                + "@CollectedAt, @ReceivedAt, @RawPayload, @Now);",
+                + "@CollectedAt, @ReceivedAt, @RawPayload, @Now, @CollectorId, @Frequency);",
                 new
                 {
                     Id = evidenceId,
@@ -73,6 +78,8 @@ public sealed class MySqlEvidenceWriteStore(IDbConnectionFactory connectionFacto
                     run.ReceivedAt,
                     run.RawPayload,
                     Now = now,
+                    CollectorId = isCollector ? run.CollectorId : null,
+                    Frequency = isCollector ? run.Frequency : null,
                 },
                 transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 

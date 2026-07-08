@@ -48,8 +48,9 @@ public sealed class StatementOfApplicabilityPageTests
         Scopes = [new ScopeRow("scope-a", "Scope A", "org-co", "std-a", "In")],
     };
 
-    private static AuthWebFactory Factory(FakeComplianceStore store, bool readOnly = false, IOrgAccess? orgAccess = null)
-        => new() { Compliance = store, ReadOnly = readOnly, OrgAccess = orgAccess };
+    private static AuthWebFactory Factory(
+        FakeComplianceStore store, bool readOnly = false, IOrgAccess? orgAccess = null, FakeEvidenceStore? evidence = null)
+        => new() { Compliance = store, ReadOnly = readOnly, OrgAccess = orgAccess, EvidenceReads = evidence ?? new() };
 
     private static HttpClient NoRedirectClient(AuthWebFactory factory)
         => factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -186,6 +187,58 @@ public sealed class StatementOfApplicabilityPageTests
         Assert.Contains("data-check-kind=\"attestation\"", table, StringComparison.Ordinal);
         // The collector's vendor shows by title, not the raw id.
         Assert.Contains("Vendor X", table, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task StaleCollectorRendersCollectionStoppedDistinctFromUnknown()
+    {
+        // coll-a is daily; its latest run is 3 days old, well past the 30h window+grace, so it is Stale.
+        var evidence = new FakeEvidenceStore()
+            .AddCollectorRun("org-a", "req-a", "coll-a", "daily", DateTime.UtcNow.AddDays(-3), ("Hard", "Pass"));
+        using var factory = Factory(DrilldownStore(), evidence: evidence);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        var check = table[table.IndexOf("data-check-id=\"coll-a\"", StringComparison.Ordinal)..];
+        check = check[..check.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.Contains("data-collector-status=\"Stale\"", check, StringComparison.Ordinal);
+        Assert.Contains("collection stopped", check, StringComparison.Ordinal);
+        Assert.DoesNotContain("not collected", check, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnknownCollectorRendersNotCollectedDistinctFromStale()
+    {
+        // No evidence seeded: the configured collector coll-a has no run, so it is Unknown.
+        using var factory = Factory(DrilldownStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        var check = table[table.IndexOf("data-check-id=\"coll-a\"", StringComparison.Ordinal)..];
+        check = check[..check.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.Contains("data-collector-status=\"Unknown\"", check, StringComparison.Ordinal);
+        Assert.Contains("not collected", check, StringComparison.Ordinal);
+        Assert.DoesNotContain("collection stopped", check, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FreshPassingCollectorRendersPassing()
+    {
+        var evidence = new FakeEvidenceStore()
+            .AddCollectorRun("org-a", "req-a", "coll-a", "daily", DateTime.UtcNow, ("Hard", "Pass"));
+        using var factory = Factory(DrilldownStore(), evidence: evidence);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        var check = table[table.IndexOf("data-check-id=\"coll-a\"", StringComparison.Ordinal)..];
+        check = check[..check.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.Contains("data-collector-status=\"Passing\"", check, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -476,12 +529,13 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
-    public void ConstructorTakesOnlyComplianceStoreAndOrgAccess()
+    public void ConstructorTakesComplianceStoreOrgAccessAndEvidenceStore()
     {
         var ctor = Assert.Single(typeof(StatementOfApplicabilityModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
-        Assert.Equal(new HashSet<Type> { typeof(IComplianceStore), typeof(IOrgAccess) }, paramTypes);
+        Assert.Equal(
+            new HashSet<Type> { typeof(IComplianceStore), typeof(IOrgAccess), typeof(IEvidenceStore) }, paramTypes);
         Assert.DoesNotContain(typeof(OrgSelectionResolver), paramTypes);
     }
 

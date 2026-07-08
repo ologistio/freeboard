@@ -27,12 +27,6 @@ public static class ConfigValidator
         "integration", "script", "manual-attestation", "training-attestation", "agent",
     };
 
-    /// <summary>Closed token set for an evidence-collector's collection cadence (case-sensitive).</summary>
-    private static readonly HashSet<string> FrequencyTokens = new(StringComparer.Ordinal)
-    {
-        "continuous", "daily", "weekly", "monthly", "quarterly", "annual",
-    };
-
     /// <summary>Closed token set for an attestation-template's type (case-sensitive).</summary>
     private static readonly HashSet<string> AttestationTypeTokens = new(StringComparer.Ordinal) { "manual", "training" };
 
@@ -637,7 +631,7 @@ public static class ConfigValidator
                 });
             }
 
-            if (!string.IsNullOrEmpty(collector.Frequency) && !FrequencyTokens.Contains(collector.Frequency))
+            if (!string.IsNullOrEmpty(collector.Frequency) && !EvidenceCollectorFrequency.Tokens.Contains(collector.Frequency))
             {
                 diagnostics.Add(new Diagnostic
                 {
