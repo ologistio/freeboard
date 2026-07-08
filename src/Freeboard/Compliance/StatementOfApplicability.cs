@@ -12,18 +12,18 @@ public enum SoaResolution
     /// <summary>The value came from the nearest ancestor that has a Scope.</summary>
     Inherited,
 
-    /// <summary>No node on the path to the root has a Scope for the standard.</summary>
-    Undetermined,
+    /// <summary>No Scope on the path to the root, so the node takes the default disposition In.</summary>
+    Default,
 }
 
-/// <summary>Wire names for <see cref="SoaResolution"/>: lowercase for a resolved value, capital-U Undetermined.</summary>
+/// <summary>Wire names for <see cref="SoaResolution"/>: lowercase.</summary>
 public static class SoaResolutionNames
 {
     public static string ToWireValue(this SoaResolution resolution) => resolution switch
     {
         SoaResolution.Explicit => "explicit",
         SoaResolution.Inherited => "inherited",
-        _ => "Undetermined",
+        _ => "default",
     };
 }
 
@@ -36,27 +36,28 @@ public sealed record SoaRequirementResolution(
     string Requirement, string Disposition, SoaResolution Resolution);
 
 /// <summary>
-/// One organisation node in a Statement of Applicability: its resolved disposition for
-/// the standard (<c>In</c>, <c>Out</c>, or null when <see cref="SoaResolution.Undetermined"/>)
-/// and how that value was reached. <see cref="Requirements"/> lists only the requirement-level
-/// deviations (requirements with an explicit or inherited requirement-scope) and is populated
-/// only where the standard resolves <c>In</c>; an unlisted requirement follows the node's
-/// standard disposition.
+/// One organisation node in a Statement of Applicability: its resolved standard disposition
+/// (always <c>In</c> or <c>Out</c>, never null) and how that value was reached
+/// (<see cref="SoaResolution.Default"/> means in-scope with no authored Scope on the path).
+/// <see cref="Requirements"/> lists only the requirement-level deviations (requirements with
+/// an explicit or inherited requirement-scope) and is populated only where the standard
+/// resolves <c>In</c>; an unlisted requirement follows the node's standard disposition.
 /// </summary>
 public sealed record SoaNode(
     string Id,
     string Title,
     string Kind,
     string? Parent,
-    string? Disposition,
+    string Disposition,
     SoaResolution Resolution,
     IReadOnlyList<SoaRequirementResolution> Requirements);
 
 /// <summary>
 /// Resolves a Statement of Applicability for a standard: a projection over the
 /// organisation tree that assigns each node a disposition by nearest-ancestor
-/// inheritance. Pure (no I/O), so the inheritance rule is unit testable. Undetermined is
-/// distinct from an explicit or inherited <c>Out</c>.
+/// inheritance. Pure (no I/O), so the inheritance rule is unit testable. A node with no
+/// Scope on its path defaults to <c>In</c>, so the standard disposition is always
+/// <c>In</c> or <c>Out</c>.
 /// </summary>
 public static class StatementOfApplicability
 {
@@ -165,13 +166,13 @@ public static class StatementOfApplicability
         return false;
     }
 
-    private static (string? Disposition, SoaResolution Resolution) ResolveNode(
+    private static (string Disposition, SoaResolution Resolution) ResolveNode(
         string nodeId,
         IReadOnlyList<string> ancestry,
         IReadOnlyDictionary<string, string> explicitByOrg)
     {
         // Walk the inclusive ancestry to the first node with an explicit disposition: the node itself
-        // is Explicit, any ancestor is Inherited; none on the path is Undetermined.
+        // is Explicit, any ancestor is Inherited; none on the path defaults to In.
         foreach (var orgId in ancestry)
         {
             if (explicitByOrg.TryGetValue(orgId, out var found))
@@ -182,6 +183,6 @@ public static class StatementOfApplicability
             }
         }
 
-        return (null, SoaResolution.Undetermined);
+        return (nameof(ScopeDisposition.In), SoaResolution.Default);
     }
 }

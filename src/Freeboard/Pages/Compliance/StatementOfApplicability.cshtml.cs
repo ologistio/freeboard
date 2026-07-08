@@ -30,6 +30,9 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAc
     /// <summary>Set when the store is unreachable; rendered as an in-page notice.</summary>
     public bool StoreUnreachable { get; private set; }
 
+    /// <summary>Set when the requested standard id is not a persisted standard; rendered as an in-page notice.</summary>
+    public bool StandardNotFound { get; private set; }
+
     /// <summary>The active scope shown above the table: the selected organisation's title, or "All Organisations".</summary>
     public string ActiveScope { get; private set; } = "All Organisations";
 
@@ -43,6 +46,15 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAc
             StandardId = string.IsNullOrEmpty(standard) ? null : standard;
             if (StandardId is null)
             {
+                return;
+            }
+
+            // Confirm the standard exists before projecting. Under opt-out an absent standard would
+            // otherwise resolve every organisation In by default, presenting a typo or deleted standard
+            // as applicable to all orgs instead of absent.
+            if (!Standards.Any(s => string.Equals(s.Id, StandardId, StringComparison.Ordinal)))
+            {
+                StandardNotFound = true;
                 return;
             }
 
@@ -72,8 +84,8 @@ public sealed class StatementOfApplicabilityModel(IComplianceStore store, IOrgAc
         }
     }
 
-    /// <summary>Human label for a node's disposition: In, Out, or Undetermined.</summary>
-    public static string DispositionLabel(SoaNode node) => node.Disposition ?? "Undetermined";
+    /// <summary>Human label for a node's disposition: In or Out.</summary>
+    public static string DispositionLabel(SoaNode node) => node.Disposition;
 
     private static bool IsStoreFailure(Exception ex) =>
         ex is global::System.Data.Common.DbException or InvalidOperationException or TimeoutException;

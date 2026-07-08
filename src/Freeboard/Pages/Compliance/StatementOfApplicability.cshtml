@@ -36,7 +36,11 @@ else
         <noscript><button class="btn-primary mt-2" type="submit">Show</button></noscript>
     </form>
 
-    @if (Model.StandardId is not null)
+    @if (Model.StandardNotFound)
+    {
+        <p class="notice-error max-w-2xl" data-standard-not-found>No such standard.</p>
+    }
+    else if (Model.StandardId is not null)
     {
         <p class="mb-3 text-sm text-neutral-600">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
         <div class="card overflow-x-auto p-0">
@@ -62,13 +66,9 @@ else
                                 {
                                     <span class="badge badge-success">In</span>
                                 }
-                                else if (disposition == "Out")
-                                {
-                                    <span class="badge badge-danger">Out</span>
-                                }
                                 else
                                 {
-                                    <span class="badge badge-warn">@disposition</span>
+                                    <span class="badge badge-danger">Out</span>
                                 }
                             </td>
                             <td class="px-4 py-3">

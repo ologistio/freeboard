@@ -1,8 +1,5 @@
-# statement-of-applicability Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change redefine-scope-org-standard. Update Purpose after archive.
-## Requirements
 ### Requirement: Scope disposition resolves by nearest-ancestor inheritance
 
 The system SHALL resolve an organisation node's disposition for a standard as
@@ -41,36 +38,6 @@ so the node takes the default `In`) and is distinct from `explicit` and `inherit
   its own Scope `In` for that standard
 - **THEN** the department resolves to `In`, marked `explicit`, overriding the ancestor's
   `Out`, while a sibling department with no Scope resolves `Out`, marked `inherited`
-
-### Requirement: Statement of Applicability requires an authenticated user
-
-The Statement of Applicability SHALL require an authenticated user, both on the
-`GET /api/v1/freeboard/statement-of-applicability/{standardId}` endpoint and on the
-`/compliance/statement-of-applicability` read-only view page. Authentication (any
-logged-in user) is sufficient; neither SHALL require the admin role. An anonymous
-request to the endpoint SHALL return HTTP 401; an anonymous browser GET to the page
-SHALL be redirected to `/login` rather than rendering the view. Authentication is
-orthogonal to the GitOps read-only gate: both the endpoint and the page SHALL still
-be served to an authenticated user when the instance is in read-only mode, and both
-remain GET-only.
-
-#### Scenario: Anonymous request to the endpoint is rejected
-
-- **WHEN** an anonymous client requests
-  `GET /api/v1/freeboard/statement-of-applicability/{standardId}`
-- **THEN** the endpoint returns HTTP 401
-
-#### Scenario: Anonymous request to the page redirects to login
-
-- **WHEN** an anonymous browser requests `/compliance/statement-of-applicability`
-- **THEN** the response redirects to `/login` rather than rendering the view
-
-#### Scenario: Authenticated user is served in read-only mode
-
-- **WHEN** GitOps read-only mode is on and an authenticated user requests the
-  Statement of Applicability endpoint or view page
-- **THEN** the request is served normally and is not rejected with the 409
-  read-only response
 
 ### Requirement: Statement of Applicability is a read-only projection
 
@@ -229,4 +196,3 @@ department MAY re-include (`In`) a requirement its parent excluded (`Out`) compa
   resolves that requirement `Out` marked `inherited` from the parent's requirement-scope
   (the requirement-layer nearest-ancestor walk ignores the intermediate standard `Out`
   at the parent)
-

@@ -217,6 +217,7 @@ public sealed class ComplianceAuthzTests
     {
         var compliance = new FakeComplianceStore
         {
+            Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
             Organisations =
             [
                 new OrganisationRow("org-a", "A", "Company", null),

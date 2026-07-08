@@ -134,6 +134,28 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
+    public async Task DefaultedInNodeRendersInScope()
+    {
+        // A store with no Scope rows: every node defaults In marked "default" under opt-out.
+        var store = new FakeComplianceStore
+        {
+            Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
+            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+        };
+        using var factory = Factory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+        var row = table[table.IndexOf("data-node-id=\"org-a\"", StringComparison.Ordinal)..];
+        Assert.Contains("badge-success", row, StringComparison.Ordinal);
+        Assert.Contains(">In<", row, StringComparison.Ordinal);
+        Assert.Contains("default", row, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoStandardChosenRendersSelectorWithoutNodes()
     {
         using var factory = Factory(PopulatedStore());
@@ -144,6 +166,22 @@ public sealed class StatementOfApplicabilityPageTests
 
         var html = await response.Content.ReadAsStringAsync();
         Assert.Contains("Standard A", html, StringComparison.Ordinal); // selector option
+        Assert.DoesNotContain("data-node-id", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnknownStandardRendersNotFoundNoticeWithoutNodes()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = NoRedirectClient(factory);
+
+        // A ?standard= that names no persisted standard must not render an all-In table; under opt-out
+        // that would present a typo or deleted standard as applicable to every org.
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-does-not-exist");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-standard-not-found", html, StringComparison.Ordinal);
         Assert.DoesNotContain("data-node-id", html, StringComparison.Ordinal);
     }
 

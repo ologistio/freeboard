@@ -58,14 +58,14 @@ public sealed class StatementOfApplicabilityTests
     }
 
     [Fact]
-    public void NoAncestorDispositionIsUndeterminedNotOut()
+    public void NoScopeOnPathDefaultsIn()
     {
         var nodes = StatementOfApplicability.Resolve([Company, Department], [], [], [], "std");
 
         foreach (var node in nodes)
         {
-            Assert.Null(node.Disposition);
-            Assert.Equal(SoaResolution.Undetermined, node.Resolution);
+            Assert.Equal("In", node.Disposition);
+            Assert.Equal(SoaResolution.Default, node.Resolution);
         }
     }
 
@@ -76,7 +76,13 @@ public sealed class StatementOfApplicabilityTests
 
         var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [], [], "std");
 
-        Assert.All(nodes, n => Assert.Equal(SoaResolution.Undetermined, n.Resolution));
+        // A Scope for a different standard must not make THIS standard explicit or inherited; with no
+        // Scope for "std" on the path, every node defaults In.
+        Assert.All(nodes, n =>
+        {
+            Assert.Equal("In", n.Disposition);
+            Assert.Equal(SoaResolution.Default, n.Resolution);
+        });
     }
 
     [Fact]
@@ -158,18 +164,42 @@ public sealed class StatementOfApplicabilityTests
     }
 
     [Fact]
-    public void EmptyRequirementListOnUndeterminedNode()
+    public void DefaultInNodeReportsRequirementDeviation()
     {
-        // No standard scope anywhere: undetermined nodes never consult requirement-scopes.
+        // No standard scope anywhere, so the node defaults In; its requirement-scope Out is a reported
+        // deviation.
         var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude", "company", "req-a", "Out") };
 
         var nodes = StatementOfApplicability.Resolve([Company, Department], [], [ReqA], requirementScopes, "std");
 
-        Assert.All(nodes, n =>
+        var company = nodes.Single(n => n.Id == "company");
+        Assert.Equal("In", company.Disposition);
+        Assert.Equal(SoaResolution.Default, company.Resolution);
+        var companyReq = Assert.Single(company.Requirements);
+        Assert.Equal("req-a", companyReq.Requirement);
+        Assert.Equal("Out", companyReq.Disposition);
+        Assert.Equal(SoaResolution.Explicit, companyReq.Resolution);
+    }
+
+    [Fact]
+    public void DescendantInOverridesOptedOutAncestor()
+    {
+        var sibling = new OrganisationRow("company-other", "Other", "Department", "company");
+        var scopes = new[]
         {
-            Assert.Equal(SoaResolution.Undetermined, n.Resolution);
-            Assert.Empty(n.Requirements);
-        });
+            new ScopeRow("s1", "Out at company", "company", "std", "Out"),
+            new ScopeRow("s2", "In at dept", "company-dept", "std", "In"),
+        };
+
+        var nodes = StatementOfApplicability.Resolve([Company, Department, sibling], scopes, [], [], "std");
+
+        var dept = nodes.Single(n => n.Id == "company-dept");
+        Assert.Equal("In", dept.Disposition);
+        Assert.Equal(SoaResolution.Explicit, dept.Resolution);
+
+        var other = nodes.Single(n => n.Id == "company-other");
+        Assert.Equal("Out", other.Disposition);
+        Assert.Equal(SoaResolution.Inherited, other.Resolution);
     }
 
     [Fact]
