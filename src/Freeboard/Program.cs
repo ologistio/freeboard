@@ -6,6 +6,7 @@ using Freeboard.Compliance;
 using Freeboard.Core.Authz;
 using Freeboard.Core.Enterprise;
 using Freeboard.Entitlements;
+using Freeboard.Evidence;
 using Freeboard.GitOps;
 using Freeboard.Persistence;
 using Freeboard.Web;
@@ -40,6 +41,12 @@ builder.Services.AddComplianceWriteStore(freeboardConnectionString);
 // (a misconfigured deployment fails at startup). The connection factory is shared with
 // the compliance store (registered once via TryAdd).
 builder.Services.AddAuth(freeboardConnectionString, builder.Configuration);
+
+// Runtime Evidence ingest writes through the shared append-only evidence store; the ingest route
+// authenticates against the per-collector machine credential store. Both share the connection factory
+// (TryAdd) and resolve lazily per request.
+builder.Services.AddEvidenceWriteStore(freeboardConnectionString);
+builder.Services.AddCollectorCredentialStore(freeboardConnectionString);
 
 // Trusted-proxy forwarded headers: the client IP for rate limiting and the WebAuthn
 // origin are only trustworthy behind a configured proxy. Read the configured proxies/networks
@@ -161,7 +168,12 @@ builder.Services.AddAuthentication(AuthClaims.Scheme)
     // page-route authorization challenge/forbid into 302 redirects. Selected by the named page policy
     // bound to the /account folder, never as the process-wide default, so the API 401/403 is unchanged.
     .AddScheme<AuthenticationSchemeOptions, Freeboard.Web.PageChallengeScheme>(
-        Freeboard.Web.PageChallengeScheme.SchemeName, _ => { });
+        Freeboard.Web.PageChallengeScheme.SchemeName, _ => { })
+    // Collector machine-credential scheme for the Evidence ingest route only. A SECOND scheme beside
+    // FreeboardBearer (which stays the default), bound explicitly by the named ingest policy below, so a
+    // collector token is validated only where it is meant to be and a session token still 401s at ingest.
+    .AddScheme<AuthenticationSchemeOptions, CollectorBearerAuthenticationHandler>(
+        CollectorBearerAuthenticationHandler.SchemeName, _ => { });
 
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(RequireSudoModeRequirement.PolicyName, policy =>
@@ -176,6 +188,17 @@ builder.Services.AddAuthorizationBuilder()
     {
         policy.AddAuthenticationSchemes(Freeboard.Web.PageChallengeScheme.SchemeName);
         policy.RequireAuthenticatedUser();
+    })
+    // The Evidence ingest policy. It MUST bind the collector scheme explicitly (that scheme is not the
+    // process default), then require the collector-id claim AND the active-credential claim - so a
+    // revoked/expired credential authenticates but is denied here (Forbid -> 403), while an unknown or
+    // malformed token fails authentication in the handler (401).
+    .AddPolicy(CollectorBearerAuthenticationHandler.IngestPolicyName, policy =>
+    {
+        policy.AddAuthenticationSchemes(CollectorBearerAuthenticationHandler.SchemeName);
+        policy.RequireAuthenticatedUser();
+        policy.RequireClaim(CollectorBearerAuthenticationHandler.CollectorIdClaim);
+        policy.RequireClaim(CollectorBearerAuthenticationHandler.ActiveClaim);
     });
 
 // Razor Pages host for the auth screens. Antiforgery is validated globally for every page POST
@@ -295,6 +318,8 @@ app.MapGet("/", () => "Hello World!");
 app.MapComplianceEndpoints();
 app.MapComplianceWriteEndpoints();
 app.MapOrgSelectEndpoints();
+app.MapEvidenceIngestEndpoints();
+app.MapCollectorCredentialEndpoints();
 
 app.MapGet(ApiRoutes.ApiRoutePrefix + "/gitops/status", (IOptions<GitOpsOptions> options) =>
 {
