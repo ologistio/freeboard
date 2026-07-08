@@ -127,10 +127,123 @@ public sealed class StatementOfApplicabilityPageTests
         var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var html = await response.Content.ReadAsStringAsync();
-        // org-a excludes req-a (explicit); org-eng inherits the exclusion. Both render the deviation.
-        Assert.Contains("data-requirement-id=\"req-a\"", html, StringComparison.Ordinal);
-        Assert.Contains("req-a = Out", html, StringComparison.Ordinal);
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+        // org-a excludes req-a (explicit); org-eng inherits it. The requirement disclosure row carries the
+        // hook, an Out badge, and its provenance - both explicit and inherited appear across the two nodes.
+        Assert.Contains("data-requirement-id=\"req-a\"", table, StringComparison.Ordinal);
+        Assert.Contains("badge-danger", table, StringComparison.Ordinal);
+        Assert.Contains("explicit", table, StringComparison.Ordinal);
+        Assert.Contains("inherited", table, StringComparison.Ordinal);
+    }
+
+    // org-a is In. req-a stays In (default) and carries ctrl-a with one collector and one template;
+    // req-b is excluded Out, so it is a leaf even though ctrl-b maps to it. The collector names vendor-x,
+    // seeded as a vendor so the check row shows the vendor title, not the raw id.
+    private static FakeComplianceStore DrilldownStore() => new()
+    {
+        Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
+        Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+        Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+        Requirements =
+        [
+            new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
+            new RequirementRow("req-b", "Requirement B", "std-a", "Theme", "Do another thing.", null, "L", "https://example.com/b"),
+        ],
+        RequirementScopes = [new RequirementScopeRow("rs-b", "Exclude req-b", "org-a", "req-b", "Out")],
+        Controls =
+        [
+            new ControlRow("ctrl-a", "Control A", ["req-a"], "all"),
+            new ControlRow("ctrl-b", "Control B", ["req-b"], null),
+        ],
+        Collectors =
+        [
+            new EvidenceCollectorRow("coll-a", "Collector A", "ctrl-a", "vendor-x", "integration", "daily", null, new Dictionary<string, string>()),
+        ],
+        Templates =
+        [
+            new AttestationTemplateRow("tmpl-a", "Template A", "ctrl-a", "manual", null, [], null, []),
+        ],
+        Vendors = [new VendorRow("vendor-x", "Vendor X")],
+    };
+
+    [Fact]
+    public async Task RendersEveryDrilldownHookInSsrHtml()
+    {
+        using var factory = Factory(DrilldownStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        Assert.Contains("data-node-id=\"org-a\"", table, StringComparison.Ordinal);
+        // The In requirement expands to its control and both check kinds.
+        Assert.Contains("data-requirement-id=\"req-a\"", table, StringComparison.Ordinal);
+        Assert.Contains("data-control-id=\"ctrl-a\"", table, StringComparison.Ordinal);
+        Assert.Contains("data-check-id=\"coll-a\"", table, StringComparison.Ordinal);
+        Assert.Contains("data-check-id=\"tmpl-a\"", table, StringComparison.Ordinal);
+        // Both check kinds render, tagged by kind.
+        Assert.Contains("data-check-kind=\"collector\"", table, StringComparison.Ordinal);
+        Assert.Contains("data-check-kind=\"attestation\"", table, StringComparison.Ordinal);
+        // The collector's vendor shows by title, not the raw id.
+        Assert.Contains("Vendor X", table, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExcludedRequirementRendersAsLeafWithoutControls()
+    {
+        using var factory = Factory(DrilldownStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        // req-b is excluded (Out): its row renders with the danger badge and provenance...
+        var reqB = table[table.IndexOf("data-requirement-id=\"req-b\"", StringComparison.Ordinal)..];
+        reqB = reqB[..reqB.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.Contains("badge-danger", reqB, StringComparison.Ordinal);
+        Assert.Contains("explicit", reqB, StringComparison.Ordinal);
+        // ...but it is a leaf: no expand toggle and no nested control row, even though ctrl-b maps to it.
+        Assert.DoesNotContain("Toggle requirement req-b", reqB, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-control-id=\"ctrl-b\"", table, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NestedRowsRenderCollapsedByDefault()
+    {
+        using var factory = Factory(DrilldownStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        // Every disclosure scope defaults closed; nested content stays in the DOM but hidden via x-cloak.
+        Assert.Contains("x-data=\"{ open: false }\"", table, StringComparison.Ordinal);
+        Assert.Contains("x-cloak", table, StringComparison.Ordinal);
+        Assert.DoesNotContain("open: true", table, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OutOfScopeNodeHasNoRequirementChildren()
+    {
+        var store = new FakeComplianceStore
+        {
+            Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
+            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+            Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "Out")],
+            Requirements =
+            [
+                new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
+            ],
+        };
+        using var factory = Factory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        Assert.Contains("data-node-id=\"org-a\"", table, StringComparison.Ordinal);
+        // Standard Out dominates: the node carries no requirement children.
+        Assert.DoesNotContain("data-requirement-id", table, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -43,6 +43,10 @@ else
     else if (Model.StandardId is not null)
     {
         <p class="mb-3 text-sm text-neutral-600">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
+        @* No-JS reveal: the whole tree renders server-side, so neutralize x-cloak when Alpine cannot run.
+           Scoped to the SoA tree so it never reveals layout chrome (mobile-nav overlay, account menu)
+           that also uses x-cloak. *@
+        <noscript><style>.soa-nodes [x-cloak]{display:revert !important}</style></noscript>
         <div class="card overflow-x-auto p-0">
             <table class="soa-nodes w-full text-sm" data-standard="@Model.StandardId">
                 <thead class="border-b border-neutral-200 text-left text-neutral-600">
@@ -51,15 +55,30 @@ else
                         <th class="px-4 py-3 font-medium">Title</th>
                         <th class="px-4 py-3 font-medium">Disposition</th>
                         <th class="px-4 py-3 font-medium">Resolution</th>
-                        <th class="px-4 py-3 font-medium">Requirement deviations</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-neutral-100">
-                    @foreach (var node in Model.Nodes)
-                    {
-                        var disposition = Freeboard.Pages.Compliance.StatementOfApplicabilityModel.DispositionLabel(node);
+                @foreach (var node in Model.Nodes)
+                {
+                    var disposition = Freeboard.Pages.Compliance.StatementOfApplicabilityModel.DispositionLabel(node);
+                    var hasRequirements = node.Requirements.Count > 0;
+                    <tbody x-data="{ open: false }" class="border-b border-neutral-100 last:border-0">
                         <tr data-node-id="@node.Id">
-                            <td class="px-4 py-3 font-mono text-xs text-neutral-600">@node.Id</td>
+                            <td class="px-4 py-3 font-mono text-xs text-neutral-600">
+                                <div class="flex items-center gap-2">
+                                    @if (hasRequirements)
+                                    {
+                                        <button type="button" @@click="open = !open" :aria-expanded="open ? 'true' : 'false'"
+                                                class="shrink-0 rounded p-0.5 text-neutral-500 hover:bg-neutral-100">
+                                            <span class="sr-only">Toggle organisation @node.Id</span>
+                                            <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-90' : ''"
+                                                 fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                            </svg>
+                                        </button>
+                                    }
+                                    <span>@node.Id</span>
+                                </div>
+                            </td>
                             <td class="px-4 py-3">@node.Title</td>
                             <td class="px-4 py-3">
                                 @if (disposition == "In")
@@ -74,24 +93,101 @@ else
                             <td class="px-4 py-3">
                                 <span class="badge badge-neutral">@node.Resolution.ToWireValue()</span>
                             </td>
-                            <td class="px-4 py-3">
-                                @if (node.Requirements.Count == 0)
-                                {
-                                    <span class="text-neutral-500">-</span>
-                                }
-                                else
-                                {
+                        </tr>
+                        @if (hasRequirements)
+                        {
+                            <tr x-show="open" x-cloak>
+                                <td colspan="4" class="bg-neutral-50 px-4 py-3">
                                     <ul class="list-none space-y-1">
                                         @foreach (var requirement in node.Requirements)
                                         {
-                                            <li class="text-xs" data-requirement-id="@requirement.Requirement">@requirement.Requirement = @requirement.Disposition (@requirement.Resolution.ToWireValue())</li>
+                                            var hasControls = requirement.Controls.Count > 0;
+                                            <li data-requirement-id="@requirement.Id" x-data="{ open: false }">
+                                                <div class="flex items-center gap-2">
+                                                    @if (hasControls)
+                                                    {
+                                                        <button type="button" @@click="open = !open" :aria-expanded="open ? 'true' : 'false'"
+                                                                class="shrink-0 rounded p-0.5 text-neutral-500 hover:bg-neutral-100">
+                                                            <span class="sr-only">Toggle requirement @requirement.Id</span>
+                                                            <svg class="h-3.5 w-3.5 transition-transform" :class="open ? 'rotate-90' : ''"
+                                                                 fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                                            </svg>
+                                                        </button>
+                                                    }
+                                                    <span class="font-mono text-xs text-neutral-600">@requirement.Id</span>
+                                                    <span class="text-xs">@requirement.Title</span>
+                                                    @if (requirement.Disposition == "In")
+                                                    {
+                                                        <span class="badge badge-success">In</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge badge-danger">Out</span>
+                                                    }
+                                                    <span class="badge badge-neutral">@requirement.Resolution.ToWireValue()</span>
+                                                </div>
+                                                @if (hasControls)
+                                                {
+                                                    <ul x-show="open" x-cloak class="ml-5 mt-1 space-y-1 border-l border-neutral-200 pl-3">
+                                                        @foreach (var control in requirement.Controls)
+                                                        {
+                                                            var hasChecks = control.Checks.Count > 0;
+                                                            <li data-control-id="@control.Id" x-data="{ open: false }">
+                                                                <div class="flex items-center gap-2">
+                                                                    @if (hasChecks)
+                                                                    {
+                                                                        <button type="button" @@click="open = !open" :aria-expanded="open ? 'true' : 'false'"
+                                                                                class="shrink-0 rounded p-0.5 text-neutral-500 hover:bg-neutral-100">
+                                                                            <span class="sr-only">Toggle control @control.Id</span>
+                                                                            <svg class="h-3.5 w-3.5 transition-transform" :class="open ? 'rotate-90' : ''"
+                                                                                 fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                                                            </svg>
+                                                                        </button>
+                                                                    }
+                                                                    <span class="font-mono text-xs text-neutral-600">@control.Id</span>
+                                                                    <span class="text-xs">@control.Title</span>
+                                                                    @if (!string.IsNullOrEmpty(control.Evaluation))
+                                                                    {
+                                                                        <span class="badge badge-neutral">@control.Evaluation</span>
+                                                                    }
+                                                                </div>
+                                                                @if (hasChecks)
+                                                                {
+                                                                    <ul x-show="open" x-cloak class="ml-5 mt-1 space-y-1 border-l border-neutral-200 pl-3">
+                                                                        @foreach (var check in control.Checks)
+                                                                        {
+                                                                            <li data-check-id="@check.Id" data-check-kind="@check.Kind.ToWireValue()"
+                                                                                class="flex items-center gap-2">
+                                                                                <span class="font-mono text-xs text-neutral-600">@check.Id</span>
+                                                                                <span class="text-xs">@check.Title</span>
+                                                                                <span class="badge badge-neutral">@(check.Kind == SoaCheckKind.Collector ? "Collector" : "Attestation")</span>
+                                                                                <span class="text-xs text-neutral-500">@check.Type</span>
+                                                                                @if (check.Frequency is not null)
+                                                                                {
+                                                                                    <span class="text-xs text-neutral-500">@check.Frequency</span>
+                                                                                }
+                                                                                @if (check.Vendor is not null)
+                                                                                {
+                                                                                    <span class="text-xs text-neutral-500">@check.Vendor</span>
+                                                                                }
+                                                                            </li>
+                                                                        }
+                                                                    </ul>
+                                                                }
+                                                            </li>
+                                                        }
+                                                    </ul>
+                                                }
+                                            </li>
                                         }
                                     </ul>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                }
             </table>
         </div>
     }

@@ -36,5 +36,15 @@ public interface IComplianceStore
     /// </summary>
     Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads the Statement of Applicability drill-down inputs (organisations, scopes,
+    /// requirements, requirement-scopes, controls with resolved <c>maps_to</c>, evidence-collectors,
+    /// attestation-templates, vendors) together in one repeatable-read snapshot so the drill-down
+    /// hierarchy cannot straddle a concurrent importer commit. Separate from
+    /// <see cref="GetStatementOfApplicabilityInputsAsync"/> so evidence ingest and the JSON endpoint
+    /// keep their lighter four-list read.
+    /// </summary>
+    Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default);
+
     Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default);
 }

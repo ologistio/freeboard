@@ -210,6 +210,92 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         return new SoaInputs(organisations, scopes, requirements, requirementScopes);
     }
 
+    public async Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        // One consistent snapshot so the drill-down inputs cannot straddle a concurrent gitops sync
+        // commit and pair, say, old controls with new collectors.
+        await using var transaction = await connection
+            .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
+
+        var organisations = (await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, kind AS Kind, parent_id AS Parent FROM organisations ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var scopes = (await connection.QueryAsync<ScopeRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, standard_id AS Standard, "
+            + "disposition AS Disposition FROM scopes ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var requirements = (await connection.QueryAsync<RequirementRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, standard_id AS Standard, theme AS Theme, statement AS Statement, "
+            + "guidance AS Guidance, citation_label AS CitationLabel, citation_url AS CitationUrl "
+            + "FROM requirements ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var requirementScopes = (await connection.QueryAsync<RequirementScopeRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, requirement_id AS Requirement, "
+            + "disposition AS Disposition FROM requirement_scopes ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var controlRows = (await connection.QueryAsync<(string Id, string Title, string? Evaluation)>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, evaluation AS Evaluation FROM controls ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var links = await connection.QueryAsync<(string ControlId, string RequirementId)>(new CommandDefinition(
+            "SELECT control_id AS ControlId, requirement_id AS RequirementId FROM control_requirements "
+            + "ORDER BY control_id, requirement_id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        var mapsTo = links
+            .GroupBy(l => l.ControlId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(l => l.RequirementId).ToList(), StringComparer.Ordinal);
+
+        var controls = controlRows
+            .Select(c => new ControlRow(c.Id, c.Title, mapsTo.TryGetValue(c.Id, out var ids) ? ids : [], c.Evaluation))
+            .ToList();
+
+        var collectorRows = (await connection.QueryAsync<(string Id, string Title, string Control, string? Vendor, string Type, string Frequency, int? Threshold, string? Config)>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, control_id AS Control, vendor_id AS Vendor, type AS Type, "
+            + "frequency AS Frequency, threshold AS Threshold, config AS Config "
+            + "FROM evidence_collectors ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var collectors = collectorRows
+            .Select(r => new EvidenceCollectorRow(
+                r.Id, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, DeserializeConfig(r.Config)))
+            .ToList();
+
+        var templateRows = (await connection.QueryAsync<(string Id, string Title, string Control, string Type, string? Body, string? Fields, int? PassMark, string? Quiz)>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title, control_id AS Control, type AS Type, body AS Body, "
+            + "fields AS Fields, pass_mark AS PassMark, quiz AS Quiz "
+            + "FROM attestation_templates ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        var templates = templateRows
+            .Select(r => new AttestationTemplateRow(
+                r.Id, r.Title, r.Control, r.Type, r.Body,
+                DeserializeFields(r.Fields), r.PassMark, DeserializeQuiz(r.Quiz)))
+            .ToList();
+
+        var vendors = (await connection.QueryAsync<VendorRow>(new CommandDefinition(
+            "SELECT id AS Id, title AS Title FROM vendors ORDER BY id;",
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return new SoaDrilldownInputs(organisations, scopes, requirements, requirementScopes, controls, collectors, templates, vendors);
+    }
+
     public async Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
