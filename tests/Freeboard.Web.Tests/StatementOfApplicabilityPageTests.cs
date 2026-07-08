@@ -170,6 +170,22 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
+    public async Task UnknownStandardRendersNotFoundNoticeWithoutNodes()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = NoRedirectClient(factory);
+
+        // A ?standard= that names no persisted standard must not render an all-In table; under opt-out
+        // that would present a typo or deleted standard as applicable to every org.
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-does-not-exist");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-standard-not-found", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-node-id", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ServedInReadOnlyModeToAuthenticatedUser()
     {
         using var factory = Factory(PopulatedStore(), readOnly: true);

@@ -237,6 +237,15 @@ public static class ComplianceEndpoints
             {
                 try
                 {
+                    // Confirm the standard exists before projecting. Under opt-out an absent standard
+                    // would otherwise resolve every organisation In by default, presenting a typo or
+                    // deleted standard as applicable to all orgs instead of returning not found.
+                    var standards = await store.GetStandardsAsync(ct);
+                    if (!standards.Any(s => string.Equals(s.Id, standardId, StringComparison.Ordinal)))
+                    {
+                        return Results.NotFound();
+                    }
+
                     var inputs = await store.GetStatementOfApplicabilityInputsAsync(ct);
                     // Resolve over the FULL tree first (so inherited dispositions survive), then filter
                     // the node list to the accessible subtree.

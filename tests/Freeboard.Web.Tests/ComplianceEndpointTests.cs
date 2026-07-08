@@ -501,6 +501,19 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
+    public async Task StatementOfApplicabilityUnknownStandardIsNotFound()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        // An unknown standard must not default every org In; it is absent, so 404 rather than a
+        // projection presenting a typo or deleted standard as applicable to all orgs.
+        var response = await client.GetAsync("/api/v1/freeboard/statement-of-applicability/std-does-not-exist");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task StatementOfApplicabilityServedInReadOnlyModeToAuthenticatedUser()
     {
         using var factory = Factory(PopulatedStore(), readOnly: true);
