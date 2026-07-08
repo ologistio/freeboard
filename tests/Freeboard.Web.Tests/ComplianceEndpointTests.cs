@@ -259,7 +259,7 @@ public sealed class ComplianceEndpointTests
         var item = training.GetProperty("quiz")[0];
         Assert.Equal("q1", item.GetProperty("id").GetString());
         Assert.Equal("What should you do?", item.GetProperty("prompt").GetString());
-        Assert.Equal(["Open it", "Report it"], item.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToArray());
+        Assert.Equal(["Open it", "Report it"], item.GetProperty("options").EnumerateArray().Select(o => o.GetString()!).ToArray());
     }
 
     [Fact]

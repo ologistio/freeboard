@@ -279,7 +279,12 @@ public sealed class AuthzIntegrationTests
         var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
         await importer.ImportAsync(new Core.GitOps.GitOpsConfig
         {
-            Standards = [], Requirements = [], Controls = [], Organisations = [], Scopes = [], RequirementScopes = [],
+            Standards = [],
+            Requirements = [],
+            Controls = [],
+            Organisations = [],
+            Scopes = [],
+            RequirementScopes = [],
         });
 
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM organisations WHERE id = 'gone';"));

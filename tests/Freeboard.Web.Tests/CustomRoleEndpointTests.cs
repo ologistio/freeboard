@@ -16,12 +16,12 @@ public sealed class CustomRoleEndpointTests
 
     private static object Body(string roleKey = "custom:auditor", string title = "Auditor",
         string description = "", string[]? permissionKeys = null) => new
-    {
-        role_key = roleKey,
-        title,
-        description,
-        permission_keys = permissionKeys ?? [AuthzActions.OrgRead, AuthzActions.ComplianceRead],
-    };
+        {
+            role_key = roleKey,
+            title,
+            description,
+            permission_keys = permissionKeys ?? [AuthzActions.OrgRead, AuthzActions.ComplianceRead],
+        };
 
     [Fact]
     public async Task EntitlementOffReturns404EvenForSuperAdmin()

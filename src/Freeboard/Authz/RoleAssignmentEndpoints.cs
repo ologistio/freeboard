@@ -46,7 +46,10 @@ public static class RoleAssignmentEndpoints
         var rows = await store.ListOrganisationAssignmentsAsync(orgId, ct);
         return Results.Ok(rows.Select(r => new
         {
-            user_id = r.UserId, role_key = r.RoleKey, organisation_id = r.OrganisationId, created_at = r.CreatedAt,
+            user_id = r.UserId,
+            role_key = r.RoleKey,
+            organisation_id = r.OrganisationId,
+            created_at = r.CreatedAt,
         }));
     }
 

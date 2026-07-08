@@ -128,7 +128,14 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.ApiVersion, r.Title, r.Version, r.Authority, r.Publisher, r.SourceUrl, Now = now,
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Version,
+            r.Authority,
+            r.Publisher,
+            r.SourceUrl,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
@@ -157,7 +164,16 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.ApiVersion, r.Title, r.Standard, r.Theme, r.Statement, r.Guidance, r.CitationLabel, r.CitationUrl, Now = now,
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Standard,
+            r.Theme,
+            r.Statement,
+            r.Guidance,
+            r.CitationLabel,
+            r.CitationUrl,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
@@ -213,7 +229,16 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.ApiVersion, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, r.ConfigJson, Now = now,
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Control,
+            r.Vendor,
+            r.Type,
+            r.Frequency,
+            r.Threshold,
+            r.ConfigJson,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
@@ -244,7 +269,16 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.ApiVersion, r.Title, r.Control, r.Type, r.Body, r.FieldsJson, r.PassMark, r.QuizJson, Now = now,
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Control,
+            r.Type,
+            r.Body,
+            r.FieldsJson,
+            r.PassMark,
+            r.QuizJson,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
@@ -321,7 +355,13 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.ApiVersion, r.Title, r.Organisation, r.Standard, r.Disposition, Now = now,
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Organisation,
+            r.Standard,
+            r.Disposition,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
@@ -351,7 +391,13 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.ApiVersion, r.Title, r.Organisation, r.Requirement, r.Disposition, Now = now,
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Organisation,
+            r.Requirement,
+            r.Disposition,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
@@ -383,7 +429,15 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.ApiVersion, r.Title, r.Vendor, r.Requirement, r.Control, r.Disposition, r.Justification, Now = now,
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Vendor,
+            r.Requirement,
+            r.Control,
+            r.Disposition,
+            r.Justification,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
