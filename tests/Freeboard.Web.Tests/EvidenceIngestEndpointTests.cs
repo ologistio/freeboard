@@ -79,7 +79,7 @@ public sealed class EvidenceIngestEndpointTests
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Freeboard.slnx")))
+        while (dir is not null && !File.Exists(Path.Join(dir.FullName, "Freeboard.slnx")))
         {
             dir = dir.Parent;
         }
@@ -89,7 +89,7 @@ public sealed class EvidenceIngestEndpointTests
     }
 
     internal static string ExamplePayload() =>
-        File.ReadAllText(Path.Combine(RepoRoot(), "docs", "schemas", "evidence-ingest.v1.example.json"));
+        File.ReadAllText(Path.GetFullPath(Path.Join(RepoRoot(), "docs", "schemas", "evidence-ingest.v1.example.json")));
 
     [Fact]
     public async Task ValidExampleLandsAsCreatedWithMappedRun()
@@ -218,6 +218,14 @@ public sealed class EvidenceIngestEndpointTests
 
     [Fact]
     public Task EmptyCollectorIdIs422() => AssertUnprocessable(Valid(collectorId: ""));
+
+    // ':' composes collector_ref = collector_id:run_id; allowing it in either field would let two distinct
+    // tuples collapse to the same idempotency key, so it is rejected 422.
+    [Fact]
+    public Task ColonInRunIdIs422() => AssertUnprocessable(Valid(runId: "a:b"));
+
+    [Fact]
+    public Task ColonInCollectorIdIs422() => AssertUnprocessable(Valid(collectorId: "a:b"));
 
     [Fact]
     public Task NonUtcTimestampIs422() => AssertUnprocessable(Valid(collectedAt: "2026-01-01T00:00:00+02:00"));

@@ -158,7 +158,8 @@ public static class EvidenceIngestEndpoints
             }
 
             // 6. Namespace the run under the collector so idempotency is collector-scoped; the column is
-            // VARCHAR(190).
+            // VARCHAR(190). collector_id and run_id are validated to exclude ':' so this composition is
+            // unambiguous (no two distinct tuples can collapse to the same collector_ref).
             var collectorRef = $"{validated.CollectorId}:{validated.RunId}";
             if (collectorRef.Length > MaxIdLength)
             {
@@ -272,7 +273,8 @@ public static class EvidenceIngestEndpoints
         }
 
         if (!TryRequiredString(root, "collector_id", out var collectorId, out error)
-            || !CheckId("collector_id", collectorId, out error))
+            || !CheckId("collector_id", collectorId, out error)
+            || !CheckNoRefDelimiter("collector_id", collectorId, out error))
         {
             return false;
         }
@@ -290,7 +292,8 @@ public static class EvidenceIngestEndpoints
         }
 
         if (!TryRequiredString(root, "run_id", out var runId, out error)
-            || !CheckId("run_id", runId, out error))
+            || !CheckId("run_id", runId, out error)
+            || !CheckNoRefDelimiter("run_id", runId, out error))
         {
             return false;
         }
@@ -510,6 +513,24 @@ public static class EvidenceIngestEndpoints
         if (value.Length > MaxIdLength)
         {
             error = $"{name} must be at most 190 characters.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Rejects the ':' character in a value that composes <c>collector_ref</c> = "collector_id:run_id".
+    /// Without this, a ':' inside either field makes the composition ambiguous - e.g. ("a:b","c") and
+    /// ("a","b:c") both yield "a:b:c" - so two distinct runs would collide on the (vendor, collector_ref)
+    /// idempotency key and the second would be dropped as a 200 replay.
+    /// </summary>
+    private static bool CheckNoRefDelimiter(string name, string value, out string? error)
+    {
+        if (value.Contains(':', StringComparison.Ordinal))
+        {
+            error = $"{name} must not contain ':' (it is the collector_id:run_id delimiter).";
             return false;
         }
 

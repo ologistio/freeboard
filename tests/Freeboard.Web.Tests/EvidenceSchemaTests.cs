@@ -13,7 +13,7 @@ public sealed class EvidenceSchemaTests
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Freeboard.slnx")))
+        while (dir is not null && !File.Exists(Path.Join(dir.FullName, "Freeboard.slnx")))
         {
             dir = dir.Parent;
         }
@@ -25,7 +25,7 @@ public sealed class EvidenceSchemaTests
     // Built once: JsonSchema.FromText registers the schema by its $id in a global registry, so
     // rebuilding it per test throws "Overwriting registered schemas is not permitted".
     private static readonly JsonSchema Schema = JsonSchema.FromText(File.ReadAllText(
-        Path.Combine(RepoRoot(), "docs", "schemas", "evidence-ingest.v1.schema.json")));
+        Path.GetFullPath(Path.Join(RepoRoot(), "docs", "schemas", "evidence-ingest.v1.schema.json"))));
 
     private static bool Validates(string payload)
     {
@@ -100,6 +100,18 @@ public sealed class EvidenceSchemaTests
           "collector_id": "c", "organisation_id": "o", "requirement_id": "r",
           "run_id": "run", "collected_at": "2026-01-01T00:00:00Z",
           "checks": [{"name": "c1", "severity": "hard", "result": "pass", "data": {"k": 1}}]
+        }
+        """));
+
+    [Fact]
+    public void ColonInRunIdFailsSchema() =>
+        // Mirrors the server's 422: ':' is the collector_id:run_id delimiter, so it is rejected in run_id.
+        Assert.False(Validates("""
+        {
+          "schema_version": "freeboard.evidence.v1",
+          "collector_id": "c", "organisation_id": "o", "requirement_id": "r",
+          "run_id": "a:b", "collected_at": "2026-01-01T00:00:00Z",
+          "checks": [{"name": "c1", "severity": "hard", "result": "pass"}]
         }
         """));
 

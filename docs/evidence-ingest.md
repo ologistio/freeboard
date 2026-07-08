@@ -110,10 +110,10 @@ freeboard collector credential revoke <collector-id> <credential-id>
 | Field | Type | Rules |
 | --- | --- | --- |
 | `schema_version` | string | Required. Exactly `freeboard.evidence.v1`. |
-| `collector_id` | string | Required, non-blank, <= 190 chars. Must equal the credential's collector AND exist in the register. |
+| `collector_id` | string | Required, non-blank, <= 190 chars, no `:`. Must equal the credential's collector AND exist in the register. |
 | `organisation_id` | string | Required, non-blank, <= 190 chars. Must resolve `In` for the requirement's standard in the Statement of Applicability. |
 | `requirement_id` | string | Required, non-blank, <= 190 chars. Must be a requirement the collector's control maps to. |
-| `run_id` | string | Required, non-blank. Caller-supplied; the idempotency key with `collector_id`. `collector_id` and `run_id` together must be <= 190 chars. |
+| `run_id` | string | Required, non-blank, no `:`. Caller-supplied; the idempotency key with `collector_id`. `collector_id` and `run_id` together must be <= 190 chars. The `:` character is reserved as the delimiter that composes the two. |
 | `collector_version` | string | Optional. Provenance, e.g. an image digest. |
 | `collected_at` | string | Required. UTC ISO 8601 (a `Z` or `+00:00` designator). |
 | `checks` | array | Required, non-empty. See below. |

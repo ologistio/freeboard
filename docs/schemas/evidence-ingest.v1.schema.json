@@ -23,7 +23,8 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 190,
-      "pattern": "\\S"
+      "pattern": "^(?=.*\\S)[^:]+$",
+      "description": "Non-blank; must not contain ':' (the collector_id:run_id idempotency delimiter)."
     },
     "organisation_id": {
       "type": "string",
@@ -41,7 +42,8 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 190,
-      "pattern": "\\S"
+      "pattern": "^(?=.*\\S)[^:]+$",
+      "description": "Non-blank; must not contain ':' (the collector_id:run_id idempotency delimiter)."
     },
     "collector_version": {
       "type": ["string", "null"]
