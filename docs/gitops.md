@@ -147,9 +147,18 @@ standard: std-cyber-essentials
 disposition: In
 ```
 
-Dispositions are sparse: a node with no scope for a standard inherits its nearest
-ancestor's disposition. A node with no such ancestor is undetermined. The
-Statement of Applicability (below) resolves this per node.
+Dispositions are sparse and scoping is opt-out: a node with no scope for a
+standard inherits its nearest ancestor's disposition, and a node with no scope on
+its path to the root defaults to `In` (in scope). An explicit `Out` opts a
+standard out, and a descendant `In` overrides an opted-out ancestor. The Statement
+of Applicability (below) resolves this per node.
+
+Scoping was previously opt-in: a standard was out of scope until an explicit
+`Scope In` was authored. It is now opt-out. A standard left unscoped is in scope; a
+deployment that wants a standard to stay out MUST author an explicit `Scope Out` at
+the appropriate organisation. A root-level `Scope In` authored under the old model
+is now a redundant no-op (it resolves `In` marked `explicit` instead of `default`)
+and may be deleted.
 
 ### RequirementScope
 
@@ -169,9 +178,9 @@ disposition: Out
 ```
 
 Requirement-scopes sit under the standard-level scope. For a node and a
-requirement (owned by standard S): if the node's disposition for S resolves `Out`
-or `Undetermined`, the requirement follows the standard and requirement-scopes are
-not consulted; only where S resolves `In` does the requirement layer apply. Within
+requirement (owned by standard S): if the node's disposition for S resolves `Out`,
+the requirement follows the standard and requirement-scopes are not consulted;
+only where S resolves `In` does the requirement layer apply. Within
 an `In` standard, requirement-scopes inherit by the same nearest-ancestor rule as
 scopes, and a child re-includes (`In`) a requirement an ancestor excluded (`Out`).
 A requirement-level `In` cannot re-include a requirement whose standard is `Out`.
@@ -495,12 +504,15 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
   by organisation access - any authenticated user reads every row.
 - `GET /api/v1/freeboard/statement-of-applicability/{standardId}` - the SoA
   projection for a standard: every organisation node with its resolved
-  `disposition` and whether that value is `Explicit`, `Inherited`, or
-  `Undetermined`, plus a `requirements` list of the per-requirement deviations for
-  nodes whose standard resolves `In` (each with its `requirement`, resolved
-  `disposition`, and `Explicit`/`Inherited` resolution; a requirement not listed
-  follows the node's standard disposition). Nodes resolving `Out`/`Undetermined`
-  carry an empty `requirements` list.
+  `disposition` (always `In` or `Out`) and whether that value is `explicit`,
+  `inherited`, or `default` (`default` means in scope with no authored scope on the
+  path), plus a `requirements` list of the per-requirement deviations for nodes
+  whose standard resolves `In` (each with its `requirement`, resolved
+  `disposition`, and `explicit`/`inherited` resolution; a requirement not listed
+  follows the node's standard disposition). A node resolving `Out` always carries an
+  empty `requirements` list (requirement-scopes are not applied under an
+  out-of-scope standard); an in-scope node (`explicit`, `inherited`, or `default`)
+  carries its per-requirement deviations, which is an empty list when it has none.
 - `GET /api/v1/freeboard/compliance/status` - a `persisted` object of per-kind
   counts.
 
