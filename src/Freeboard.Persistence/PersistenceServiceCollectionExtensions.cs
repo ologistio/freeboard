@@ -54,6 +54,21 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory and the runtime Evidence ingest stores
+    /// (<see cref="IEvidenceIngestStore"/> and <see cref="ICollectorCredentialStore"/>). Both need an
+    /// <see cref="Auth.IUlidFactory"/> for row ids; it is TryAdded so a co-registered
+    /// <see cref="AddAuth"/> keeps its single instance.
+    /// </summary>
+    public static IServiceCollection AddEvidenceIngest(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<Auth.IUlidFactory, Auth.UlidFactory>();
+        services.TryAddSingleton<IEvidenceIngestStore, MySqlEvidenceIngestStore>();
+        services.TryAddSingleton<ICollectorCredentialStore, MySqlCollectorCredentialStore>();
+        return services;
+    }
+
     /// <summary>Registers the connection factory and <see cref="IGitOpsImporter"/>.</summary>
     public static IServiceCollection AddGitOpsImport(this IServiceCollection services, string connectionString)
     {

@@ -1868,4 +1868,73 @@ public sealed class MySqlIntegrationTests
         Assert.Null(await challenges.FindByTokenAsync(minted.Token, DateTime.UtcNow));
         Assert.False(await challenges.ConsumeAsync(minted.Row.Id, DateTime.UtcNow));
     }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task Migration014EvidenceIngestRoundTripAndKeys()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        await importer.ImportAsync(Config([Std("std-a")], [Ctrl("ctrl-a", [])], evidenceCollectors: [Ec("coll-a", "ctrl-a")]));
+
+        var ulids = new UlidFactory();
+        var credentials = new MySqlCollectorCredentialStore(db.ConnectionFactory, ulids);
+        var evidence = new MySqlEvidenceIngestStore(db.ConnectionFactory, ulids);
+
+        // Credential issue/lookup/revoke round-trip.
+        var tokenHash = SHA256Hash("token-a");
+        var credId = await credentials.IssueAsync("coll-a", tokenHash, 1, null);
+        var found = await credentials.FindByTokenHashAsync(tokenHash);
+        Assert.NotNull(found);
+        Assert.Equal("coll-a", found!.CollectorId);
+        Assert.True(await credentials.RevokeAsync("coll-a", credId));
+        Assert.False(await credentials.RevokeAsync("coll-a", credId)); // already revoked
+
+        // Append a run with two checks; a duplicate (collector, run) with the SAME hash replays.
+        var run = new EvidenceRunInput(
+            "coll-a", "Coll A", "ctrl-a", null, "integration", "run-1", "freeboard.evidence.v1", null,
+            DateTime.UtcNow, DateTime.UtcNow, SHA256Hash("body-1"), 1, 0, 2, null,
+            [
+                new EvidenceCheckInput("c1", "hard", "fail", null, null, 0),
+                new EvidenceCheckInput("c2", "soft", "pass", "ok", "{\"k\":1}", 1),
+            ]);
+
+        var first = await evidence.TryAppendAsync(run);
+        Assert.True(first.WasNew);
+
+        var replay = await evidence.TryAppendAsync(run);
+        Assert.False(replay.WasNew);
+        Assert.True(replay.BodyMatches);
+        Assert.Equal(first.EvidenceId, replay.EvidenceId);
+        Assert.Equal(1, replay.HardFailCount);
+
+        var conflict = await evidence.TryAppendAsync(run with { RequestBodySha256 = SHA256Hash("body-2") });
+        Assert.False(conflict.WasNew);
+        Assert.False(conflict.BodyMatches);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        // The unique (collector_id, run_id) key kept it to one run with its two checks.
+        Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_runs;"));
+        Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_run_checks;"));
+
+        // The check name is binary-collated so the (evidence_run_id, name) unique key is byte-exact,
+        // matching the ordinal uniqueness the ingest validator enforces.
+        var nameCollation = await conn.ExecuteScalarAsync<string>(
+            "SELECT collation_name FROM information_schema.columns "
+            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_run_checks' AND column_name = 'name';");
+        Assert.Equal("utf8mb4_bin", nameCollation);
+
+        // Deleting the collector cascades its credentials but does NOT touch evidence_runs (no FK): the
+        // evidence survives a pruned collector, and the check rows survive with their run.
+        await conn.ExecuteAsync("DELETE FROM evidence_collectors WHERE id = 'coll-a';");
+        Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM collector_credentials;"));
+        Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_runs;"));
+        Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_run_checks;"));
+    }
+
+    private static byte[] SHA256Hash(string value) =>
+        global::System.Security.Cryptography.SHA256.HashData(global::System.Text.Encoding.UTF8.GetBytes(value));
 }
