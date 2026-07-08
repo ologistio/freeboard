@@ -2,15 +2,15 @@ namespace Freeboard.Persistence;
 
 /// <summary>
 /// Read abstraction over persisted evidence. Returns evidence runs with their resolved checks and, for
-/// attestation runs, the 1:1 extension, plus a computed AssessmentResult per <c>(organisation,
-/// requirement)</c> pair that has evidence.
+/// attestation runs, the 1:1 extension, plus a computed status per <c>(organisation, requirement,
+/// collector)</c> that has evidence.
 /// <para>
-/// Assessment is derived on read from each pair's latest run (pinned by <c>collected_at</c>,
-/// <c>received_at</c>, <c>created_at</c>, <c>id</c> descending) and that run's checks: it means "the
-/// latest run has no failing hard check", NOT "the requirement is satisfied" - with no expected-check
-/// catalogue a run can under-report, so a pass can be overclaimed. The store returns a status only for
-/// pairs that have a run and never emits <c>NoEvidence</c>; deriving <c>NoEvidence</c> for in-scope pairs
-/// with no run, and intersecting with the resolved in-scope set, is the web caller's responsibility.
+/// Status is derived on read from each collector's latest run (pinned by <c>collected_at</c>,
+/// <c>received_at</c>, <c>created_at</c>, <c>id</c> descending) and that run's checks: <c>Passing</c>
+/// means "the latest run has no failing hard check", NOT "the requirement is satisfied" - with no
+/// expected-check catalogue a run can under-report, so a pass can be overclaimed. The store returns a
+/// status only for collectors that have a run and never emits <c>Unknown</c>; deriving <c>Unknown</c>
+/// for a configured collector with no run is the web caller's responsibility.
 /// </para>
 /// </summary>
 public interface IEvidenceStore
@@ -30,11 +30,13 @@ public interface IEvidenceStore
         string organisationId, string requirementId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns a computed <see cref="AssessmentResultRow"/> for each <c>(organisation, requirement)</c>
-    /// pair under <paramref name="organisationId"/> that has evidence, derived from each pair's latest
-    /// run. Status is <c>HardFailure</c>, <c>SoftFailure</c>, or <c>Passing</c>; the store never emits
-    /// <c>NoEvidence</c> and does not enumerate in-scope pairs.
+    /// Returns a computed <see cref="CollectorEvidenceStatusRow"/> for each <c>(organisation,
+    /// requirement, collector)</c> under any of <paramref name="organisationIds"/> that has evidence,
+    /// derived from each collector's latest run. Status is <c>HardFailure</c>, <c>Stale</c>,
+    /// <c>SoftFailure</c>, or <c>Passing</c> (in that precedence); the store never emits <c>Unknown</c>
+    /// and does not enumerate configured collectors. A single call covers every supplied organisation so
+    /// the caller issues one batched read.
     /// </summary>
-    Task<IReadOnlyList<AssessmentResultRow>> GetAssessmentResultsAsync(
-        string organisationId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<CollectorEvidenceStatusRow>> GetCollectorEvidenceStatusesAsync(
+        IReadOnlyCollection<string> organisationIds, CancellationToken cancellationToken = default);
 }

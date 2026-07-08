@@ -172,6 +172,28 @@ else
                                                                                 {
                                                                                     <span class="text-xs text-neutral-500">@check.Vendor</span>
                                                                                 }
+                                                                                @if (check.Kind == SoaCheckKind.Collector)
+                                                                                {
+                                                                                    var status = Model.CollectorStatus(node.Id, requirement.Id, check.Id);
+                                                                                    @switch (status)
+                                                                                    {
+                                                                                        case "HardFailure":
+                                                                                            <span class="badge badge-danger" data-collector-status="HardFailure">hard failure</span>
+                                                                                            break;
+                                                                                        case "Stale":
+                                                                                            <span class="badge badge-brand" data-collector-status="Stale">collection stopped</span>
+                                                                                            break;
+                                                                                        case "SoftFailure":
+                                                                                            <span class="badge badge-warn" data-collector-status="SoftFailure">soft failure</span>
+                                                                                            break;
+                                                                                        case "Passing":
+                                                                                            <span class="badge badge-success" data-collector-status="Passing">passing</span>
+                                                                                            break;
+                                                                                        default:
+                                                                                            <span class="badge badge-neutral" data-collector-status="Unknown">not collected</span>
+                                                                                            break;
+                                                                                    }
+                                                                                }
                                                                             </li>
                                                                         }
                                                                     </ul>

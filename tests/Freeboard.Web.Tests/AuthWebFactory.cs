@@ -59,6 +59,9 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// <summary>The in-memory evidence write store the ingest route serves. Assert its <c>Appended</c> runs.</summary>
     public FakeEvidenceWriteStore EvidenceStore { get; init; } = new();
 
+    /// <summary>The in-memory evidence read store. Seed collector runs to drive per-collector status.</summary>
+    public FakeEvidenceStore EvidenceReads { get; init; } = new();
+
     /// <summary>The in-memory collector-credential store. Seed a credential to drive collector auth.</summary>
     public FakeCollectorCredentialStore CollectorCreds { get; init; } = new();
 
@@ -150,6 +153,10 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IEvidenceWriteStore>();
             services.AddSingleton<IEvidenceWriteStore>(EvidenceStore);
+            // Program.cs now registers the real MySqlEvidenceStore; swap in the fake so an authenticated
+            // SoA render does not reach an unreachable store.
+            services.RemoveAll<IEvidenceStore>();
+            services.AddSingleton<IEvidenceStore>(EvidenceReads);
             services.RemoveAll<ICollectorCredentialStore>();
             services.AddSingleton<ICollectorCredentialStore>(CollectorCreds);
 

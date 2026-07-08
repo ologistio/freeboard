@@ -61,6 +61,7 @@ public static class PersistenceServiceCollectionExtensions
     public static IServiceCollection AddEvidenceStore(this IServiceCollection services, string connectionString)
     {
         AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IEvidenceStore, MySqlEvidenceStore>();
         return services;
     }

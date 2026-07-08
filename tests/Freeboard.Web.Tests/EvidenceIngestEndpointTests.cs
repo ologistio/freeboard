@@ -116,6 +116,9 @@ public sealed class EvidenceIngestEndpointTests
         Assert.Equal(ExampleRequirement, run.RequirementId);
         Assert.Equal("vendor-google", run.Vendor);
         Assert.Equal($"{ExampleCollectorId}:2026-07-08T09-00-00Z-a1b2c3", run.CollectorRef);
+        // Staleness needs the producing collector's identity and cadence denormalised onto the run.
+        Assert.Equal(ExampleCollectorId, run.CollectorId);
+        Assert.Equal("daily", run.Frequency);
         Assert.Equal("Pass", run.Result);
         Assert.Equal(2, run.Checks.Count);
         Assert.Equal(["Hard", "Soft"], run.Checks.Select(c => c.Severity).ToArray());

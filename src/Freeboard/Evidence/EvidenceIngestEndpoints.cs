@@ -184,7 +184,9 @@ public static class EvidenceIngestEndpoints
                 RawPayload: Encoding.UTF8.GetString(body),
                 Checks: validated.Checks
                     .Select(c => new NewEvidenceCheck(c.Name, MapSeverity(c.Severity), MapResult(c.Result), c.Detail))
-                    .ToList());
+                    .ToList(),
+                CollectorId: validated.CollectorId,
+                Frequency: string.IsNullOrWhiteSpace(collector.Frequency) ? null : collector.Frequency);
 
             WriteResult result;
             try
