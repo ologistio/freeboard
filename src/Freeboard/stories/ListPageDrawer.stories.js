@@ -1,7 +1,8 @@
-// Compositions / List with drawer. A Controls list page where clicking a control
-// name opens the detail drawer over a scrim - the core object-interaction loop
+// Compositions / List with drawer. A Controls list page where clicking a row
+// opens the detail drawer over a scrim - the core object-interaction loop
 // (list -> drawer). The drawer's top (id, title, status, assertion) fills from
-// the clicked row; the rest of the anatomy is illustrative. Reference only.
+// the clicked row; the rest of the anatomy is illustrative. The overlay is scoped
+// to the page frame (see _marks.js). Reference only.
 
 import { compPage } from "./_marks.js";
 
@@ -11,12 +12,27 @@ export default {
 };
 
 const CHIP = "var p=this.parentNode;var c=p.querySelectorAll('.fb-chip');for(var i=0;i<c.length;i++)c[i].classList.remove('on');this.classList.add('on')";
+// `this` is the clicked row: read its data-* and fill the drawer, then open.
 const OPEN = "var t=this,w=t.closest('.fb-demo');w.querySelector('#fbc-eyebrow').textContent=t.getAttribute('data-cid');w.querySelector('#fbc-title').textContent=t.getAttribute('data-cname');w.querySelector('#fbc-desc').textContent=t.getAttribute('data-cdesc');var cls=t.getAttribute('data-ccls'),st=w.querySelector('#fbc-status');st.className='fb-status '+cls;st.querySelector('.fb-seal').className='fb-seal '+cls;w.querySelector('#fbc-word').textContent=t.getAttribute('data-cword');w.querySelector('.fb-scrim').classList.add('show');var d=w.querySelector('.fb-drawer');d.classList.add('open');d.setAttribute('aria-hidden','false');d.focus();";
 const CLOSE = "var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');var d=w.querySelector('.fb-drawer');d.classList.remove('open');d.setAttribute('aria-hidden','true');";
 const ESC = "if(event.key==='Escape'){var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');this.classList.remove('open');this.setAttribute('aria-hidden','true');}";
 
-const nameBtn = (id, name, desc, word, cls) =>
-    `<button type="button" class="fb-linkname" data-cid="${id}" data-cname="${name}" data-cdesc="${desc}" data-cword="${word}" data-ccls="${cls}" onclick="${OPEN}">${name}</button>`;
+// A clickable control row. Data lives on the <tr>; the name is a focusable button
+// (keyboard users tab to it and Enter, which bubbles to the row's handler).
+const row = (o) => `<tr class="fb-row fb-rowlink" data-cid="${o.id}" data-cname="${o.name}" data-cdesc="${o.desc}" data-cword="${o.word}" data-ccls="${o.cls}" onclick="${OPEN}">
+      <td><span class="fb-status ${o.cls}"><span class="fb-seal ${o.cls}"></span>${o.word}</span></td>
+      <td><button type="button" class="fb-linkname" aria-haspopup="dialog">${o.name}</button></td>
+      <td>${o.satisfies}</td>
+      <td>${o.tests}</td>
+      <td><span class="fb-owner"><span class="fb-av">${o.av}</span>${o.owner}</span></td>
+      <td>${o.evidence}</td>
+    </tr>`;
+
+const ROWS = [
+    { id: "CC6.1", name: "Access requires MFA", desc: "All human access to production requires a second factor. Break-glass accounts are enumerated and reviewed quarterly.", word: "Failing", cls: "fail", satisfies: `<span class="fb-tag fb-tag--brand">SOC 2</span> <span class="fb-tag">+2</span>`, tests: `<span class="fb-tag fb-tag--fail">1 / 4 failing</span>`, av: "JS", owner: "J. Sarah", evidence: `<span class="fb-stamp">AUTO / 22M</span>` },
+    { id: "CC6.8", name: "Penetration testing", desc: "An independent penetration test is performed at least annually; findings are tracked to closure.", word: "Evidence due", cls: "warn", satisfies: `<span class="fb-tag fb-tag--brand">SOC 2</span> <span class="fb-tag">+3</span>`, tests: `<span class="fb-tag">1 document test</span>`, av: "MO", owner: "M. Osei", evidence: `<span class="fb-stamp manual">MANUAL / 9d</span>` },
+    { id: "CC8.1", name: "Change management", desc: "Changes to production are peer reviewed, tested, and traceable to an approved request.", word: "Ready", cls: "ok", satisfies: `<span class="fb-tag fb-tag--brand">SOC 2</span> <span class="fb-tag">+2</span>`, tests: `<span class="fb-tag">5 tests</span>`, av: "RB", owner: "R. Byrne", evidence: `<span class="fb-stamp">AUTO / 8M</span>` },
+];
 
 const DRAWER = `<div class="fb-scrim" onclick="${CLOSE}"></div>
   <aside class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="fbc-title" aria-hidden="true" tabindex="-1" onkeydown="${ESC}">
@@ -37,7 +53,7 @@ const DRAWER = `<div class="fb-scrim" onclick="${CLOSE}"></div>
         <li><span>MFA policy export</span><span class="fb-stamp">AUTO / 22M</span></li>
         <li><span>Break-glass review minutes</span><span class="fb-stamp manual">MANUAL / 02 JUL</span></li>
       </ul></div>
-      <div class="fb-dsec"><div class="fb-dl">Guidance</div><div class="fb-guidance">Open the row to see the control's full record. Fixing it once updates every framework that maps to it.</div></div>
+      <div class="fb-dsec"><div class="fb-dl">Guidance</div><div class="fb-guidance">The drawer top fills from the clicked row. Fixing a control once updates every framework that maps to it.</div></div>
     </div>
     <div class="fb-dfoot"><button type="button" class="fb-dbtn fb-dbtn--brand">Fix now</button><button type="button" class="fb-dbtn">Assign owner</button></div>
   </aside>`;
@@ -63,33 +79,10 @@ const COMP = `<div class="fb-demo">
     <div class="fb-scroll"><table class="fb-tbl">
       <thead><tr><th>Status</th><th>Control</th><th>Satisfies</th><th>Tests</th><th>Owner</th><th>Evidence</th></tr></thead>
       <tbody>
-        <tr class="fb-row">
-          <td><span class="fb-status fail"><span class="fb-seal fail"></span>Failing</span></td>
-          <td>${nameBtn("CC6.1", "Access requires MFA", "All human access to production requires a second factor. Break-glass accounts are enumerated and reviewed quarterly.", "Failing", "fail")}</td>
-          <td><span class="fb-tag fb-tag--brand">SOC 2</span> <span class="fb-tag">+2</span></td>
-          <td><span class="fb-tag fb-tag--fail">1 / 4 failing</span></td>
-          <td><span class="fb-owner"><span class="fb-av">JS</span>J. Sarah</span></td>
-          <td><span class="fb-stamp">AUTO / 22M</span></td>
-        </tr>
-        <tr class="fb-row">
-          <td><span class="fb-status warn"><span class="fb-seal warn"></span>Evidence due</span></td>
-          <td>${nameBtn("CC6.8", "Penetration testing", "An independent penetration test is performed at least annually; findings are tracked to closure.", "Evidence due", "warn")}</td>
-          <td><span class="fb-tag fb-tag--brand">SOC 2</span> <span class="fb-tag">+3</span></td>
-          <td><span class="fb-tag">1 document test</span></td>
-          <td><span class="fb-owner"><span class="fb-av">MO</span>M. Osei</span></td>
-          <td><span class="fb-stamp manual">MANUAL / 9d</span></td>
-        </tr>
-        <tr class="fb-row">
-          <td><span class="fb-status ok"><span class="fb-seal ok"></span>Ready</span></td>
-          <td>${nameBtn("CC8.1", "Change management", "Changes to production are peer reviewed, tested, and traceable to an approved request.", "Ready", "ok")}</td>
-          <td><span class="fb-tag fb-tag--brand">SOC 2</span> <span class="fb-tag">+2</span></td>
-          <td><span class="fb-tag">5 tests</span></td>
-          <td><span class="fb-owner"><span class="fb-av">RB</span>R. Byrne</span></td>
-          <td><span class="fb-stamp">AUTO / 8M</span></td>
-        </tr>
+        ${ROWS.map(row).join("")}
       </tbody>
     </table></div>
-    <div class="fb-tfoot">Showing 3 of 312. Click a control name to open its record.</div>
+    <div class="fb-tfoot">Showing 3 of 312. Click a row to open its record.</div>
   </div>
   ${DRAWER}
 </div>`;
@@ -102,9 +95,9 @@ const SNIPPET = `<div class="fb-demo">
     <table class="fb-tbl">
       <thead><tr><th>Status</th><th>Control</th><th>Tests</th><th>Owner</th></tr></thead>
       <tbody>
-        <tr class="fb-row">
+        <tr class="fb-row fb-rowlink" data-cid="CC6.1" data-cname="Access requires MFA" data-cdesc="..." data-cword="Failing" data-ccls="fail" onclick="openDrawer(this)">
           <td><span class="fb-status fail"><span class="fb-seal fail"></span>Failing</span></td>
-          <td><button type="button" class="fb-linkname" data-cid="CC6.1" data-cname="Access requires MFA" ...>Access requires MFA</button></td>
+          <td><button type="button" class="fb-linkname" aria-haspopup="dialog">Access requires MFA</button></td>
           <td><span class="fb-tag fb-tag--fail">1 / 4 failing</span></td>
           <td><span class="fb-owner"><span class="fb-av">JS</span>J. Sarah</span></td>
         </tr>
