@@ -42,6 +42,32 @@ public sealed class EvidenceCollectorFrequencyTests
         Assert.True(EvidenceCollectorFrequency.IsStale(collectedAt, frequency, Now));
     }
 
+    // The scheduling interval is the plain window, distinct from the interval-plus-grace staleness
+    // threshold: continuous fires hourly (its window) even though it is stale only past 1h15m.
+    [Theory]
+    [InlineData("continuous", 1, 0)] // 1h
+    [InlineData("daily", 24, 0)] // 1d
+    [InlineData("weekly", 7 * 24, 0)] // 7d
+    [InlineData("monthly", 31 * 24, 0)] // 31d
+    [InlineData("quarterly", 92 * 24, 0)] // 92d
+    [InlineData("annual", 366 * 24, 0)] // 366d
+    public void IntervalIsTheWindowNotTheStalenessThreshold(string frequency, int hours, int minutes)
+    {
+        var window = TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes);
+        Assert.Equal(window, EvidenceCollectorFrequency.Interval(frequency));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("hourly")]
+    [InlineData("Daily")] // token match is case-sensitive
+    public void NullBlankOrUnknownCadenceHasNoInterval(string? frequency)
+    {
+        Assert.Null(EvidenceCollectorFrequency.Interval(frequency));
+    }
+
     [Fact]
     public void ContinuousWindowIsJudgedInHours()
     {

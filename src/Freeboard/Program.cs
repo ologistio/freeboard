@@ -9,6 +9,7 @@ using Freeboard.Entitlements;
 using Freeboard.Evidence;
 using Freeboard.GitOps;
 using Freeboard.Persistence;
+using Freeboard.Scheduler;
 using Freeboard.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -51,6 +52,25 @@ builder.Services.AddCollectorCredentialStore(freeboardConnectionString);
 // Read store for the per-collector evidence status shown on the Statement of Applicability. Resolves
 // lazily per request over the shared connection factory (TryAdd).
 builder.Services.AddEvidenceStore(freeboardConnectionString);
+
+// In-service collector scheduler: a background service that claims due integration collectors on their
+// declared frequency and dispatches them through the runner seam. The runner is a no-op that logs (real
+// integration execution is a follow-up), replaceable by swapping this single registration. The service
+// no-ops without touching the database when disabled or when no connection string is configured, so the
+// app still boots on an empty connection string and the web test factories are unaffected.
+builder.Services.Configure<SchedulerOptions>(builder.Configuration.GetSection(SchedulerOptions.SectionName));
+builder.Services.AddCollectorScheduler(freeboardConnectionString);
+builder.Services.TryAddSingleton<IScheduledCollectorRunner, LoggingScheduledCollectorRunner>();
+builder.Services.TryAddSingleton(TimeProvider.System);
+var schedulerDatabaseConfigured = !string.IsNullOrEmpty(freeboardConnectionString);
+builder.Services.AddHostedService(sp => new CollectorSchedulerService(
+    sp.GetRequiredService<IComplianceStore>(),
+    sp.GetRequiredService<ICollectorSchedulerStore>(),
+    sp.GetRequiredService<IScheduledCollectorRunner>(),
+    sp.GetRequiredService<IOptions<SchedulerOptions>>(),
+    sp.GetRequiredService<ILogger<CollectorSchedulerService>>(),
+    sp.GetRequiredService<TimeProvider>(),
+    schedulerDatabaseConfigured));
 
 // Trusted-proxy forwarded headers: the client IP for rate limiting and the WebAuthn
 // origin are only trustworthy behind a configured proxy. Read the configured proxies/networks
