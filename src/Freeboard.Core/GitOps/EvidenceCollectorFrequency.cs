@@ -30,6 +30,23 @@ public static class EvidenceCollectorFrequency
         };
 
     /// <summary>
+    /// The scheduling interval for <paramref name="frequency"/>: the cadence window (the maximum expected
+    /// interval between collections, <c>continuous</c> 1h ... <c>annual</c> 366d), or null for a null,
+    /// blank, or unknown token. This is the plain window with no grace: grace is a staleness tolerance,
+    /// not a scheduling delay, so firing at the interval keeps evidence refreshed before it can cross the
+    /// staleness threshold (window + grace).
+    /// </summary>
+    public static TimeSpan? Interval(string? frequency)
+    {
+        if (string.IsNullOrWhiteSpace(frequency) || !Cadences.TryGetValue(frequency, out var cadence))
+        {
+            return null;
+        }
+
+        return cadence.Window;
+    }
+
+    /// <summary>
     /// True when a run collected at <paramref name="collectedAtUtc"/> is overdue at
     /// <paramref name="nowUtc"/> for its recorded <paramref name="frequency"/>. A null, blank, or unknown
     /// cadence yields no window and is never stale, so a run with no recorded cadence keeps its last-known

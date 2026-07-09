@@ -20,5 +20,10 @@ internal static class AuthTestConfig
         builder.UseSetting("Auth:CurrentTokenKeyVersion", "1");
         builder.UseSetting("Auth:SecretProtectionKeys:1", Key32);
         builder.UseSetting("Auth:CurrentSecretProtectionKeyVersion", "1");
+
+        // Turn the collector scheduler off in every web test factory. The empty-connection guard already
+        // makes it inert without a connection string; this flag is a belt-and-braces default so no test
+        // accidentally runs the background loop unless it opts in.
+        builder.UseSetting("Freeboard:CollectorScheduler:Enabled", "false");
     }
 }

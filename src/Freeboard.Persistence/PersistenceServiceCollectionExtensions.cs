@@ -92,6 +92,19 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory and <see cref="ICollectorSchedulerStore"/>, the per-collector
+    /// scheduler-state store the in-service collector scheduler leases against. The store mints ULID run
+    /// and lease tokens, so it TryAdds the shared <see cref="Auth.IUlidFactory"/> like the other stores.
+    /// </summary>
+    public static IServiceCollection AddCollectorScheduler(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<Auth.IUlidFactory, Auth.UlidFactory>();
+        services.TryAddSingleton<ICollectorSchedulerStore, MySqlCollectorSchedulerStore>();
+        return services;
+    }
+
     /// <summary>Registers the connection factory and <see cref="IGitOpsImporter"/>.</summary>
     public static IServiceCollection AddGitOpsImport(this IServiceCollection services, string connectionString)
     {
