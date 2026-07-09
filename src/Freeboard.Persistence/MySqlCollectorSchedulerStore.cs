@@ -19,6 +19,8 @@ public sealed class MySqlCollectorSchedulerStore(IDbConnectionFactory connection
     // `config_fingerprint <> new.config_fingerprint` gate compare the row to itself and revival could
     // never fire. Refreshing the fingerprint on any changed non-running row (not just revived ones)
     // stops a stale-fingerprint live row being wrongly re-revived every cycle.
+    // current_run_id is cleared on revival too: a config change starts a semantically new run, so the claim
+    // must mint a fresh run id rather than COALESCE onto the failed run's stale token.
     // The row alias `new` gets distinct column aliases (new_*) so the incoming values never share a name
     // with the table columns. That keeps every unqualified name in the ODKU clause an unambiguous read of
     // the PRE-update table column (an unaliased `new` would collide on status/config_fingerprint/... and
@@ -35,6 +37,9 @@ public sealed class MySqlCollectorSchedulerStore(IDbConnectionFactory connection
         + "last_error = IF(status <> 'running' "
         + "                 AND config_fingerprint <> new_config_fingerprint "
         + "                 AND status IN ('dead','error'), NULL, last_error), "
+        + "current_run_id = IF(status <> 'running' "
+        + "                     AND config_fingerprint <> new_config_fingerprint "
+        + "                     AND status IN ('dead','error'), NULL, current_run_id), "
         + "next_due_at = IF(status <> 'running' "
         + "                  AND config_fingerprint <> new_config_fingerprint "
         + "                  AND status = 'dead', UTC_TIMESTAMP(6), next_due_at), "

@@ -323,21 +323,28 @@ public sealed class CollectorSchedulerIntegrationTests
         Assert.Equal(
             CollectorFailureOutcome.Dead,
             await store.CompleteFailureAsync("col-1", claim.LeaseToken, "boom", Interval, BaseBackoff, maxAttempts: 1));
-        Assert.Equal("dead", (await ReadAsync(conn, "col-1")).Status);
+        var dead = await ReadAsync(conn, "col-1");
+        Assert.Equal("dead", dead.Status);
+        Assert.NotNull(dead.CurrentRunId);
 
         // Re-ensuring with the SAME fingerprint must NOT revive it (the gate reads the pre-update
         // fingerprint; an equal fingerprint fails the `<>` gate).
         await store.EnsureScheduledAsync([new("col-1", "fp1")]);
         Assert.Equal("dead", (await ReadAsync(conn, "col-1")).Status);
 
-        // A changed fingerprint revives: pending, failure_count reset, immediately due. That revival can
-        // fire at all proves config_fingerprint is assigned LAST (assigned first, the gate would compare
-        // the row to itself and never revive).
+        // A changed fingerprint revives: pending, failure_count reset, immediately due, and the stale run id
+        // from the failed run cleared. That revival can fire at all proves config_fingerprint is assigned
+        // LAST (assigned first, the gate would compare the row to itself and never revive).
         await store.EnsureScheduledAsync([new("col-1", "fp2")]);
         var revived = await ReadAsync(conn, "col-1");
         Assert.Equal("pending", revived.Status);
         Assert.Equal(0, revived.FailureCount);
-        Assert.Single(await store.ClaimDueAsync("owner-A", Ttl, batchSize: 1, ["col-1"]));
+        Assert.Null(revived.CurrentRunId);
+
+        // The revived claim mints a fresh run id rather than COALESCE-ing onto the failed run's token.
+        var reclaim = await store.ClaimDueAsync("owner-A", Ttl, batchSize: 1, ["col-1"]);
+        Assert.Single(reclaim);
+        Assert.NotEqual(dead.CurrentRunId, reclaim[0].CurrentRunId);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

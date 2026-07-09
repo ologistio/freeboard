@@ -72,7 +72,7 @@ public sealed class CollectorSchedulerService(
             {
                 break;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsFatal(ex))
             {
                 logger.LogError(ex, "Collector scheduler cycle failed; continuing.");
             }
@@ -170,7 +170,7 @@ public sealed class CollectorSchedulerService(
         {
             await runner.RunAsync(collector, lease.CurrentRunId, linked.Token).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsFatal(ex))
         {
             failure = ex;
         }
@@ -255,7 +255,7 @@ public sealed class CollectorSchedulerService(
             {
                 return;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsFatal(ex))
             {
                 // A transient renewal error is not proof the lease is lost; log and try again next tick.
                 logger.LogWarning(ex, "Heartbeat renewal failed for collector={CollectorId}; retrying.", lease.CollectorId);
@@ -278,4 +278,15 @@ public sealed class CollectorSchedulerService(
 
     private static string Truncate(string value) =>
         value.Length <= MaxErrorLength ? value : value[..MaxErrorLength];
+
+    // The resilience catches above swallow expected operational faults (a cycle error, a collector run
+    // failure, a transient lease renewal) and keep the service running. Fatal, process-level exceptions are
+    // excluded so they propagate instead of being logged-and-continued.
+    private static bool IsFatal(Exception ex) =>
+        ex is OutOfMemoryException
+            or StackOverflowException
+            or AccessViolationException
+            or AppDomainUnloadedException
+            or BadImageFormatException
+            or InvalidProgramException;
 }
