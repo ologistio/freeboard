@@ -1,5 +1,7 @@
 import Alpine from "alpinejs";
 import "./tailwind.css";
+// Assignment widget behaviour (window.ua* handlers used by its inline markup).
+import "../stories/_assignment.js";
 
 // Mirror the app runtime so Alpine-driven component stories behave as they do in
 // the web UI. Alpine's MutationObserver initialises story DOM as Storybook mounts it.
