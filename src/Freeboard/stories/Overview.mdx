@@ -1,0 +1,38 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Overview" />
+
+# Freeboard design system
+
+This workshop is the living record of how Freeboard's interface works: the UX
+philosophy and rules that govern it, the brand foundations, the shared UI
+components, and the compositions that assemble them into whole pages. It is the
+agreed design direction for the product.
+
+- **Foundations / UX philosophy** - the reasoning behind the interface.
+- **Foundations / UX rules** - the numbered, testable form of that reasoning.
+- **Brand / Colors** - the colour palette (brand, neutrals, semantic), shown for light and dark.
+- **Brand / Typography** - the type system: Schibsted Grotesk for human content, IBM Plex Mono for system marks, with the scale.
+- **Brand / Radii** - the corner-radius scale (2px seal to full pill), shown as a scale and in context.
+- **Brand / Elevation** - the elevation levels (flat, raised, drawer, modal) and the shadow values.
+- **Brand / Data marks** - how we present data: square status seals and dashed provenance stamps.
+- **Components / Buttons** - brand, default, and quiet variants, with sizes and states.
+- **Components / Badges** - tags (soft-ground labels) and certification badges (mono, for external surfaces).
+- **Components / Cards & panels** - the panel container, the stat card, and the link card (with ghost add).
+- **Components / Form controls** - text fields, choices (checkbox, switch), and inline messaging.
+- **Components / Tables** - the workhorse list (grouped, exceptions-first), bulk selection, and the filter/search toolbar.
+- **Components / Tabs** - the underline-indicator tab bar (ARIA tablist) with switching panes, plus keyboard guidance.
+- **Components / Drawer** - the object-detail sheet: uniform anatomy and the slide-in dialog over a scrim.
+- **Components / Command palette** - the Ctrl-K entry (ARIA combobox/listbox): the palette anatomy and the interactive shortcut.
+- **Components / Nav rail** - the primary sidebar: brand, search entry, grouped nav with counts, active indicator, workspace switcher.
+
+- **Compositions / List page** - a full list page (header + actions, filter/search toolbar, table with row actions), shown as the vendor directory.
+- **Compositions / List with drawer** - a Controls list where clicking a row opens the detail drawer (the list -> drawer loop).
+- **Compositions / Tabbed page** - the full Vendors page with Directory/Discovery/Reviews/Procurement as tabs.
+- **Compositions / App shell** - the full frame (nav rail + top bar + main) hosting a page in context.
+- **Compositions / Home dashboard** - the flagship page in the shell: posture stat row, exceptions-first queue with area filters, framework posture, and a change feed.
+- **Compositions / Report** - the board pack: decisions-first, trends as deltas with sparklines, honest ambers, and an as-of stamp.
+
+Build components to satisfy the rules; cite rule numbers in review. Compositions
+assemble components into whole pages. Component markup is copyable from each
+story's code view.

@@ -7,11 +7,18 @@
     "build:js": "bun build ./assets/js/app.js --outdir ./wwwroot/js --minify",
     "build": "bun run build:css && bun run build:js",
     "watch:css": "tailwindcss -i ./assets/css/app.css -o ./wwwroot/css/app.css --watch",
-    "watch:js": "bun build ./assets/js/app.js --outdir ./wwwroot/js --watch"
+    "watch:js": "bun build ./assets/js/app.js --outdir ./wwwroot/js --watch",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "devDependencies": {
+    "@storybook/addon-docs": "^10",
+    "@storybook/html-vite": "^10",
     "@tailwindcss/cli": "^4",
-    "tailwindcss": "^4"
+    "@tailwindcss/vite": "^4",
+    "storybook": "^10",
+    "tailwindcss": "^4",
+    "vite": "^7"
   },
   "dependencies": {
     "alpinejs": "^3"
