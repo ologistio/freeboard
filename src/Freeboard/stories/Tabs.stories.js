@@ -75,7 +75,11 @@ export const Tabs = {
             lead: "Sub-views of one page live as tabs, not separate nav items. An underline marks the active tab; a mono count can follow the label. Click a tab to switch panes - the demo keeps aria-selected and the hidden panes in sync.",
             body:
                 section("Tabbed panel", "One tablist, one active tab, one visible pane. Counts inform without nagging.",
-                    example("Tabs with counts", "", TABS_SNIPPET, onField(TABS_FULL))),
+                    example("Tabs with counts", "", TABS_SNIPPET, onField(TABS_FULL))) +
+                section("Keyboard", "How to make the tab bar keyboard-complete when you build it for real.",
+                    `<div style="background:#fafbf8;border:1px dashed #c9cec5;border-radius:6px;padding:12px 14px;font-size:12.5px;color:#616a66;line-height:1.6;max-width:76ch">
+                      Make the tablist a single tab stop with <b>roving tabindex</b>: the active tab is <code>tabindex="0"</code>, the rest <code>tabindex="-1"</code>. <b>Arrow Left/Right</b> move focus between tabs and wrap around; <b>Home</b> and <b>End</b> jump to the first and last. Activate <b>on focus</b> (automatic) when panes are cheap to render, or <b>on Enter/Space</b> (manual) when they are not - keeping <code>aria-selected="true"</code> on the focused-and-active tab and <code>tabindex="0"</code> moving with it. This reference wires click only; add the arrow-key handler in the component. Do not just give every tab <code>tabindex="0"</code> - roving tabindex is what keeps the tablist a single, predictable stop in the tab order.
+                    </div>`),
         }),
 };
 
