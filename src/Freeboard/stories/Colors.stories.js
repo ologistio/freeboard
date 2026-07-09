@@ -68,9 +68,6 @@ const page = (title, lead, body) => `
       <div style="font:600 10px/1 ${MONO};letter-spacing:.14em;text-transform:uppercase;color:#8a938e;margin-bottom:8px">Brand / Colours</div>
       <h1 style="font-size:22px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px">${title}</h1>
       <p style="font-size:14px;color:#616a66;max-width:72ch;margin:0 0 14px">${lead}</p>
-      <div style="display:flex;gap:8px;align-items:baseline;background:#edecfa;border:1px solid rgba(79,70,200,.25);border-radius:10px;padding:10px 14px;margin-bottom:22px;font-size:12.5px;color:#3d36a3">
-        <strong>Reference only.</strong><span>Target palette from the product prototype. Not yet wired into the app theme.</span>
-      </div>
       ${body}
     </div>
   </div>`;

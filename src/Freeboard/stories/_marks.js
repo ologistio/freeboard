@@ -250,9 +250,6 @@ export const compPage = (rendered, snippet) => `
   <style>${FB_CSS}</style>
   <div style="background:#f1f2ee;min-height:100vh;padding:24px 22px;font-family:${SANS};color:#1a1d1c">
     <div style="max-width:1100px;margin:0 auto">
-      <div style="display:flex;gap:8px;align-items:baseline;background:#edecfa;border:1px solid rgba(79,70,200,.25);border-radius:10px;padding:10px 14px;margin-bottom:20px;font-size:12.5px;color:#3d36a3">
-        <strong>Reference only.</strong><span>A composition of existing components. Not wired into the app.</span>
-      </div>
       ${rendered}
       <div style="font:600 10px/1 ${MONO};letter-spacing:.14em;text-transform:uppercase;color:#8a938e;margin:26px 0 10px">Assembled markup</div>
       ${codeBlock(snippet)}
