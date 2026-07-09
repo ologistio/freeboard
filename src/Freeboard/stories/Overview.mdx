@@ -1,0 +1,16 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Overview" />
+
+# Freeboard design system
+
+This workshop presents Freeboard's brand assets and shared UI components. Every
+story renders the real Tailwind theme and component classes from
+`src/Freeboard/assets/css/app.css` - there is no separate copy to keep in sync.
+
+- **Brand / Colors** - the theme's brand and status colours.
+- **Components / Buttons, Badges, Form controls** - the shared component classes
+  used across the web UI.
+
+To add a component, add its class to `app.css` and a story under `stories/`.
+Stories are plain HTML strings, matching the server-rendered Razor markup.

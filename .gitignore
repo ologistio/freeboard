@@ -65,6 +65,10 @@ src/Freeboard.Web/_site/
 # Front-end toolchain (bun)
 node_modules/
 
+# Storybook build output
+src/Freeboard/storybook-static/
+*storybook.log
+
 # Generated front-end assets (built from assets/ by bun)
 src/Freeboard/wwwroot/css/app.css
 src/Freeboard/wwwroot/js/app.js

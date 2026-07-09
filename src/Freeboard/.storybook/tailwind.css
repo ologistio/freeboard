@@ -1,0 +1,9 @@
+/* Reuse the web UI's exact design system: app.css imports Tailwind and defines
+   the @theme brand tokens plus the component layer, so stories render the real
+   thing rather than a copy. */
+@import "../assets/css/app.css";
+
+/* app.css only scans ../Pages for used utilities. Stories use utilities too, so
+   add the stories dir as a source. Declared here (not in app.css) so story-only
+   utilities never reach the production CSS bundle. */
+@source "../stories";
