@@ -53,9 +53,11 @@ const CSS = `
 const eyebrow = "Components / Drawer";
 const onField = (html) => `<div style="background:#f1f2ee;padding:20px;border-radius:8px;width:100%">${html}</div>`;
 
-const OPEN = "var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.add('show');var d=w.querySelector('.fb-drawer');d.classList.add('open');d.setAttribute('aria-hidden','false');d.focus();";
-const CLOSE = "var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');var d=w.querySelector('.fb-drawer');d.classList.remove('open');d.setAttribute('aria-hidden','true');var o=w.querySelector('.fb-opener');if(o)o.focus();";
-const ESC = "if(event.key==='Escape'){var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');this.classList.remove('open');this.setAttribute('aria-hidden','true');var o=w.querySelector('.fb-opener');if(o)o.focus();}";
+// `inert` (toggled with open) keeps the closed, off-screen drawer's controls out
+// of the tab order; aria-hidden alone does not remove focusability.
+const OPEN = "var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.add('show');var d=w.querySelector('.fb-drawer');d.removeAttribute('inert');d.classList.add('open');d.setAttribute('aria-hidden','false');d.focus();";
+const CLOSE = "var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');var d=w.querySelector('.fb-drawer');d.classList.remove('open');d.setAttribute('aria-hidden','true');d.setAttribute('inert','');var o=w.querySelector('.fb-opener');if(o)o.focus();";
+const ESC = "if(event.key==='Escape'){var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');this.classList.remove('open');this.setAttribute('aria-hidden','true');this.setAttribute('inert','');var o=w.querySelector('.fb-opener');if(o)o.focus();}";
 
 const BODY = `<div class="fb-dbody">
     <div class="fb-dsec"><div class="fb-dl">What this control asserts</div><p>All human access to production requires a second factor. Break-glass accounts are enumerated and reviewed quarterly.</p></div>
@@ -86,7 +88,7 @@ const SHEET = `<div class="fb-sheet">
 const DRAWER_DEMO = `<div class="fb-demo">
   <button type="button" class="fb-dbtn fb-dbtn--brand fb-opener" aria-haspopup="dialog" onclick="${OPEN}">Open control detail</button>
   <div class="fb-scrim" aria-hidden="true" onclick="${CLOSE}"></div>
-  <div class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="fbd-title" aria-hidden="true" tabindex="-1" onkeydown="${ESC}">
+  <div class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="fbd-title" aria-hidden="true" inert tabindex="-1" onkeydown="${ESC}">
     <div class="fb-dhead"><button type="button" class="fb-xbtn" aria-label="Close" onclick="${CLOSE}">Close</button><div class="fb-eyebrow">CC6.1</div><h2 id="fbd-title">Access requires MFA</h2><span class="fb-status fail"><span class="fb-seal fail"></span>Failing / SLA 3d over</span></div>
     ${BODY}${FOOT}
   </div>
@@ -116,7 +118,7 @@ const OVERLAY_SNIPPET = `<!-- The trigger opens the dialog; scrim, drawer, focus
 <button type="button" aria-haspopup="dialog">Open control detail</button>
 
 <div class="fb-scrim" aria-hidden="true"></div>
-<div class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1">
+<div class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" inert tabindex="-1">
   <div class="fb-dhead">
     <button type="button" class="fb-xbtn" aria-label="Close">Close</button>
     <div class="fb-eyebrow">CC6.1</div>

@@ -12,10 +12,12 @@ export default {
 };
 
 const CHIP = "var p=this.parentNode;var c=p.querySelectorAll('.fb-chip');for(var i=0;i<c.length;i++)c[i].classList.remove('on');this.classList.add('on')";
-// `this` is the clicked row: read its data-* and fill the drawer, then open.
-const OPEN = "var t=this,w=t.closest('.fb-demo');w.querySelector('#fbc-eyebrow').textContent=t.getAttribute('data-cid');w.querySelector('#fbc-title').textContent=t.getAttribute('data-cname');w.querySelector('#fbc-desc').textContent=t.getAttribute('data-cdesc');var cls=t.getAttribute('data-ccls'),st=w.querySelector('#fbc-status');st.className='fb-status '+cls;st.querySelector('.fb-seal').className='fb-seal '+cls;w.querySelector('#fbc-word').textContent=t.getAttribute('data-cword');w.querySelector('.fb-scrim').classList.add('show');var d=w.querySelector('.fb-drawer');d.classList.add('open');d.setAttribute('aria-hidden','false');d.focus();";
-const CLOSE = "var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');var d=w.querySelector('.fb-drawer');d.classList.remove('open');d.setAttribute('aria-hidden','true');";
-const ESC = "if(event.key==='Escape'){var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');this.classList.remove('open');this.setAttribute('aria-hidden','true');}";
+// `this` is the clicked row: remember its opener (the name button), fill the
+// drawer, then open. `inert` (toggled with open) keeps the closed drawer's
+// controls out of the tab order; closing restores focus to the opener.
+const OPEN = "var t=this,w=t.closest('.fb-demo');w.__fbopener=t.querySelector('.fb-linkname');w.querySelector('#fbc-eyebrow').textContent=t.getAttribute('data-cid');w.querySelector('#fbc-title').textContent=t.getAttribute('data-cname');w.querySelector('#fbc-desc').textContent=t.getAttribute('data-cdesc');var cls=t.getAttribute('data-ccls'),st=w.querySelector('#fbc-status');st.className='fb-status '+cls;st.querySelector('.fb-seal').className='fb-seal '+cls;w.querySelector('#fbc-word').textContent=t.getAttribute('data-cword');w.querySelector('.fb-scrim').classList.add('show');var d=w.querySelector('.fb-drawer');d.removeAttribute('inert');d.classList.add('open');d.setAttribute('aria-hidden','false');d.focus();";
+const CLOSE = "var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');var d=w.querySelector('.fb-drawer');d.classList.remove('open');d.setAttribute('aria-hidden','true');d.setAttribute('inert','');if(w.__fbopener)w.__fbopener.focus();";
+const ESC = "if(event.key==='Escape'){var w=this.closest('.fb-demo');w.querySelector('.fb-scrim').classList.remove('show');this.classList.remove('open');this.setAttribute('aria-hidden','true');this.setAttribute('inert','');if(w.__fbopener)w.__fbopener.focus();}";
 
 // A clickable control row. Data lives on the <tr>; the name is a focusable button
 // (keyboard users tab to it and Enter, which bubbles to the row's handler).
@@ -35,7 +37,7 @@ const ROWS = [
 ];
 
 const DRAWER = `<div class="fb-scrim" onclick="${CLOSE}"></div>
-  <aside class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="fbc-title" aria-hidden="true" tabindex="-1" onkeydown="${ESC}">
+  <aside class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="fbc-title" aria-hidden="true" inert tabindex="-1" onkeydown="${ESC}">
     <div class="fb-dhead">
       <button type="button" class="fb-xbtn" aria-label="Close" onclick="${CLOSE}">Close</button>
       <div class="fb-eyebrow" id="fbc-eyebrow">CC6.1</div>
@@ -109,7 +111,7 @@ const SNIPPET = `<div class="fb-demo">
   <!-- The drawer (role="dialog") fills its top from the clicked row; open/close,
        focus, and Escape are wired in code. See Components / Drawer for the anatomy. -->
   <div class="fb-scrim"></div>
-  <aside class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1"> ... </aside>
+  <aside class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" inert tabindex="-1"> ... </aside>
 </div>`;
 
 export const Controls = { render: () => compPage(COMP, SNIPPET) };
