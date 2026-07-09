@@ -1,8 +1,8 @@
 // Compositions / List with drawer. A Controls list page where clicking a row
 // opens the detail drawer over a scrim - the core object-interaction loop
 // (list -> drawer). The drawer's top (id, title, status, assertion) fills from
-// the clicked row; the rest of the anatomy is illustrative. The overlay is scoped
-// to the page frame (see _marks.js). Reference only.
+// the clicked row; the rest of the anatomy is illustrative. The drawer opens over
+// the whole page, like Components/Drawer. Reference only.
 
 import { compPage } from "./_marks.js";
 

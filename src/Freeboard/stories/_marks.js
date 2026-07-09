@@ -73,13 +73,11 @@ export const FB_CSS = `
   .fb-pane.on { display:block; }
   .fb-pane__pad { padding:16px; font-size:13px; color:#616a66; line-height:1.5; }
 
-  /* Overlay is scoped to the composition frame (absolute in .fb-demo), so it
-     renders deterministically in Storybook rather than relying on viewport-fixed
-     positioning through nested/transformed ancestors. */
-  .fb-demo { position:relative; overflow:hidden; min-height:460px; }
-  .fb-scrim { position:absolute; inset:0; background:rgba(26,29,28,.28); opacity:0; pointer-events:none; transition:opacity .15s; z-index:40; }
+  /* Drawer opens over the whole page (viewport-fixed), matching Components/Drawer. */
+  .fb-demo { position:relative; }
+  .fb-scrim { position:fixed; inset:0; background:rgba(26,29,28,.28); opacity:0; pointer-events:none; transition:opacity .15s; z-index:40; }
   .fb-scrim.show { opacity:1; pointer-events:auto; }
-  .fb-drawer { position:absolute; top:0; right:0; bottom:0; width:440px; max-width:92%; background:#fff; border-left:1px solid #e0e3dc; transform:translateX(100%); transition:transform .18s ease-out; z-index:50; display:flex; flex-direction:column; font-family:${SANS}; }
+  .fb-drawer { position:fixed; top:0; right:0; bottom:0; width:440px; max-width:92vw; background:#fff; border-left:1px solid #e0e3dc; transform:translateX(100%); transition:transform .18s ease-out; z-index:50; display:flex; flex-direction:column; font-family:${SANS}; }
   .fb-drawer.open { transform:none; box-shadow:-12px 0 40px rgba(26,29,28,.12); }
   .fb-drawer:focus-visible { outline:2px solid #4f46c8; outline-offset:-2px; }
   .fb-dhead { padding:16px 18px 0; position:relative; }
