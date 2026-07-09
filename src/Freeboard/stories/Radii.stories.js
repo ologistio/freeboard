@@ -11,7 +11,7 @@ const MONO = "ui-monospace,'SF Mono',Menlo,Consolas,monospace";
 const SANS = "system-ui,-apple-system,'Segoe UI',sans-serif";
 
 const page = (title, lead, body) => `
-  <div style="background:#f1f2ee;min-height:100%;padding:26px 20px;font-family:${SANS};color:#1a1d1c">
+  <div style="background:#f1f2ee;min-height:100vh;padding:26px 20px;font-family:${SANS};color:#1a1d1c">
     <div style="max-width:1040px;margin:0 auto">
       <div style="font:600 10px/1 ${MONO};letter-spacing:.14em;text-transform:uppercase;color:#8a938e;margin-bottom:8px">Brand / Radii</div>
       <h1 style="font-size:22px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px">${title}</h1>

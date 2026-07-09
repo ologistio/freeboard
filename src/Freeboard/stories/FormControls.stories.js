@@ -44,12 +44,12 @@ export const TextFields = {
             eyebrow, title: "Form controls", css: CSS,
             lead: "Quiet fields on a recessed ground, so the values a person types stand out from the panel. A field states its label above and its help or error below - never a colour alone.",
             body:
-                section("Text field", "Label, input, and an optional hint. Focus draws a 2px brand ring.",
-                    example("Field with hint", "", `<label class="fb-label" for="email">Work email</label>\n<input class="fb-input" id="email" type="email" placeholder="you@example.com">\n<div class="fb-hint">Used for audit-room invitations.</div>`,
-                        wrap(340, `<label class="fb-label" for="email">Work email</label><input class="fb-input" id="email" type="email" placeholder="you@example.com"><div class="fb-hint">Used for audit-room invitations.</div>`))) +
-                section("Error state", "An error names what happened and what to do, next to the field it belongs to.",
-                    example("Field with error", "", `<label class="fb-label" for="doc">Evidence name</label>\n<input class="fb-input is-error" id="doc" value="">\n<div class="fb-error">Enter a name so this evidence can be linked to a control.</div>`,
-                        wrap(340, `<label class="fb-label" for="doc">Evidence name</label><input class="fb-input is-error" id="doc" value=""><div class="fb-error">Enter a name so this evidence can be linked to a control.</div>`))),
+                section("Text field", "Label bound with for/id; the hint is linked with aria-describedby. Focus draws a 2px brand ring.",
+                    example("Field with hint", "", `<label class="fb-label" for="email">Work email</label>\n<input class="fb-input" id="email" type="email" placeholder="you@example.com" aria-describedby="email-hint">\n<div class="fb-hint" id="email-hint">Used for audit-room invitations.</div>`,
+                        wrap(340, `<label class="fb-label" for="email">Work email</label><input class="fb-input" id="email" type="email" placeholder="you@example.com" aria-describedby="email-hint"><div class="fb-hint" id="email-hint">Used for audit-room invitations.</div>`))) +
+                section("Error state", "An error names what happened and what to do. The field is marked aria-invalid and linked to the message with aria-describedby.",
+                    example("Field with error", "", `<label class="fb-label" for="doc">Evidence name</label>\n<input class="fb-input is-error" id="doc" value="" aria-invalid="true" aria-describedby="doc-error">\n<div class="fb-error" id="doc-error">Enter a name so this evidence can be linked to a control.</div>`,
+                        wrap(340, `<label class="fb-label" for="doc">Evidence name</label><input class="fb-input is-error" id="doc" value="" aria-invalid="true" aria-describedby="doc-error"><div class="fb-error" id="doc-error">Enter a name so this evidence can be linked to a control.</div>`))),
         }),
 };
 
@@ -62,9 +62,9 @@ export const Choices = {
                 section("Checkbox", "For selecting items and opting in. Uses the brand accent colour.",
                     example("Checkbox", "", `<label><input type="checkbox" class="fb-ck" checked> Include archived evidence</label>`,
                         `<label style="display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13px"><input type="checkbox" class="fb-ck" checked> Include archived evidence</label>`)) +
-                section("Switch", "For an immediate on/off. Brand when on; the knob slides.",
-                    example("Switch", "", `<label><input type="checkbox" class="fb-sw" checked> Show gaps only</label>`,
-                        `<label style="display:inline-flex;align-items:center;gap:11px;cursor:pointer;font-size:13px"><input type="checkbox" class="fb-sw" checked> Show gaps only</label>`)),
+                section("Switch", "For an immediate on/off. Marked role=switch so it is announced as a switch, not a checkbox. Brand when on; the knob slides.",
+                    example("Switch", "", `<label><input type="checkbox" class="fb-sw" role="switch" checked> Show gaps only</label>`,
+                        `<label style="display:inline-flex;align-items:center;gap:11px;cursor:pointer;font-size:13px"><input type="checkbox" class="fb-sw" role="switch" checked> Show gaps only</label>`)),
         }),
 };
 
@@ -75,13 +75,13 @@ export const Messaging = {
             lead: "Inline panels that explain in place, where the confusion is, rather than in a help article. The soft ground carries the meaning; the text states it plainly. The warn public-surface banner lives with the external surfaces, not here.",
             body:
                 section("Notices", "One shape, four grounds. Info is the default; the semantic grounds match the status palette. Never red for a merely informational aside.",
-                    example("Info", "Neutral aside tied to the form.", `<div class="fb-notice">A sign-in link will be sent to this address. It expires in 15 minutes.</div>`, wrap(560, `<div class="fb-notice">A sign-in link will be sent to this address. It expires in 15 minutes.</div>`)) +
-                    example("Success", "A positive outcome.", `<div class="fb-notice fb-notice--ok">Evidence attached. CC6.1 is now passing.</div>`, wrap(560, `<div class="fb-notice fb-notice--ok">Evidence attached. CC6.1 is now passing.</div>`)) +
-                    example("Warning", "Something needs attention but is not yet broken.", `<div class="fb-notice fb-notice--warn">This source is stale. 14 checks depend on it and will degrade.</div>`, wrap(560, `<div class="fb-notice fb-notice--warn">This source is stale. 14 checks depend on it and will degrade.</div>`)) +
-                    example("Error", "A dead end, with the way out named.", `<div class="fb-notice fb-notice--fail">That sign-in link has expired. Request a new one to continue.</div>`, wrap(560, `<div class="fb-notice fb-notice--fail">That sign-in link has expired. Request a new one to continue.</div>`))) +
+                    example("Info", "Neutral aside tied to the form.", `<div class="fb-notice" role="status">A sign-in link will be sent to this address. It expires in 15 minutes.</div>`, wrap(560, `<div class="fb-notice" role="status">A sign-in link will be sent to this address. It expires in 15 minutes.</div>`)) +
+                    example("Success", "A positive outcome.", `<div class="fb-notice fb-notice--ok" role="status">Evidence attached. CC6.1 is now passing.</div>`, wrap(560, `<div class="fb-notice fb-notice--ok" role="status">Evidence attached. CC6.1 is now passing.</div>`)) +
+                    example("Warning", "Something needs attention but is not yet broken.", `<div class="fb-notice fb-notice--warn" role="status">This source is stale. 14 checks depend on it and will degrade.</div>`, wrap(560, `<div class="fb-notice fb-notice--warn" role="status">This source is stale. 14 checks depend on it and will degrade.</div>`)) +
+                    example("Error", "A dead end, with the way out named.", `<div class="fb-notice fb-notice--fail" role="alert">That sign-in link has expired. Request a new one to continue.</div>`, wrap(560, `<div class="fb-notice fb-notice--fail" role="alert">That sign-in link has expired. Request a new one to continue.</div>`))) +
                 section("Notice with title", "A bold lead sets the headline, the body says what to do. Use when the message needs more than a sentence.",
-                    example("Titled error", "", `<div class="fb-notice fb-notice--fail fb-notice--titled">\n  <div>\n    <strong>Upload failed</strong>\n    <p>1 of 2 files did not attach. Re-upload the second file to complete the evidence.</p>\n  </div>\n</div>`,
-                        wrap(560, `<div class="fb-notice fb-notice--fail fb-notice--titled"><div><strong>Upload failed</strong><p>1 of 2 files did not attach. Re-upload the second file to complete the evidence.</p></div></div>`))) +
+                    example("Titled error", "", `<div class="fb-notice fb-notice--fail fb-notice--titled" role="alert">\n  <div>\n    <strong>Upload failed</strong>\n    <p>1 of 2 files did not attach. Re-upload the second file to complete the evidence.</p>\n  </div>\n</div>`,
+                        wrap(560, `<div class="fb-notice fb-notice--fail fb-notice--titled" role="alert"><div><strong>Upload failed</strong><p>1 of 2 files did not attach. Re-upload the second file to complete the evidence.</p></div></div>`))) +
                 section("Guidance", "A dashed, recessed panel for how-to guidance beside a decision.",
                     example("Guidance", "", `<div class="fb-guidance">Approve this policy version, or return it with comments. The current version stays in force until a new one is approved.</div>`,
                         wrap(560, `<div class="fb-guidance">Approve this policy version, or return it with comments. The current version stays in force until a new one is approved.</div>`))),

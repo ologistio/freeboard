@@ -39,13 +39,13 @@ export const Variants = {
             lead: "Three levels of emphasis and nothing more. One brand button per view carries the main action; default sits beside it; quiet handles low-emphasis and in-table actions. Copy any example straight into a template.",
             body:
                 section("Variants", "Emphasis descends brand -> default -> quiet. Never two brand buttons competing in one view.",
-                    example("Brand", "Primary action. One per view - the thing you most want done.", `<button class="fb-btn fb-btn--brand">Save changes</button>`) +
-                    example("Default", "Secondary action. Neutral, sits beside the primary.", `<button class="fb-btn">Cancel</button>`) +
-                    example("Quiet", "Tertiary. In-table and footer actions, including destructive ones behind a confirmation.", `<button class="fb-btn fb-btn--quiet">Dismiss</button>`)) +
+                    example("Brand", "Primary action. One per view - the thing you most want done.", `<button type="button" class="fb-btn fb-btn--brand">Save changes</button>`) +
+                    example("Default", "Secondary action. Neutral, sits beside the primary.", `<button type="button" class="fb-btn">Cancel</button>`) +
+                    example("Quiet", "Tertiary. In-table and footer actions, including destructive ones behind a confirmation.", `<button type="button" class="fb-btn fb-btn--quiet">Dismiss</button>`)) +
                 section("With icon", "A leading icon sits 6px before the label. Icons clarify, they do not replace the word.",
-                    example("Icon and label", "", `<button class="fb-btn fb-btn--brand">${ICON_PLUS}New control</button>`)) +
+                    example("Icon and label", "", `<button type="button" class="fb-btn fb-btn--brand">${ICON_PLUS}New control</button>`)) +
                 section("No danger button", "Destructive actions are quiet buttons paired with a confirmation that names what will break. Colour alone never carries the warning.",
-                    codeView(`<button class="fb-btn fb-btn--quiet" style="color:#b3372d">Delete evidence</button>`)),
+                    codeView(`<button type="button" class="fb-btn fb-btn--quiet" style="color:#b3372d">Delete evidence</button>`)),
         }),
 };
 
@@ -56,8 +56,8 @@ export const Sizes = {
             lead: "Two sizes. Default everywhere; small for dense contexts like table rows and toolbars.",
             body:
                 section("Sizes", "The small size trims padding and drops to 11.5px; the shape and weight are unchanged.",
-                    example("Default", "12.5px. The standard size.", `<button class="fb-btn fb-btn--brand">Save changes</button>`) +
-                    example("Small", "11.5px. Table rows, toolbars, dense panels.", `<button class="fb-btn fb-btn--brand fb-btn--sm">Fix</button>`)),
+                    example("Default", "12.5px. The standard size.", `<button type="button" class="fb-btn fb-btn--brand">Save changes</button>`) +
+                    example("Small", "11.5px. Table rows, toolbars, dense panels.", `<button type="button" class="fb-btn fb-btn--brand fb-btn--sm">Fix</button>`)),
         }),
 };
 
@@ -68,10 +68,10 @@ export const States = {
             lead: "Hover and focus are live - interact with any button to see them. Shown here side by side for reference. Focus uses a 2px brand ring and only appears for keyboard users (focus-visible).",
             body:
                 section("States", "Rest, hover, keyboard focus, and disabled.", card(grid([
-                    cell("Rest", "", `<button class="fb-btn fb-btn--brand">Save changes</button>`),
-                    cell("Hover", "Brand darkens to brand-ink.", `<button class="fb-btn fb-btn--brand is-hover">Save changes</button>`),
-                    cell("Focus", "2px brand ring, keyboard only.", `<button class="fb-btn fb-btn--brand is-focus">Save changes</button>`),
-                    cell("Disabled", "50% opacity, not-allowed cursor.", `<button class="fb-btn fb-btn--brand" disabled>Save changes</button>`),
+                    cell("Rest", "", `<button type="button" class="fb-btn fb-btn--brand">Save changes</button>`),
+                    cell("Hover", "Brand darkens to brand-ink.", `<button type="button" class="fb-btn fb-btn--brand is-hover">Save changes</button>`),
+                    cell("Focus", "2px brand ring, keyboard only.", `<button type="button" class="fb-btn fb-btn--brand is-focus">Save changes</button>`),
+                    cell("Disabled", "50% opacity, not-allowed cursor.", `<button type="button" class="fb-btn fb-btn--brand" disabled>Save changes</button>`),
                 ]))),
         }),
 };

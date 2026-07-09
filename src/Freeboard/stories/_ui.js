@@ -16,7 +16,7 @@ export const codeView = (snippet, preview) => `
   <div style="border:1px solid #e0e3dc;border-radius:12px;overflow:hidden;background:#fff">
     <div style="padding:22px;display:flex;flex-wrap:wrap;gap:12px;align-items:center">${preview || snippet}</div>
     <div style="border-top:1px solid #e0e3dc;background:#1d2220;position:relative">
-      <button onclick="${COPY}" style="position:absolute;top:9px;right:9px;font:600 11px ${MONO};color:#e7eae6;background:#2a302c;border:1px solid #3d4540;border-radius:6px;padding:4px 10px;cursor:pointer">Copy</button>
+      <button type="button" aria-label="Copy code to clipboard" onclick="${COPY}" style="position:absolute;top:9px;right:9px;font:600 11px ${MONO};color:#e7eae6;background:#2a302c;border:1px solid #3d4540;border-radius:6px;padding:4px 10px;cursor:pointer">Copy</button>
       <pre style="margin:0;padding:14px 52px 14px 16px;overflow-x:auto;font:500 12px/1.6 ${MONO};color:#c9cec5">${esc(snippet)}</pre>
     </div>
   </div>`;
@@ -50,7 +50,7 @@ export const cell = (label, note, html) => `
 
 export const page = ({ eyebrow, title, lead, css, body }) => `
   ${css ? `<style>${css}</style>` : ""}
-  <div style="background:#f1f2ee;min-height:100%;padding:26px 20px;font-family:${SANS};color:#1a1d1c">
+  <div style="background:#f1f2ee;min-height:100vh;padding:26px 20px;font-family:${SANS};color:#1a1d1c">
     <div style="max-width:1040px;margin:0 auto">
       <div style="font:600 10px/1 ${MONO};letter-spacing:.14em;text-transform:uppercase;color:#8a938e;margin-bottom:8px">${eyebrow}</div>
       <h1 style="font-size:22px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px">${title}</h1>

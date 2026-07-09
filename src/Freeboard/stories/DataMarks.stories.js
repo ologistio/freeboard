@@ -14,7 +14,7 @@ const SANS = "system-ui,-apple-system,'Segoe UI',sans-serif";
 const C = { ok: "#1b7a4e", fail: "#b3372d", warn: "#96690a", info: "#2a6db0", muted: "#616a66", ink: "#1a1d1c", faint: "#8a938e" };
 
 const page = (title, lead, body) => `
-  <div style="background:#f1f2ee;min-height:100%;padding:26px 20px;font-family:${SANS};color:${C.ink}">
+  <div style="background:#f1f2ee;min-height:100vh;padding:26px 20px;font-family:${SANS};color:${C.ink}">
     <div style="max-width:1040px;margin:0 auto">
       <div style="font:600 10px/1 ${MONO};letter-spacing:.14em;text-transform:uppercase;color:${C.faint};margin-bottom:8px">Brand / Data marks</div>
       <h1 style="font-size:22px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px">${title}</h1>
