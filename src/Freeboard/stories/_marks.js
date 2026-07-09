@@ -131,10 +131,85 @@ export const FB_CSS = `
   .fb-iconbtn:hover { border-color:#c9cec5; color:#1a1d1c; }
   .fb-pip { position:absolute; top:-3px; right:-3px; width:8px; height:8px; border-radius:99px; background:#b3372d; border:2px solid #f1f2ee; }
   .fb-avatar { width:30px; height:30px; border-radius:99px; background:#edecfa; color:#3d36a3; font:700 11px ${SANS}; display:inline-flex; align-items:center; justify-content:center; border:none; cursor:pointer; }
+
+  .fb-chiprow { display:flex; gap:6px; flex-wrap:wrap; }
+  .fb-panel { background:#fff; border:1px solid #e0e3dc; border-radius:10px; }
+  .fb-panel__head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid #e0e3dc; flex-wrap:wrap; }
+  .fb-panel__head h2 { font:600 14.5px ${SANS}; color:#1a1d1c; margin:0; }
+  .fb-panel__meta { font-size:12px; color:#616a66; }
+  .fb-panel__body { padding:16px; }
+  .fb-stat { background:#fff; border:1px solid #e0e3dc; border-radius:10px; padding:13px 15px; }
+  .fb-stat__label { font:600 9.5px ${MONO}; letter-spacing:.13em; text-transform:uppercase; color:#8a938e; margin-bottom:8px; }
+  .fb-stat__main { font:700 19px ${SANS}; letter-spacing:-.01em; color:#1a1d1c; }
+  .fb-stat__main small { font:500 12px ${SANS}; color:#616a66; margin-left:4px; }
+  .fb-stat__sub { font-size:12px; color:#616a66; margin-top:3px; }
+  .fb-stat__sub b { color:#b3372d; font-weight:600; }
+  .fb-bar { height:5px; background:#eceeea; border-radius:99px; margin-top:10px; overflow:hidden; }
+  .fb-bar > i { display:block; height:100%; background:#1b7a4e; border-radius:99px; }
+  .fb-bar > i.warn { background:#96690a; }
+  .fb-fwrow { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid #e0e3dc; }
+  .fb-fwrow:last-child { border-bottom:none; }
+  .fb-fwname { font:600 13px ${SANS}; color:#1a1d1c; width:92px; flex:none; }
+  .fb-fwrow .fb-bar { flex:1; margin:0; }
+  .fb-pct { font:500 11px ${MONO}; color:#616a66; width:38px; text-align:right; flex:none; }
+  .fb-feed { list-style:none; margin:0; padding:0; }
+  .fb-feed li { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #e0e3dc; font-size:12.5px; color:#616a66; line-height:1.5; }
+  .fb-feed li:last-child { border-bottom:none; }
+  .fb-feed .t { font:500 10px ${MONO}; color:#8a938e; width:52px; flex:none; padding-top:2px; }
+  .fb-feed b { color:#1a1d1c; font-weight:600; }
+  .fb-kind { font:600 9.5px ${MONO}; letter-spacing:.1em; text-transform:uppercase; color:#8a938e; width:62px; display:inline-block; }
+  .fb-posture { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+  .fb-cols { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:16px; align-items:start; }
+  @media (max-width:1080px) { .fb-posture { grid-template-columns:repeat(2,1fr); } .fb-cols { grid-template-columns:1fr; } }
 `;
 
 // Shared page frame for a composition: field ground, a reference-only ribbon, the
 // rendered page, then its assembled markup in a copy block.
+// ---- app shell builders (shared by the shelled compositions) ----
+const NAVCLICK = "var r=this.closest('.fb-rail');var it=r.querySelectorAll('.fb-navitem');for(var i=0;i<it.length;i++){it[i].classList.remove('active');it[i].removeAttribute('aria-current');}this.classList.add('active');this.setAttribute('aria-current','page');";
+const ni = (label, count, tone, active) => {
+    const badge = count ? `<span class="fb-navcount${tone === "calm" ? " calm" : ""}" aria-hidden="true">${count}</span>` : "";
+    const al = count ? ` aria-label="${label}, ${count}${tone === "calm" ? "" : " need action"}"` : "";
+    return `<button type="button" class="fb-navitem${active ? " active" : ""}"${active ? ' aria-current="page"' : ""}${al} onclick="${NAVCLICK}"><span>${label}</span>${badge}</button>`;
+};
+const grp = (label) => `<div class="fb-navgroup">${label}</div>`;
+
+// The primary nav, marking `active` as the current page (which drops its count).
+export const railNav = (active) => {
+    const it = (label, count, tone) => ni(label, active === label ? null : count, tone, active === label);
+    return `<nav class="fb-rail" aria-label="Primary">
+    <div class="fb-brand"><span class="fb-mark">F</span><span class="fb-name">Freeboard</span><span class="fb-rev">CE+</span></div>
+    <button type="button" class="fb-search-entry" aria-haspopup="dialog"><span>Search or ask...</span><kbd class="fb-kbd">Ctrl K</kbd></button>
+    <div class="fb-navwrap">
+      ${it("Home")}${it("My work", "7", "hot")}
+      ${grp("Comply")}${it("Frameworks")}${it("Controls")}${it("Tests", "12", "hot")}${it("Policies")}${it("Evidence")}${it("Audits")}
+      ${grp("Risk")}${it("Risks")}${it("Vendors", "4", "calm")}${it("Access reviews")}
+      ${grp("Trust")}${it("Trust Center")}${it("Questionnaires", "2", "calm")}
+      ${grp("Resources")}${it("People")}${it("Devices")}${it("Infrastructure")}${it("Vulnerabilities")}
+      ${grp("Platform")}${it("Reports")}${it("Integrations")}${it("Settings")}
+    </div>
+    <div class="fb-rail-foot"><button type="button" class="fb-wspick"><span class="fb-dot"></span><span><b>Your org</b> / Production</span></button></div>
+  </nav>`;
+};
+
+const MOON = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.8 10.4A6.5 6.5 0 0 1 5.6 2.2a6.5 6.5 0 1 0 8.2 8.2z"/></svg>`;
+const BELL = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4.5 6.7a3.5 3.5 0 0 1 7 0c0 2.8 1 3.8 1.5 4.3h-10c.5-.5 1.5-1.5 1.5-4.3z"/><path d="M6.6 13a1.4 1.4 0 0 0 2.8 0"/></svg>`;
+
+export const shellTopbar = (crumb) => `<header class="fb-topbar">
+    <div class="fb-crumb">${crumb}</div>
+    <div class="fb-topbar-right">
+      <span class="fb-countdown">SOC 2 AUDIT IN 21D</span>
+      <button type="button" class="fb-iconbtn" aria-label="Toggle theme">${MOON}</button>
+      <button type="button" class="fb-iconbtn" aria-label="Notifications">${BELL}<span class="fb-pip"></span></button>
+      <button type="button" class="fb-avatar" aria-label="Account menu">JS</button>
+    </div>
+  </header>`;
+
+// The app frame in a fixed-height window (rail + stage: topbar over scrolling main).
+export const appFrame = (rail, topbar, main) => `<div style="height:720px;border:1px solid #c9cec5;border-radius:12px;overflow:hidden;box-shadow:0 10px 34px rgba(26,29,28,.12)">
+    <div class="fb-app">${rail}<div class="fb-stage">${topbar}<main class="fb-main">${main}</main></div></div>
+  </div>`;
+
 export const compPage = (rendered, snippet) => `
   <style>${FB_CSS}</style>
   <div style="background:#f1f2ee;min-height:100vh;padding:24px 22px;font-family:${SANS};color:#1a1d1c">
