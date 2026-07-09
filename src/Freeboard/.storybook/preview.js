@@ -19,6 +19,7 @@ const preview = {
                     ["UX philosophy", "UX rules"],
                     "Brand",
                     "Components",
+                    "Compositions",
                 ],
             },
         },

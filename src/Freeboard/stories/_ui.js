@@ -21,6 +21,14 @@ export const codeView = (snippet, preview) => `
     </div>
   </div>`;
 
+// Code panel on its own (copy button + escaped source), without a preview above.
+// Useful for compositions, where the rendered page is already shown full-size.
+export const codeBlock = (snippet) => `
+  <div style="border:1px solid #3d4540;border-radius:12px;overflow:hidden;background:#1d2220;position:relative">
+    <button type="button" aria-label="Copy code to clipboard" onclick="${COPY}" style="position:absolute;top:9px;right:9px;font:600 11px ${MONO};color:#e7eae6;background:#2a302c;border:1px solid #3d4540;border-radius:6px;padding:4px 10px;cursor:pointer">Copy</button>
+    <pre style="margin:0;padding:14px 52px 14px 16px;overflow-x:auto;font:500 12px/1.6 ${MONO};color:#c9cec5">${esc(snippet)}</pre>
+  </div>`;
+
 export const example = (name, usage, snippet, preview) => `
   <div style="margin-bottom:16px">
     <div style="font:600 13.5px ${SANS};color:#1a1d1c">${name}</div>
