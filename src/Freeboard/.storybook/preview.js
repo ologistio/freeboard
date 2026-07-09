@@ -11,6 +11,17 @@ const preview = {
     parameters: {
         layout: "centered",
         controls: { expanded: true },
+        options: {
+            storySort: {
+                order: [
+                    "Overview",
+                    "Foundations",
+                    ["UX philosophy", "UX rules"],
+                    "Brand",
+                    "Components",
+                ],
+            },
+        },
     },
 };
 

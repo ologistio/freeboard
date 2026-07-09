@@ -1,0 +1,99 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundations/UX philosophy" />
+
+# UX philosophy
+
+This is the reasoning behind Freeboard's interface. The rules page
+(Foundations > UX rules) turns each principle into a check you can apply in
+review; this page explains the why, so the rules are applied with judgment
+rather than by rote.
+
+Freeboard's job is to make a compliance posture legible and defensible: evidence
+collected automatically, checks scored against it, and a trail an auditor can
+trust. The interface either makes that legible or buries it. These principles
+keep it legible.
+
+## Failure modes we design against
+
+Every principle below answers a way compliance tooling goes wrong as it grows.
+
+- **Nav accretion.** Modules sprout their own settings and report pages until the
+  menu is a museum of past decisions.
+- **Disagreeing task surfaces.** Two lists of "what to do" that show different
+  counts, so neither is trusted.
+- **Duplicate records.** The same piece of evidence shown as two unrelated things
+  on two pages, each needing its own explanation.
+- **Notification noise.** So many alerts that the signal disappears and monitoring
+  becomes background radiation.
+- **Overwhelm and depth-hiding.** Important flows buried inside a specific page,
+  unreachable from the main menu.
+- **Opaque derived numbers.** A score that jumps from bad to good in one step and
+  reflects nothing in between.
+- **Silent failure.** An upload that half-worked, discovered later by someone else.
+
+## Principles
+
+### One object, many lenses
+
+Evidence and the checks it satisfies are the primary objects. Frameworks,
+scorecards, and reports are lenses over those shared objects, not parallel copies.
+Fixing a gap once updates every place that references it: fix once, count
+everywhere. A framework page is a progress view over shared controls, never a
+separate checklist to maintain by hand.
+
+### One work item model
+
+Everything actionable - a failing check, a policy approval, a review item, an
+expiring piece of evidence - is the same task shape: an owner, a due date or SLA,
+and a source object. The program queue and the personal queue are the same ledger
+at two scopes, so their counts can never disagree for the same scope.
+
+### Exceptions first, health collapsed
+
+Default sorts put failing and due-soon items on top. Passing items earn their
+silence. A gaps-only view is a first-class control, not a filter buried in a menu.
+The daily face of the product is the short list of things that are wrong, not the
+long list of things that are fine.
+
+### Provenance on every automated value
+
+Every machine-collected value carries a source stamp: which collector produced it,
+and how fresh it is. A stale or degraded source degrades its dependent checks
+visibly, with the dependency named. Nothing passes because its source went quiet,
+and nothing fails without saying why.
+
+### Internal and external surfaces are visually distinct
+
+The public trust surface is the only outward-facing part of the product, and it is
+framed so it can never be mistaken for an internal page: a persistent
+public-surface banner, publish-after-approval, and a publish log. Auditor and other
+external views carry the same frame. Nothing leaves the building by accident.
+
+### Two levels of navigation, no more
+
+Group, then page. Anything deeper is a tab or a drawer on a page. Settings and
+reporting are each one surface, sectioned by module, never one page per module.
+Cross-cutting concerns - search, tasks, notifications, the assistant - live in
+exactly one place each.
+
+### Honest derived numbers
+
+A derived score moves on a scale with its inputs and shows its derivation on
+demand: which inputs, which weights. It never flips from bad to good in a single
+binary step, because a real posture is rarely binary and the interface should not
+pretend otherwise.
+
+### Errors and emptiness are instructions
+
+A failed action states what failed, to which item, and the next step. An empty
+page teaches its purpose and offers the first action. Confusion is answered where
+it happens - an inline hint or a guidance box - not in a separate help article
+about the relationship between two pages.
+
+## How to use this
+
+The rules page is the enforceable form of these principles: numbered, testable in
+review. When a rule and a principle appear to conflict, the principle governs and
+the rule is probably missing a case. Raise it, and we extend the ruleset. This is
+a living record, not a tablet.

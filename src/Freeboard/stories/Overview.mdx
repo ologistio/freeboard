@@ -4,13 +4,20 @@ import { Meta } from "@storybook/addon-docs/blocks";
 
 # Freeboard design system
 
-This workshop presents Freeboard's brand assets and shared UI components. Every
-story renders the real Tailwind theme and component classes from
-`src/Freeboard/assets/css/app.css` - there is no separate copy to keep in sync.
+This workshop is the living record of how Freeboard's interface works: the UX
+philosophy and rules that govern it, and the brand assets and shared UI components
+that implement them. Every component story renders the real Tailwind theme and
+classes from `src/Freeboard/assets/css/app.css` - there is no separate copy to
+keep in sync.
 
-- **Brand / Colors** - the theme's brand and status colours.
+- **Foundations / UX philosophy** - the reasoning behind the interface.
+- **Foundations / UX rules** - the numbered, testable form of that reasoning.
+- **Brand / Colors** - the target colour palette (brand, neutrals, semantic) from the product prototype, shown for light and dark. Reference only; not yet wired into the app theme.
+- **Brand / Typography** - the target type system: Schibsted Grotesk for human content, IBM Plex Mono for system marks, with the scale. Reference only.
 - **Components / Buttons, Badges, Form controls** - the shared component classes
   used across the web UI.
+
+Build components to satisfy the rules; cite rule numbers in review.
 
 To add a component, add its class to `app.css` and a story under `stories/`.
 Stories are plain HTML strings, matching the server-rendered Razor markup.

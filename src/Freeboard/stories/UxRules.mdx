@@ -1,0 +1,168 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundations/UX rules" />
+
+# UX rules
+
+The testable form of the UX philosophy (Foundations > UX philosophy). Rules are
+numbered so they can be cited in review ("this breaks L4"). Each is written to be
+checkable: a reviewer can hold a screen against it and say yes or no.
+
+"Object" means any first-class record: evidence, check, control, policy, collector,
+score, risk, vendor, person, device, resource, questionnaire, audit, integration,
+or task.
+
+## Navigation
+
+- **N1.** Navigation depth is two levels: group, then page. Anything deeper is a
+  tab or a drawer on a page, never a nav item.
+- **N2.** Every page belongs to exactly one group. No page appears twice in the nav.
+- **N3.** Group names are jobs or nouns the whole company shares. Never internal
+  module or SKU names.
+- **N4.** Module settings do not exist. All configuration lives in Settings,
+  sectioned by module.
+- **N5.** Module report pages do not exist. All reporting lives in Reports as
+  saved, scoped views.
+- **N6.** Nav badges show only actionable counts (failing, waiting on you). Passing
+  counts never badge.
+- **N7.** One command palette (Ctrl-K) jumps to pages and asks the assistant. There
+  is no second search box elsewhere.
+- **N8.** The breadcrumb always states group / page / detail, and each segment is a
+  link.
+- **N9.** Back from a detail page returns to the list with its filters intact.
+
+## Objects
+
+- **O1.** One record per real-world thing. The same document, check, or task is one
+  object rendered in multiple places, never duplicated per surface.
+- **O2.** Every object has status, owner, provenance, linked objects, and history.
+  No exceptions; empty is shown as empty.
+- **O3.** Every object detail uses the same anatomy in the same order: assertion or
+  description, relations, evidence, guidance, history.
+- **O4.** Objects open in a drawer from lists and as a full page from direct links.
+  Both render the same record.
+- **O5.** Deleting or editing an object states, before confirmation, everything
+  that references it and what will happen to each reference.
+- **O6.** Relations are two-way and visible from both ends (a control lists its
+  checks; a check names its controls).
+
+## Lists and tables
+
+- **L1.** Default sort is exceptions first: failing, then due soon, then the rest.
+- **L2.** Filters are chips with counts. The active filter set is visible without
+  opening a menu and persists per person, per view.
+- **L3.** Group headers inside tables disappear when they have no visible rows.
+- **L4.** Every list supports select-all-visible and bulk actions on the selection.
+  Bulk actions never fail partially in silence; results are itemized.
+- **L5.** Truncated lists say so: "Showing n of m" with the total, always.
+- **L6.** A row's primary action is one click and named as a verb (Fix, Approve,
+  Review, Upload). Never "View" when a decision is wanted.
+- **L7.** Empty lists explain what would appear there and offer the first action.
+
+## Status and color
+
+- **S1.** One status vocabulary product-wide: Ready/Passing, Failing, Due soon,
+  Overdue, Drifting/Degraded, Snoozed, Waiting, Draft, Out of scope.
+- **S2.** Status is always shape plus word. Color is reinforcement, never the only
+  signal.
+- **S3.** Red is reserved for failing and overdue. Degraded sources and approaching
+  deadlines are amber. Informational states are never red.
+- **S4.** Derived scores move on a scale, not a switch. Show the derivation on
+  demand: which inputs, which weights.
+- **S5.** A snooze requires a reason and an end date, and appears in the object's
+  history and the audit trail.
+- **S6.** Nothing passes because its source went quiet. A stale source degrades
+  every dependent object, with the dependency named.
+
+## Tasks and the queue
+
+- **T1.** There is one task model. Anything with an owner and a due date or SLA is a
+  task, whatever module created it.
+- **T2.** Home shows the program queue; My work shows the same queue scoped to the
+  viewer. The two can never disagree on counts for the same scope.
+- **T3.** Every task names its origin object and links to it in one click.
+- **T4.** Completing the underlying condition completes the task automatically, and
+  the change feed records it.
+- **T5.** Tasks pushed to external trackers sync state both ways; external state is
+  stamped with source and freshness like any automated value.
+- **T6.** Due-date rendering is relative when near ("SLA Fri", "3d overdue") and
+  absolute when far ("30 Jul"). Overdue is always explicit, never inferred from
+  color.
+- **T7.** A decision that changes the world (revoke access, remediate, offboard)
+  stays open until the source confirms the change happened. Attested and true must
+  reconcile.
+
+## Provenance and freshness
+
+- **P1.** Every automated value carries a source stamp: collector or integration
+  name plus age.
+- **P2.** Manual values are stamped MANUAL and dated. Manual is a provenance, not
+  the absence of one.
+- **P3.** Freshness thresholds are visible - fresh, aging, stale - with stale
+  rendering as degraded per S6.
+- **P4.** Evidence shows how it was collected and when, and reads identically to the
+  auditor and the owner.
+- **P5.** Every figure in a report or export resolves to the record it came from and
+  carries an as-of time. A sent report locks a snapshot; live pages keep moving.
+
+## Notifications
+
+- **X1.** Default delivery is a digest. Real-time interrupts are opt-in per category
+  and reserved for failing, overdue, and external requests.
+- **X2.** One event, one notification. State changes on the same object within a
+  window coalesce.
+- **X3.** Every notification deep-links to the object and can be muted at the
+  object, category, or channel level from the notification itself.
+- **X4.** Notification rules live in Settings in one place, per person, and preview
+  their effect ("this would have sent 4 messages last week").
+
+## External surfaces
+
+- **E1.** Outward-facing surfaces (trust center, questionnaire responses, auditor
+  views) carry a persistent visual frame that internal pages never use.
+- **E2.** Nothing publishes silently. External changes queue for approval, and every
+  publish is logged with who, what, and when.
+- **E3.** Visibility per section is explicit - Public, NDA gate, or Hidden - shown as
+  a label next to its toggle, not encoded in toggle position alone.
+- **E4.** Auditor access is scoped and expiring, and the log of what was viewed is
+  available to the account owner.
+- **E5.** Assistant-drafted external answers are held for human approval and cite
+  their knowledge-base sources.
+- **E6.** Any surface another party can see offers a view-as switch. Internal users
+  step into the exact external perspective in one click; exposure is never guessed
+  at.
+
+## Forms and errors
+
+- **F1.** Errors state what happened, to which item, and the next step. Multi-item
+  operations report per item.
+- **F2.** Nothing is silently dropped. If 1 of 2 uploads fails, the form says so
+  before the person leaves the page.
+- **F3.** Destructive actions name their blast radius (O5) and require confirmation
+  proportional to it.
+- **F4.** Drafts autosave and say so. Leaving a dirty form warns once, specifically.
+
+## Accessibility and interaction
+
+- **A1.** WCAG AA contrast minimum on text and interactive elements.
+- **A2.** Full keyboard path: nav, tables, drawers, palette. Focus is always
+  visible.
+- **A3.** Reduced-motion preference disables all non-essential animation.
+- **A4.** Hit targets are at least 32px in either dimension in dense tables, 44px
+  elsewhere.
+- **A5.** Drawers and dialogs trap focus, restore it on close, and close on Escape.
+- **A6.** Light and dark ship together from one token set. Every component meets AA
+  in both; status semantics never change with theme. Theme follows the system by
+  default and is a personal setting, not a workspace one. External surfaces keep
+  their own theme regardless of chrome.
+
+## Language
+
+- **W1.** Sentence case everywhere except mono provenance stamps and group eyebrows.
+- **W2.** Buttons are verbs that survive the round trip: Publish leads to Published.
+- **W3.** Counts are honest: "12 failing", not "some issues". Never a vague plural
+  when the number is known.
+- **W4.** Explanations live where the confusion happens (inline hint, guidance box),
+  not in a help article about the relationship between two pages.
+- **W5.** The product never says "error occurred". It says what happened and what
+  to do now.
