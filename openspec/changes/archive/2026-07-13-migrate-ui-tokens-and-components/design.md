@@ -537,13 +537,14 @@ reverting cannot strand a migrated page.
 
 ## Open Questions
 
-1. Font licensing sign-off (merge-time checklist item): both families are OFL 1.1
-   per upstream - Schibsted Grotesk from `google/fonts` (its `OFL.txt`) and IBM Plex
-   Mono from `IBM/plex` (its `LICENSE.txt`). The change vendors each family's EXACT
-   upstream license file next to its font files. A formal legal sign-off confirming
-   redistribution is a checklist item before merge, not an authoring blocker. If a
-   family turns out not clearable, pick a licensed replacement that preserves the
-   human/machine split (a one-line `--font-sans` / `--font-mono` change).
+1. Font licensing sign-off: RESOLVED. Both families are OFL 1.1 per upstream -
+   Schibsted Grotesk from `google/fonts` (its `OFL.txt`) and IBM Plex Mono from
+   `IBM/plex` (its `LICENSE.txt`). The change vendors each family's EXACT upstream
+   license file next to its font files, and the OFL 1.1 redistribution terms are
+   confirmed met (licenses included, Reserved Font Name handled - see below). No
+   residual pre-merge sign-off remains; this is not an authoring or merge blocker.
+   If a family later turns out not clearable, pick a licensed replacement that
+   preserves the human/machine split (a one-line `--font-sans` / `--font-mono` change).
    Reserved Font Name: RESOLVED in code, no residual human step. IBM Plex Mono
    carries the Reserved Font Name "Plex", so it is vendored as the UNMODIFIED, full
    upstream face and served under the "IBM Plex Mono" family name - OFL condition 3

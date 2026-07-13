@@ -91,7 +91,8 @@ const NEUTRALS = [
     { n: "muted", l: "#4d534f", d: "#a2aba5", u: "Secondary text and inactive nav." },
     { n: "faint", l: "#66706b", d: "#828c86", u: "Tertiary text, eyebrows, mono labels." },
     { n: "line", l: "#e0e3dc", d: "#2a302c", u: "Default borders and dividers." },
-    { n: "line-strong", l: "#c9cec5", d: "#3d4540", u: "Emphasis borders and control outlines." },
+    { n: "line-strong", l: "#c9cec5", d: "#3d4540", u: "Emphasis borders and dividers." },
+    { n: "control-outline", l: "#7f8883", d: "#6b736d", u: "Input and button boundaries; clears 3:1 (A1)." },
 ];
 
 // il/id are the on-soft word colours (light/dark). The 8px seal keeps the base

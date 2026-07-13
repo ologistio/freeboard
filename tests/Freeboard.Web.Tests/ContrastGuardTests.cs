@@ -127,4 +127,33 @@ public sealed class ContrastGuardTests
 
         Assert.True(fails.Count == 0, $"Seal contrast failures ({(dark ? "dark" : "light")}):\n" + string.Join("\n", fails));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InteractiveBoundariesAndFocusClearGraphicalContrast(bool dark)
+    {
+        // A1/A2 (non-text): a control's resting boundary and its keyboard-focus indicator must clear
+        // 3:1 against every panel ground the control renders on. The control outline is a dedicated
+        // token (not line-strong, which is a divider weight); the focus indicator is the opaque brand
+        // outline the button/form-control stories use.
+        var css = CssTokenSource.Read();
+        var (t, panel, field, pdim) = Theme(css, dark);
+        var fails = new List<string>();
+
+        void Boundary(string token, string label)
+        {
+            foreach (var (ground, gname) in new[] { (panel, "panel"), (field, "field"), (pdim, "panel-dim") })
+            {
+                var r = Ratio(Parse(t[token], ground), ground);
+                if (r < 3.0) fails.Add($"{label} on {gname}: {r:F2}");
+            }
+        }
+
+        Boundary("--color-control-outline", "control outline");
+        Boundary("--color-brand", "brand focus outline");
+
+        Assert.True(fails.Count == 0,
+            $"Interactive boundary/focus contrast failures ({(dark ? "dark" : "light")}):\n" + string.Join("\n", fails));
+    }
 }

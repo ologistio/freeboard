@@ -71,7 +71,9 @@ System-default dark activation is STAGED: this change SHALL NOT emit an
 `@media (prefers-color-scheme: dark)` activation block, so a dark operating-system
 preference does not auto-apply dark while pages still carry non-tokenized color
 utilities. With `fb-theme` set to `system` or absent, the app SHALL render light.
-System-default activation via `prefers-color-scheme` lands when pages migrate. This
+System-default activation via `prefers-color-scheme` lands when pages migrate AND the
+dark palette passes the same accessibility audit as light (the audit currently covers
+light only). This
 partially implements `web-ux-conventions` A6: the single light+dark token set and the
 override mechanism exist and are verified, while system-default activation is deferred.
 

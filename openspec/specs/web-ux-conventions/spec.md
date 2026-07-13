@@ -641,6 +641,14 @@ Light and dark SHALL ship together from one token set. Every component SHALL mee
 and status semantics SHALL NOT change with theme. Theme SHALL follow the system by default
 and be a personal setting, not a workspace one; external surfaces keep their own theme.
 
+System-default activation via `prefers-color-scheme` is STAGED. The single light+dark token set
+and the personal `data-theme` override ship and are verified first; automatic system-default
+activation lands once pages carry only tokenized colours AND the dark palette passes the same
+accessibility audit as light. Until then, an absent or `system` preference renders light and an
+explicit override still reaches either theme. This staging is recorded in `web-design-system`; it
+defers only the automatic follow-the-system default, not the one-token-set or personal-override
+parts of this rule.
+
 #### Scenario: Both themes meet AA with stable semantics
 
 - **WHEN** a component is rendered in light and in dark
