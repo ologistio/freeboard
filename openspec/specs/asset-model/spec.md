@@ -1,7 +1,15 @@
 # asset-model Specification
 
 ## Purpose
-TBD - created by archiving change add-machine-asset-model. Update Purpose after archive.
+
+The asset-model capability defines the integration-agnostic asset that evidence
+collectors and discovery sources resolve to, so per-machine evidence has a stable
+target. It governs the `Machine` asset kind, org-scoped serial/host-uuid identity
+derivation and dedup (one machine per organisation regardless of how many sources
+report it), per-source attachment by `(source, external_id)`, the seen/retired
+lifecycle, and the read/write persistence stores. It is MIT and lives in
+`Freeboard.Core` (the domain model) and `Freeboard.Persistence` (the MySQL stores).
+
 ## Requirements
 ### Requirement: Machine asset domain model in Core
 

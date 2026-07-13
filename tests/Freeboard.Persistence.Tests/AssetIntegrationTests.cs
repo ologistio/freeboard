@@ -418,6 +418,31 @@ public sealed class AssetIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task StaleRetirementDoesNotOverrideNewerObservation()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var (store, writes) = Stores(db);
+
+        var created = await writes.UpsertMachineFromSourceAsync(Obs("org-a", "fleetdm", "host-1", serial: "SN-1"));
+
+        // Push last_seen_at a day ahead so the retirement the store issues now carries an older timestamp
+        // than the latest observation. The monotonic guard must treat it as a no-op rather than retire a
+        // machine that was seen more recently.
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(
+            "UPDATE asset SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY) WHERE id = @Id;",
+            new { Id = created.AssetId });
+
+        Assert.True((await writes.RetireAsync("org-a", created.AssetId!)).Ok);
+
+        var asset = await store.GetByIdAsync("org-a", created.AssetId!);
+        Assert.Equal("Seen", asset!.State);
+        Assert.Null(asset.RetiredAt);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task CrossOrgSourceInsertRejectedByCompositeForeignKey()
     {
         await using var db = await RequireDbAsync();

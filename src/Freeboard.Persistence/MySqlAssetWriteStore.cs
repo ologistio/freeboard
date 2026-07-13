@@ -1,6 +1,5 @@
 using System.Data;
 using System.Data.Common;
-using System.Linq;
 using Dapper;
 using Freeboard.Core.Assets;
 using Freeboard.Persistence.Auth;
@@ -109,10 +108,15 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
     public async Task<WriteResult> RetireAsync(
         string organisationId, string assetId, CancellationToken cancellationToken = default)
     {
+        // Gate retirement on its timestamp being at least the last-seen time, the same monotonic rule the
+        // upsert uses: a retirement that predates a more recent observation must not win and leave a machine
+        // Retired that was seen afterwards. A stale retirement is a no-op (still a success - the terminal
+        // state the caller asked for is already at least as fresh).
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE asset SET state = @Retired, retired_at = @Now "
-            + "WHERE id = @AssetId AND organisation_id = @OrganisationId AND state <> @Retired;",
+            + "WHERE id = @AssetId AND organisation_id = @OrganisationId AND state <> @Retired "
+            + "AND @Now >= last_seen_at;",
             new { Retired = StateRetired, Now = DateTime.UtcNow, AssetId = assetId, OrganisationId = organisationId },
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return WriteResult.Success;
