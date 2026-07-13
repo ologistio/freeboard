@@ -114,9 +114,8 @@ public sealed class ComponentLayerGuardTests
                 tokens.Add(raw.Groups[1].Value);
 
             if (tokens.Count == 0) { fails.Add($"{cls}: no border colour token"); continue; }
-            foreach (var tk in tokens)
-                if (tk.Contains('/') || !approved.Contains(tk))
-                    fails.Add($"{cls}: resting border uses '{tk}' (need one of {string.Join("/", approved)}, no alpha)");
+            foreach (var tk in tokens.Where(tk => tk.Contains('/') || !approved.Contains(tk)))
+                fails.Add($"{cls}: resting border uses '{tk}' (need one of {string.Join("/", approved)}, no alpha)");
         }
 
         Assert.True(fails.Count == 0,
