@@ -161,7 +161,7 @@ public sealed class MfaEndpointTests
         Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
     }
 
-    // ---- enrollment + sudo ----
+    #region enrollment + sudo
 
     [Fact]
     public async Task TotpEnrollRequiresSudoThenWorksAfterSudo()
@@ -218,4 +218,6 @@ public sealed class MfaEndpointTests
         var enroll = await client.PostAsJsonAsync($"{Prefix}/auth/mfa/totp/enroll", new { });
         Assert.Equal(HttpStatusCode.OK, enroll.StatusCode);
     }
+    #endregion
+
 }

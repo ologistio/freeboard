@@ -201,7 +201,7 @@ export const FB_CSS = `
 
 // Shared page frame for a composition: field ground, a reference-only ribbon, the
 // rendered page, then its assembled markup in a copy block.
-// ---- app shell builders (shared by the shelled compositions) ----
+// app shell builders (shared by the shelled compositions)
 const NAVCLICK = "var r=this.closest('.fb-rail');var it=r.querySelectorAll('.fb-navitem');for(var i=0;i<it.length;i++){it[i].classList.remove('active');it[i].removeAttribute('aria-current');}this.classList.add('active');this.setAttribute('aria-current','page');";
 const ni = (label, count, tone, active) => {
     const badge = count ? `<span class="fb-navcount${tone === "calm" ? " calm" : ""}" aria-hidden="true">${count}</span>` : "";

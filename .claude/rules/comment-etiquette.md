@@ -32,7 +32,9 @@ public User GetUser(string id)
 - Prefer self-explanatory names and small functions over comments that
   compensate for unclear code. Fix the code first.
 - No redundant comments, no commented-out code, no decorative banners or section
-  dividers, no per-line narration.
+  dividers, no per-line narration. Use language-appropriate structure instead of
+  comment separators (`#region`/`#endregion` in C#, plain heading comments in
+  JavaScript and other languages).
 - No changelog/history in comments ("changed X to Y", "previously did Z",
   "added for ...") - that is what version control is for.
 - One clear sentence beats a paragraph. Cut hedging and filler. Do not repeat in

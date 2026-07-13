@@ -32,7 +32,7 @@ const section = (name, desc, body) => `
 
 const card = (inner) => `<div style="background:#fff;border:1px solid #e0e3dc;border-radius:12px;padding:18px 20px">${inner}</div>`;
 
-// ---- status seals ----
+// status seals
 const SEAL_BASE = "width:10px;height:10px;border-radius:2px;display:inline-block;flex:none";
 const seal = (type) => {
     const s = {
@@ -70,7 +70,7 @@ const glyphRow = (g, last) => `
     <span style="font-size:12.5px;color:${C.muted}">${g.use}</span>
   </div>`;
 
-// ---- provenance stamps ----
+// provenance stamps
 const stamp = (text, variant) => {
     const v = {
         auto: `color:${C.muted};border-color:#c9cec5`,

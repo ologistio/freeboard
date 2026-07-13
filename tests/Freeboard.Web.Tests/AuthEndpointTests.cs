@@ -20,7 +20,7 @@ public sealed class AuthEndpointTests
         f.Credentials.SetAsync(user.Id, f.Hasher.Hash(password), 1).GetAwaiter().GetResult();
     }
 
-    // ---- login ----
+    #region login
 
     [Fact]
     public async Task LoginSucceedsReturnsUserAndToken()
@@ -112,8 +112,9 @@ public sealed class AuthEndpointTests
             $"{Prefix}/auth/login", new { email = "u1@example.com", password = "password" });
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
     }
+    #endregion
 
-    // ---- me / logout ----
+    #region me / logout
 
     [Fact]
     public async Task MeReturnsUserObjectFields()
@@ -141,8 +142,9 @@ public sealed class AuthEndpointTests
         var me = await client.GetAsync($"{Prefix}/auth/me");
         Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
     }
+    #endregion
 
-    // ---- password change ----
+    #region password change
 
     [Fact]
     public async Task PasswordChangeWrongOldIs422()
@@ -167,8 +169,9 @@ public sealed class AuthEndpointTests
             $"{Prefix}/auth/password/change", new { old_password = "old", new_password = "newpass" });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+    #endregion
 
-    // ---- forgot / reset ----
+    #region forgot / reset
 
     [Fact]
     public async Task ForgotPasswordUniform200ForKnownAndUnknown()
@@ -242,8 +245,9 @@ public sealed class AuthEndpointTests
             $"{Prefix}/auth/password/reset", new { token, new_password = "another" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, again.StatusCode);
     }
+    #endregion
 
-    // ---- account/password (force-reset limited) ----
+    #region account/password (force-reset limited)
 
     [Fact]
     public async Task LimitedSessionUsesAccountPasswordThenSameTokenWorks()
@@ -264,8 +268,9 @@ public sealed class AuthEndpointTests
         var allowed = await client.GetAsync($"{Prefix}/users/{user.Id}/sessions");
         Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
     }
+    #endregion
 
-    // ---- session IDOR ----
+    #region session IDOR
 
     [Fact]
     public async Task SessionIdorReturns404ForNonOwned()
@@ -294,4 +299,6 @@ public sealed class AuthEndpointTests
         var json = await client.GetFromJsonAsync<JsonElement>($"{Prefix}/users/target/sessions");
         Assert.True(json.GetArrayLength() >= 1);
     }
+    #endregion
+
 }

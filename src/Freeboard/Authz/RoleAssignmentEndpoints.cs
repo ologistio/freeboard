@@ -120,8 +120,7 @@ public static class RoleAssignmentEndpoints
         return MapRevoke(result);
     }
 
-    // ---- selectors ----
-
+    #region selectors
     private static async ValueTask<AuthzResource?> OrgVisibilitySelector(EndpointFilterInvocationContext context)
     {
         var orgId = (string)context.HttpContext.Request.RouteValues["orgId"]!;
@@ -135,8 +134,9 @@ public static class RoleAssignmentEndpoints
         return canRead.IsPermitted ? resource : null;
     }
 
-    // ---- mapping + audit ----
+    #endregion
 
+    #region mapping + audit
     private static IResult MapAssign(AuthzWriteResult result, int createdStatus) => result.Status switch
     {
         AuthzWriteStatus.Ok => Results.StatusCode(createdStatus),
@@ -170,4 +170,6 @@ public static class RoleAssignmentEndpoints
             new AuthzAuditEvent(action, actor, AuthzActions.AuthzAssignmentWrite, "user", targetUserId, orgId, "Permit", "role assignment mutation"),
             ct);
     }
+
+    #endregion
 }

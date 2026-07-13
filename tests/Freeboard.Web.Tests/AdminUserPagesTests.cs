@@ -27,7 +27,7 @@ public sealed class AdminUserPagesTests
     private static IEnumerable<KeyValuePair<string, string>> SessionCookieFor(string token)
         => [new KeyValuePair<string, string>(SessionCookie.Name, token)];
 
-    // ---- authentication and admin-role gate ----
+    #region authentication and admin-role gate
 
     [Fact]
     public async Task UnauthenticatedGetRedirectsToLogin()
@@ -113,8 +113,9 @@ public sealed class AdminUserPagesTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("seeded@example.com", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
+    #endregion
 
-    // ---- create: temp-password handoff + one-time display ----
+    #region create: temp-password handoff + one-time display
 
     [Fact]
     public async Task AdminCreateShowsTempPasswordOnceAndStoresOnlyHash()
@@ -178,8 +179,9 @@ public sealed class AdminUserPagesTests
         Assert.Equal(HttpStatusCode.OK, asAdmin.StatusCode);
         Assert.Contains("ABCDE-FGHJK-MNPQR-STVWX", await asAdmin.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
+    #endregion
 
-    // ---- create: email-invite handoff ----
+    #region create: email-invite handoff
 
     [Fact]
     public async Task AdminCreateWithInviteSendsLinkAndShowsNoTempPassword()
@@ -310,8 +312,9 @@ public sealed class AdminUserPagesTests
         Assert.NotNull(row);
         Assert.Null(await factory.Credentials.GetAsync(row!.Id));
     }
+    #endregion
 
-    // ---- reset / disable / enable / duplicate / stale ----
+    #region reset / disable / enable / duplicate / stale
 
     [Fact]
     public async Task AdminResetPasswordShowsTempPasswordOnceSetsForceResetAndRevokes()
@@ -466,8 +469,9 @@ public sealed class AdminUserPagesTests
             Assert.Contains("no longer exists", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         }
     }
+    #endregion
 
-    // ---- antiforgery, read-only, no-leak ----
+    #region antiforgery, read-only, no-leak
 
     [Fact]
     public async Task PostWithoutAntiforgeryTokenIsRejected()
@@ -558,6 +562,7 @@ public sealed class AdminUserPagesTests
         Assert.DoesNotContain(inviteToken, body, StringComparison.Ordinal);
         Assert.DoesNotContain(factory.Logs.Entries, e => e.Text.Contains(inviteToken, StringComparison.Ordinal));
     }
+    #endregion
 
     private static async Task<HttpResponseMessage> GetCredentialPageAsync(HttpClient client, string sessionToken, string nonce)
     {

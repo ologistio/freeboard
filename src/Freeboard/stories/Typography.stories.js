@@ -30,7 +30,7 @@ const section = (name, desc, body) => `
     ${body}
   </section>`;
 
-// ---- typefaces ----
+// typefaces
 const typeface = (t) => `
   <figure style="margin:0;border:1px solid #e0e3dc;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(26,29,28,.05)">
     <div style="padding:22px 22px 8px;font-family:${t.stack}">
@@ -63,7 +63,7 @@ const TYPEFACES = [
     },
 ];
 
-// ---- scale ----
+// scale
 const row = (r) => `
   <div style="padding:15px 0;border-bottom:1px solid #e0e3dc">
     <div style="${r.style}">${r.sample}</div>
