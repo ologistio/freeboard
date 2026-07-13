@@ -27,7 +27,7 @@ public sealed class AdminUserPagesTests
     private static IEnumerable<KeyValuePair<string, string>> SessionCookieFor(string token)
         => [new KeyValuePair<string, string>(SessionCookie.Name, token)];
 
-    // ---- authentication and admin-role gate ----
+    // authentication and admin-role gate
 
     [Fact]
     public async Task UnauthenticatedGetRedirectsToLogin()
@@ -114,7 +114,7 @@ public sealed class AdminUserPagesTests
         Assert.Contains("seeded@example.com", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
-    // ---- create: temp-password handoff + one-time display ----
+    // create: temp-password handoff + one-time display
 
     [Fact]
     public async Task AdminCreateShowsTempPasswordOnceAndStoresOnlyHash()
@@ -179,7 +179,7 @@ public sealed class AdminUserPagesTests
         Assert.Contains("ABCDE-FGHJK-MNPQR-STVWX", await asAdmin.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
-    // ---- create: email-invite handoff ----
+    // create: email-invite handoff
 
     [Fact]
     public async Task AdminCreateWithInviteSendsLinkAndShowsNoTempPassword()
@@ -311,7 +311,7 @@ public sealed class AdminUserPagesTests
         Assert.Null(await factory.Credentials.GetAsync(row!.Id));
     }
 
-    // ---- reset / disable / enable / duplicate / stale ----
+    // reset / disable / enable / duplicate / stale
 
     [Fact]
     public async Task AdminResetPasswordShowsTempPasswordOnceSetsForceResetAndRevokes()
@@ -467,7 +467,7 @@ public sealed class AdminUserPagesTests
         }
     }
 
-    // ---- antiforgery, read-only, no-leak ----
+    // antiforgery, read-only, no-leak
 
     [Fact]
     public async Task PostWithoutAntiforgeryTokenIsRejected()

@@ -161,7 +161,7 @@ public sealed class MfaEndpointTests
         Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
     }
 
-    // ---- enrollment + sudo ----
+    // enrollment + sudo
 
     [Fact]
     public async Task TotpEnrollRequiresSudoThenWorksAfterSudo()

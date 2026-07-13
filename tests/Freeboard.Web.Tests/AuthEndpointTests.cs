@@ -20,7 +20,7 @@ public sealed class AuthEndpointTests
         f.Credentials.SetAsync(user.Id, f.Hasher.Hash(password), 1).GetAwaiter().GetResult();
     }
 
-    // ---- login ----
+    // login
 
     [Fact]
     public async Task LoginSucceedsReturnsUserAndToken()
@@ -113,7 +113,7 @@ public sealed class AuthEndpointTests
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
     }
 
-    // ---- me / logout ----
+    // me / logout
 
     [Fact]
     public async Task MeReturnsUserObjectFields()
@@ -142,7 +142,7 @@ public sealed class AuthEndpointTests
         Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
     }
 
-    // ---- password change ----
+    // password change
 
     [Fact]
     public async Task PasswordChangeWrongOldIs422()
@@ -168,7 +168,7 @@ public sealed class AuthEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // ---- forgot / reset ----
+    // forgot / reset
 
     [Fact]
     public async Task ForgotPasswordUniform200ForKnownAndUnknown()
@@ -243,7 +243,7 @@ public sealed class AuthEndpointTests
         Assert.Equal(HttpStatusCode.UnprocessableEntity, again.StatusCode);
     }
 
-    // ---- account/password (force-reset limited) ----
+    // account/password (force-reset limited)
 
     [Fact]
     public async Task LimitedSessionUsesAccountPasswordThenSameTokenWorks()
@@ -265,7 +265,7 @@ public sealed class AuthEndpointTests
         Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
     }
 
-    // ---- session IDOR ----
+    // session IDOR
 
     [Fact]
     public async Task SessionIdorReturns404ForNonOwned()

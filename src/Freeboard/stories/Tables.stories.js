@@ -64,7 +64,7 @@ const ALLCK = "var w=this.closest('.fb-tp');var c=w.querySelectorAll('.fb-rowck'
 const CLEARCK = "var w=this.closest('.fb-tp');var c=w.querySelectorAll('.fb-rowck,.fb-allck');for(var i=0;i<c.length;i++)c[i].checked=false;var b=w.querySelector('.fb-bulk');b.style.display='none';b.querySelector('.fb-bulk__n').textContent='0 selected'";
 const CHIP = "var p=this.parentNode;var c=p.querySelectorAll('.fb-chip');for(var i=0;i<c.length;i++)c[i].classList.remove('on');this.classList.add('on')";
 
-// ---- core list ----
+// core list
 const TABLE_FULL = `<div class="fb-tp"><div class="fb-scroll"><table class="fb-tbl">
   <thead><tr><th>Status</th><th>Item</th><th>Source</th><th>Owner</th><th>Due</th><th></th></tr></thead>
   <tbody>
@@ -129,7 +129,7 @@ const TABLE_SNIPPET = `<div class="fb-tp">
   <div class="fb-tfoot">Showing 4 of 14.</div>
 </div>`;
 
-// ---- selection ----
+// selection
 const SELECT_FULL = `<div class="fb-tp">
   <div class="fb-bulk"><span class="fb-bulk__n">0 selected</span><button type="button" class="fb-bulk__btn">Assign owner</button><button type="button" class="fb-bulk__btn">Snooze with reason</button><button type="button" class="fb-bulk__btn">Create issue</button><span class="fb-spacer"></span><button type="button" class="fb-bulk__btn" onclick="${CLEARCK}">Clear</button></div>
   <div class="fb-scroll"><table class="fb-tbl">
@@ -171,7 +171,7 @@ const SELECT_SNIPPET = `<div class="fb-tp">
   </table>
 </div>`;
 
-// ---- toolbar ----
+// toolbar
 const TOOLBAR_FULL = `<div class="fb-tp">
   <div class="fb-toolbar">
     <button type="button" class="fb-chip on" onclick="${CHIP}">All<span class="n">312</span></button>
