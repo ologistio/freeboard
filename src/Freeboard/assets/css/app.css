@@ -213,24 +213,39 @@ html[data-theme="light"] {
 
     .form-input {
         @apply block w-full rounded-md border border-line-strong bg-panel px-3 py-2 text-ink;
-        @apply focus:border-brand focus:ring-2 focus:ring-brand/30 focus:outline-none;
         box-shadow: var(--shadow);
     }
 
     /* Buttons size to their content; add w-full where a full-width submit is wanted (auth forms). */
     .btn-primary {
         @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold;
-        @apply bg-brand text-on-brand hover:bg-brand-hover focus:ring-2 focus:ring-brand/40 focus:ring-offset-2 focus:outline-none;
+        @apply bg-brand text-on-brand hover:bg-brand-hover;
     }
 
     .btn-secondary {
         @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-line-strong bg-panel px-4 py-2 font-semibold text-ink;
-        @apply hover:bg-panel-dim focus:ring-2 focus:ring-line-strong focus:ring-offset-2 focus:outline-none;
+        @apply hover:bg-panel-dim;
     }
 
     .btn-danger {
         @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-fail/30 bg-panel px-4 py-2 font-semibold text-fail-ink;
-        @apply hover:bg-fail/5 focus:ring-2 focus:ring-fail/30 focus:ring-offset-2 focus:outline-none;
+        @apply hover:bg-fail/5;
+    }
+
+    /* Keyboard focus: one opaque brand outline for every control, per the button/form-control
+       reference. An offset outline (not a Tailwind ring) keeps a >=3:1 indicator without a native-
+       outline removal, and its transparent gap shows the page ground rather than a white ring-offset. */
+    .btn-primary:focus-visible,
+    .btn-secondary:focus-visible,
+    .btn-danger:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 2px;
+    }
+
+    .form-input:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 0;
+        border-color: var(--color-brand);
     }
 
     /* Quiet button: no fill or border until hover. */
@@ -251,7 +266,7 @@ html[data-theme="light"] {
     }
 
     .link {
-        @apply font-medium text-brand-ink hover:underline;
+        @apply font-medium text-brand hover:underline;
     }
 
     /* Informational panel (a sent link, an already-done state). */
@@ -295,7 +310,7 @@ html[data-theme="light"] {
     }
 
     .nav-link-active {
-        @apply bg-panel-dim text-brand-ink hover:bg-panel-dim hover:text-brand-ink;
+        @apply bg-panel-dim text-brand hover:bg-panel-dim hover:text-brand;
     }
 
     .nav-section-title {
@@ -326,7 +341,7 @@ html[data-theme="light"] {
     }
 
     .acct-tab-active {
-        @apply border-brand text-brand-ink hover:text-brand-ink;
+        @apply border-brand text-brand hover:text-brand;
     }
 
     .fb-eyebrow {

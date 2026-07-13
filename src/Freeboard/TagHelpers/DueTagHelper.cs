@@ -39,6 +39,10 @@ public sealed class DueTagHelper : TagHelper
         if (days < 0)
         {
             var n = -days;
+            // T6: far dates are absolute, near ones relative - symmetric to the future side. A long-
+            // overdue item still states that it is overdue, just with the absolute date.
+            if (n > 7)
+                return ($"Overdue since {due.ToString("MMM d", CultureInfo.InvariantCulture)}", "over");
             return (n == 1 ? "1 day overdue" : $"{n} days overdue", "over");
         }
         if (days == 0) return ("Today", "soon");

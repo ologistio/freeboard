@@ -192,6 +192,18 @@ public sealed class MarkTagHelperTests
     }
 
     [Fact]
+    public void DueFarOverdueIsAbsoluteButStillStatesOverdue()
+    {
+        // T6: a long-overdue date is absolute (not "400 days overdue"), symmetric to the far-future
+        // side, while still stating overdue.
+        var now = new DateTimeOffset(2026, 3, 10, 12, 0, 0, TimeSpan.Zero);
+        var (text, modifier) = DueTagHelper.Describe(now.AddDays(-400), now);
+        Assert.Equal("over", modifier);
+        Assert.StartsWith("Overdue since", text);
+        Assert.DoesNotContain("days overdue", text);
+    }
+
+    [Fact]
     public void DueUsesUtcSoDifferingOffsetsDoNotShiftTheDayBoundary()
     {
         // due and now are the same UTC day but carry different offsets; the calendar-day diff must be

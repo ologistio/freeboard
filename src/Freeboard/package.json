@@ -12,11 +12,11 @@
     "build-storybook": "storybook build"
   },
   "devDependencies": {
-    "@storybook/addon-docs": "^10",
-    "@storybook/html-vite": "^10",
+    "@storybook/addon-docs": "^10.5.0",
+    "@storybook/html-vite": "^10.5.0",
     "@tailwindcss/cli": "^4",
     "@tailwindcss/vite": "^4",
-    "storybook": "^10",
+    "storybook": "^10.5.0",
     "tailwindcss": "^4",
     "vite": "^7"
   },

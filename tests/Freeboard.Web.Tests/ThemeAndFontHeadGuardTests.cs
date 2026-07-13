@@ -111,24 +111,37 @@ public sealed class ThemeAndFontHeadGuardTests
     }
 
     [Fact]
-    public void DarkAndLightOverridesCoverTheSameThemeVaryingTokens()
+    public void DarkAndLightOverridesCoverEveryThemeVaryingToken()
     {
-        // The dark block and the light re-assert block must override the identical set of
-        // theme-varying tokens. A token overridden in one but not the other would silently fall
-        // back to the other theme's value (for example dropping a dark --color-brand-hover). Read
-        // the source, not the gitignored output. Aliases that resolve via var() (--color-brand-hover,
-        // --color-danger) live only in @theme, so they are absent from both blocks and excluded here.
+        // Each override block must set every theme-varying token declared in @theme. Comparing the two
+        // blocks only to each other would pass if a token were dropped from BOTH, letting dark and
+        // light silently inherit the same @theme value. So the reference set is derived from @theme:
+        // the colour and shadow tokens authored as literals. Aliases resolve via var()
+        // (--color-brand-hover, --color-danger) and follow their canonical token, so they live only in
+        // @theme and are excluded. Read the source, not the gitignored output.
         var css = CssTokenSource.Read();
-        var dark = CssTokenSource.Tokens(CssTokenSource.Block(css, "html[data-theme=\"dark\"]")).Keys;
-        var light = CssTokenSource.Tokens(CssTokenSource.Block(css, "html[data-theme=\"light\"]")).Keys;
+        var themeVarying = CssTokenSource.Tokens(CssTokenSource.Block(css, "@theme"))
+            .Where(kv => (kv.Key.StartsWith("--color-", StringComparison.Ordinal)
+                    || kv.Key.StartsWith("--shadow", StringComparison.Ordinal))
+                && !kv.Value.TrimStart().StartsWith("var(", StringComparison.Ordinal))
+            .Select(kv => kv.Key)
+            .ToHashSet(StringComparer.Ordinal);
 
-        var onlyInDark = dark.Except(light).OrderBy(k => k, StringComparer.Ordinal).ToList();
-        var onlyInLight = light.Except(dark).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        var dark = CssTokenSource.Tokens(CssTokenSource.Block(css, "html[data-theme=\"dark\"]")).Keys
+            .ToHashSet(StringComparer.Ordinal);
+        var light = CssTokenSource.Tokens(CssTokenSource.Block(css, "html[data-theme=\"light\"]")).Keys
+            .ToHashSet(StringComparer.Ordinal);
 
-        Assert.True(onlyInDark.Count == 0 && onlyInLight.Count == 0,
-            "The dark and light override blocks must set the identical theme-varying token set:\n"
-            + "Only in dark: " + string.Join(", ", onlyInDark) + "\n"
-            + "Only in light: " + string.Join(", ", onlyInLight));
+        static string Fmt(IEnumerable<string> keys) => string.Join(", ", keys.OrderBy(k => k, StringComparer.Ordinal));
+        var problems = new List<string>();
+        if (themeVarying.Except(dark).Any()) problems.Add("Missing from dark: " + Fmt(themeVarying.Except(dark)));
+        if (dark.Except(themeVarying).Any()) problems.Add("Extra in dark: " + Fmt(dark.Except(themeVarying)));
+        if (themeVarying.Except(light).Any()) problems.Add("Missing from light: " + Fmt(themeVarying.Except(light)));
+        if (light.Except(themeVarying).Any()) problems.Add("Extra in light: " + Fmt(light.Except(themeVarying)));
+
+        Assert.True(problems.Count == 0,
+            "Each theme override must set exactly the theme-varying tokens declared in @theme:\n"
+            + string.Join("\n", problems));
     }
 
     // The :root rule that carries the design tokens (Tailwind emits :root,:host{...}).
