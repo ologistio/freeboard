@@ -3,38 +3,241 @@
 /* Razor templates are the utility source; auto-detection skips wwwroot output. */
 @source "../../Pages";
 
-@theme {
-    --color-brand: #215091;
-    --color-brand-hover: #1b436f;
-    --color-danger: #b00020;
+/* Design tokens. Light values live here; dark is an override under
+   [data-theme="dark"] below. Utilities and the components layer read these as
+   var(--color-...), so one attribute switch rethemes the whole UI.
+   static: emit every token to :root even when no utility references it, so a token
+   used only through var() (or only by a not-yet-built page) still resolves in the
+   default light state instead of being pruned. */
+@theme static {
+    --font-sans: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --r-sm: 4px;
+    --r: 6px;
+    --r-lg: 10px;
+
+    --shadow: 0 1px 2px rgba(26, 29, 28, 0.06);
+    --shadow-md: 0 4px 12px rgba(26, 29, 28, 0.1);
+    --shadow-lg: 0 10px 34px rgba(26, 29, 28, 0.12);
+
+    --color-brand: #4f46c8;
+    --color-brand-ink: #3d36a3;
+    --color-brand-soft: #edecfa;
+    --color-on-brand: #ffffff;
+
+    --color-field: #f1f2ee;
+    --color-panel: #ffffff;
+    --color-panel-dim: #fafbf8;
+    --color-ink: #1a1d1c;
+    --color-muted: #616a66;
+    --color-faint: #66706b;
+    --color-line: #e0e3dc;
+    --color-line-strong: #c9cec5;
+
+    --color-ok: #1b7a4e;
+    --color-ok-soft: #e3f1e9;
+    --color-ok-ink: #1b7a4e;
+    --color-warn: #96690a;
+    --color-warn-soft: #f6eed6;
+    --color-warn-ink: #875e08;
+    --color-fail: #b3372d;
+    --color-fail-soft: #f9e9e6;
+    --color-fail-ink: #b3372d;
+    --color-info: #2a6db0;
+    --color-info-soft: #e7f0f8;
+    --color-info-ink: #2a6db0;
+    --color-neutral: #6a726e;
+    --color-neutral-soft: #eceeea;
+    --color-neutral-ink: #626a66;
+
+    /* Aliases mapping the pre-token utility names onto the new tokens so existing page
+       utilities (bg-brand, text-danger, ...) keep resolving. */
+    --color-brand-hover: #3d36a3;
+    --color-danger: #b3372d;
 }
 
-/* Shared form-control and messaging styling. Defined once here so pages stay
-   markup-light and every control stays visually consistent. */
+@font-face {
+    font-family: "Schibsted Grotesk";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/fonts/schibsted-grotesk-latin-400-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+    font-family: "Schibsted Grotesk";
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("/fonts/schibsted-grotesk-latin-500-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+    font-family: "Schibsted Grotesk";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("/fonts/schibsted-grotesk-latin-600-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+    font-family: "Schibsted Grotesk";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("/fonts/schibsted-grotesk-latin-700-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Unmodified upstream IBM Plex Mono faces (full, not a Latin subset), so no unicode-range: an
+   unmodified font may keep its OFL Reserved Font Name "Plex". See wwwroot/fonts/PROVENANCE.md. */
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/fonts/IBMPlexMono-Regular.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("/fonts/IBMPlexMono-Medium.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("/fonts/IBMPlexMono-SemiBold.woff2") format("woff2");
+}
+
+/* Dark token set. Authored from the same palette; dark applies only via an explicit
+   data-theme="dark" override. The stylesheet emits no prefers-color-scheme rule, so a
+   dark system preference does not auto-apply dark. */
+html[data-theme="dark"] {
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 10px 34px rgba(0, 0, 0, 0.6);
+
+    --color-brand: #8f88ee;
+    --color-brand-ink: #aca6f4;
+    --color-brand-soft: rgba(143, 136, 238, 0.16);
+    --color-on-brand: #151917;
+
+    --color-field: #151917;
+    --color-panel: #1d2220;
+    --color-panel-dim: #181d1b;
+    --color-ink: #e7eae6;
+    --color-muted: #a2aba5;
+    --color-faint: #828c86;
+    --color-line: #2a302c;
+    --color-line-strong: #3d4540;
+
+    --color-ok: #55b586;
+    --color-ok-soft: rgba(85, 181, 134, 0.16);
+    --color-ok-ink: #55b586;
+    --color-warn: #d3a24a;
+    --color-warn-soft: rgba(211, 162, 74, 0.16);
+    --color-warn-ink: #d3a24a;
+    --color-fail: #e07068;
+    --color-fail-soft: rgba(224, 112, 104, 0.16);
+    --color-fail-ink: #ec8a82;
+    --color-info: #6ea8dd;
+    --color-info-soft: rgba(110, 168, 221, 0.16);
+    --color-info-ink: #6ea8dd;
+    --color-neutral: #97a09a;
+    --color-neutral-soft: rgba(151, 160, 154, 0.16);
+    --color-neutral-ink: #97a09a;
+
+    --color-brand-hover: #aca6f4;
+    --color-danger: #e07068;
+}
+
+/* Re-assert light after dark so an explicit data-theme="light" wins by source order
+   at equal specificity. */
+html[data-theme="light"] {
+    --shadow: 0 1px 2px rgba(26, 29, 28, 0.06);
+    --shadow-md: 0 4px 12px rgba(26, 29, 28, 0.1);
+    --shadow-lg: 0 10px 34px rgba(26, 29, 28, 0.12);
+
+    --color-brand: #4f46c8;
+    --color-brand-ink: #3d36a3;
+    --color-brand-soft: #edecfa;
+    --color-on-brand: #ffffff;
+
+    --color-field: #f1f2ee;
+    --color-panel: #ffffff;
+    --color-panel-dim: #fafbf8;
+    --color-ink: #1a1d1c;
+    --color-muted: #616a66;
+    --color-faint: #66706b;
+    --color-line: #e0e3dc;
+    --color-line-strong: #c9cec5;
+
+    --color-ok: #1b7a4e;
+    --color-ok-soft: #e3f1e9;
+    --color-ok-ink: #1b7a4e;
+    --color-warn: #96690a;
+    --color-warn-soft: #f6eed6;
+    --color-warn-ink: #875e08;
+    --color-fail: #b3372d;
+    --color-fail-soft: #f9e9e6;
+    --color-fail-ink: #b3372d;
+    --color-info: #2a6db0;
+    --color-info-soft: #e7f0f8;
+    --color-info-ink: #2a6db0;
+    --color-neutral: #6a726e;
+    --color-neutral-soft: #eceeea;
+    --color-neutral-ink: #626a66;
+
+    --color-brand-hover: #3d36a3;
+    --color-danger: #b3372d;
+}
+
+/* Component classes. One class per visual job: where an established bare name is
+   already used by pages or asserted by tests it is redefined against these tokens
+   rather than twinned with an fb-* alias, so a job has a single source of truth.
+   Every colour references a token so both themes render from one palette and status
+   stays shape-plus-word with red reserved for failing/overdue (S2/S3); relative-near
+   due dates (T6) and count-bearing filter chips (L2) follow the same rule. */
 @layer components {
     .form-label {
-        @apply block font-semibold;
+        @apply block font-semibold text-ink;
     }
 
     .form-input {
-        @apply block w-full rounded-md border border-neutral-300 px-3 py-2 text-neutral-900 shadow-sm;
+        @apply block w-full rounded-md border border-line-strong bg-panel px-3 py-2 text-ink;
         @apply focus:border-brand focus:ring-2 focus:ring-brand/30 focus:outline-none;
+        box-shadow: var(--shadow);
     }
 
     /* Buttons size to their content; add w-full where a full-width submit is wanted (auth forms). */
     .btn-primary {
         @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold;
-        @apply bg-brand text-white hover:bg-brand-hover focus:ring-2 focus:ring-brand/40 focus:ring-offset-2 focus:outline-none;
+        @apply bg-brand text-on-brand hover:bg-brand-hover focus:ring-2 focus:ring-brand/40 focus:ring-offset-2 focus:outline-none;
     }
 
     .btn-secondary {
-        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 font-semibold text-neutral-700;
-        @apply hover:bg-neutral-50 focus:ring-2 focus:ring-neutral-300 focus:ring-offset-2 focus:outline-none;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-line-strong bg-panel px-4 py-2 font-semibold text-ink;
+        @apply hover:bg-panel-dim focus:ring-2 focus:ring-line-strong focus:ring-offset-2 focus:outline-none;
     }
 
     .btn-danger {
-        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-danger/30 bg-white px-4 py-2 font-semibold text-danger;
-        @apply hover:bg-danger/5 focus:ring-2 focus:ring-danger/30 focus:ring-offset-2 focus:outline-none;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-fail/30 bg-panel px-4 py-2 font-semibold text-fail;
+        @apply hover:bg-fail/5 focus:ring-2 focus:ring-fail/30 focus:ring-offset-2 focus:outline-none;
+    }
+
+    /* Quiet button: no fill or border until hover. */
+    .btn-quiet {
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold text-muted;
+        background-color: transparent;
+    }
+
+    .btn-quiet:hover {
+        @apply text-ink;
+        background-color: color-mix(in srgb, var(--color-ink) 5%, transparent);
     }
 
     /* Compact button for dense contexts like table rows. Defined after the variants so its
@@ -49,78 +252,813 @@
 
     /* Informational panel (a sent link, an already-done state). */
     .notice {
-        @apply rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700;
+        @apply rounded-md border border-line bg-panel-dim px-4 py-3 text-sm text-muted;
     }
 
-    /* Error panel (a dead-end link, a blocked action). White ground keeps the danger
-       text at an AAA contrast ratio on any page background. */
+    /* Error panel (a dead-end link, a blocked action). */
     .notice-error {
-        @apply rounded-md border border-danger/40 bg-white px-4 py-3 text-sm text-danger;
+        @apply rounded-md border border-fail/40 bg-panel px-4 py-3 text-sm text-fail;
     }
 
-    /* Status pills. Each carries its meaning in a coloured border plus dark text on a
-       white/transparent ground, so contrast clears the AAA threshold. */
+    /* Status pills: a coloured border plus an accessible word on a panel ground. */
     .badge {
         @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium;
     }
 
     .badge-brand {
-        @apply border-brand/30 text-brand;
+        @apply border-brand/30 text-brand-ink;
     }
 
     .badge-neutral {
-        @apply border-neutral-300 text-neutral-700;
+        @apply border-line-strong text-muted;
     }
 
     .badge-success {
-        @apply border-green-700/40 text-green-900;
+        @apply border-ok/40 text-ok-ink;
     }
 
     .badge-warn {
-        @apply border-amber-600/50 text-amber-900;
+        @apply border-warn/50 text-warn-ink;
     }
 
     .badge-danger {
-        @apply border-danger/40 text-danger;
+        @apply border-fail/40 text-fail-ink;
     }
 
     /* App-shell sidebar navigation. */
     .nav-link {
-        @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-neutral-600;
-        @apply hover:bg-neutral-100 hover:text-neutral-900;
+        @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted;
+        @apply hover:bg-panel-dim hover:text-ink;
     }
 
     .nav-link-active {
-        @apply bg-neutral-100 text-brand hover:bg-neutral-100 hover:text-brand;
+        @apply bg-panel-dim text-brand hover:bg-panel-dim hover:text-brand;
     }
 
     .nav-section-title {
-        @apply px-3 pt-5 pb-1 text-xs font-semibold tracking-wider text-neutral-600 uppercase;
+        @apply px-3 pt-5 pb-1 text-xs font-semibold tracking-wider text-muted uppercase;
     }
 
     /* App-shell user-menu item. */
     .menu-item {
-        @apply block w-full px-4 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100;
+        @apply block w-full px-4 py-2 text-left text-sm text-ink hover:bg-panel-dim;
     }
 
     /* Dashboard link card. */
     .app-card {
-        @apply block rounded-lg border border-neutral-200 bg-white p-5 shadow-sm transition;
-        @apply hover:border-brand/40 hover:shadow-md;
+        @apply block rounded-lg border border-line bg-panel p-5 transition;
+        @apply hover:border-brand/40;
+        box-shadow: var(--shadow);
+    }
+
+    .app-card:hover {
+        box-shadow: var(--shadow-md);
     }
 
     /* Static content card. */
     .card {
-        @apply rounded-lg border border-neutral-200 bg-white p-5 shadow-sm;
+        @apply rounded-lg border border-line bg-panel p-5;
+        box-shadow: var(--shadow);
     }
 
     /* Account settings tab. */
     .acct-tab {
-        @apply -mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-900;
+        @apply -mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted hover:text-ink;
     }
 
     .acct-tab-active {
         @apply border-brand text-brand hover:text-brand;
+    }
+
+    /* Page header. */
+    .fb-eyebrow {
+        font: 600 10px var(--font-mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--color-faint);
+        margin-bottom: 6px;
+    }
+    .fb-pagehead {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+        flex-wrap: wrap;
+    }
+    .fb-pagehead h1 {
+        font: 700 21px var(--font-sans);
+        letter-spacing: -0.015em;
+        color: var(--color-ink);
+        margin: 0;
+    }
+    .fb-sub {
+        font-size: 13px;
+        color: var(--color-muted);
+        margin-top: 3px;
+        max-width: 62ch;
+    }
+    .fb-headactions {
+        display: flex;
+        gap: 8px;
+        flex: none;
+    }
+
+    /* Table panel, toolbar, and search. */
+    .fb-tp {
+        background: var(--color-panel);
+        border: 1px solid var(--color-line);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+    }
+    .fb-scroll {
+        overflow-x: auto;
+    }
+    .fb-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 14px;
+        border-bottom: 1px solid var(--color-line);
+        flex-wrap: wrap;
+    }
+    .fb-search {
+        font: 400 12.5px var(--font-sans);
+        color: var(--color-ink);
+        border: 1px solid var(--color-line);
+        border-radius: var(--r);
+        padding: 5px 10px;
+        background: var(--color-panel-dim);
+        width: 200px;
+    }
+    .fb-search::placeholder {
+        color: var(--color-faint);
+    }
+    .fb-search:focus {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 0;
+    }
+    .fb-spacer {
+        flex: 1;
+    }
+
+    /* Filter chip (label + count + selected state). */
+    .fb-chiprow {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    .fb-chip {
+        font: 500 12px var(--font-sans);
+        color: var(--color-muted);
+        border: 1px solid var(--color-line);
+        border-radius: 99px;
+        padding: 3px 11px;
+        background: var(--color-panel);
+        cursor: pointer;
+    }
+    .fb-chip:hover {
+        border-color: var(--color-line-strong);
+        color: var(--color-ink);
+    }
+    .fb-chip.on {
+        background: var(--color-ink);
+        border-color: var(--color-ink);
+        color: var(--color-field);
+    }
+    .fb-chip .n {
+        font: 500 10.5px var(--font-mono);
+        opacity: 0.7;
+        margin-left: 4px;
+    }
+
+    /* Table and its row marks. */
+    .fb-tbl {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--font-sans);
+    }
+    .fb-tbl th {
+        font: 600 9.5px var(--font-mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--color-faint);
+        text-align: left;
+        padding: 9px 14px;
+        border-bottom: 1px solid var(--color-line);
+        white-space: nowrap;
+    }
+    .fb-tbl td {
+        font-size: 13px;
+        color: var(--color-ink);
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--color-line);
+        vertical-align: middle;
+    }
+    .fb-tbl tbody tr:last-child td {
+        border-bottom: none;
+    }
+    .fb-tbl tr.fb-row:hover {
+        background: var(--color-panel-dim);
+    }
+    .fb-tbl tr.fb-rowlink {
+        cursor: pointer;
+    }
+    .fb-tbl tr.fb-grp td {
+        font: 600 10px var(--font-mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--color-muted);
+        background: var(--color-panel-dim);
+        padding: 6px 14px;
+    }
+    .fb-tbl tr.fb-grp.hot td {
+        color: var(--color-fail-ink);
+    }
+    .fb-tdname {
+        font-weight: 600;
+    }
+    .fb-tdsub {
+        font-size: 11.5px;
+        color: var(--color-faint);
+        margin-top: 1px;
+    }
+    .fb-tfoot {
+        font: 500 10.5px var(--font-mono);
+        color: var(--color-faint);
+        padding: 9px 14px;
+        border-top: 1px solid var(--color-line);
+    }
+    .fb-linkname {
+        font: 600 13px var(--font-sans);
+        color: var(--color-ink);
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        text-align: left;
+    }
+    .fb-linkname:hover {
+        color: var(--color-brand-ink);
+        text-decoration: underline;
+    }
+
+    /* Status: seal (decorative shape) plus accessible word. */
+    .fb-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12.5px;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+    .fb-status.ok {
+        color: var(--color-ok-ink);
+    }
+    .fb-status.fail {
+        color: var(--color-fail-ink);
+    }
+    .fb-status.warn {
+        color: var(--color-warn-ink);
+    }
+    .fb-status.info {
+        color: var(--color-info-ink);
+    }
+    .fb-seal {
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        display: inline-block;
+        flex: none;
+    }
+    .fb-seal.ok {
+        background: var(--color-ok);
+    }
+    .fb-seal.fail {
+        background: var(--color-fail);
+        box-shadow: 0 0 0 2px var(--color-fail-soft);
+    }
+    .fb-seal.warn {
+        background: var(--color-warn);
+    }
+    .fb-seal.info {
+        background: var(--color-info);
+    }
+    .fb-seal.off {
+        background: transparent;
+        border: 1.5px solid var(--color-line-strong);
+    }
+
+    /* Provenance stamp (source kind and age). */
+    .fb-stamp {
+        font: 500 10px var(--font-mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--color-muted);
+        border: 1px dashed var(--color-line-strong);
+        border-radius: var(--r-sm);
+        padding: 1px 6px;
+        white-space: nowrap;
+    }
+    .fb-stamp.manual {
+        color: var(--color-warn-ink);
+        border-color: color-mix(in srgb, var(--color-warn) 40%, transparent);
+    }
+    .fb-stamp.gen {
+        color: var(--color-brand-ink);
+        border-color: color-mix(in srgb, var(--color-brand) 40%, transparent);
+    }
+
+    /* Tag (rectangular tint), distinct from the pill badge. */
+    .fb-tag {
+        display: inline-flex;
+        font: 500 11px var(--font-sans);
+        color: var(--color-muted);
+        background: var(--color-neutral-soft);
+        border-radius: var(--r-sm);
+        padding: 2px 8px;
+        white-space: nowrap;
+    }
+    .fb-tag--brand {
+        color: var(--color-brand-ink);
+        background: var(--color-brand-soft);
+    }
+    .fb-tag--ok {
+        color: var(--color-ok-ink);
+        background: var(--color-ok-soft);
+    }
+    .fb-tag--warn {
+        color: var(--color-warn-ink);
+        background: var(--color-warn-soft);
+    }
+    .fb-tag--fail {
+        color: var(--color-fail-ink);
+        background: var(--color-fail-soft);
+    }
+
+    /* Owner (initials avatar plus name). */
+    .fb-owner {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12.5px;
+        color: var(--color-muted);
+        white-space: nowrap;
+    }
+    .fb-av {
+        width: 20px;
+        height: 20px;
+        border-radius: 99px;
+        background: var(--color-neutral-soft);
+        color: var(--color-muted);
+        font: 700 9px var(--font-sans);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+    }
+
+    /* Due date (relative near, absolute far, overdue in words). */
+    .fb-due {
+        font: 500 11px var(--font-mono);
+        color: var(--color-muted);
+        white-space: nowrap;
+    }
+    .fb-due.soon {
+        color: var(--color-warn-ink);
+    }
+    .fb-due.over {
+        color: var(--color-fail-ink);
+        background: var(--color-fail-soft);
+        border-radius: var(--r-sm);
+        padding: 1px 6px;
+    }
+
+    /* Tabs (in-page, distinct from the account tabs). */
+    .fb-tabwrap {
+        background: var(--color-panel);
+        border: 1px solid var(--color-line);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+    }
+    .fb-tabs {
+        display: flex;
+        gap: 2px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--color-line);
+    }
+    .fb-tab {
+        font: 500 13px var(--font-sans);
+        color: var(--color-muted);
+        padding: 10px 12px;
+        border: none;
+        background: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        cursor: pointer;
+    }
+    .fb-tab:hover {
+        color: var(--color-ink);
+    }
+    .fb-tab.on {
+        color: var(--color-ink);
+        font-weight: 600;
+        border-bottom-color: var(--color-brand);
+    }
+    .fb-tab:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: -2px;
+        border-radius: var(--r-sm);
+    }
+    .fb-tab .n {
+        font: 500 10px var(--font-mono);
+        color: var(--color-faint);
+        margin-left: 4px;
+    }
+    .fb-pane {
+        display: none;
+    }
+    .fb-pane.on {
+        display: block;
+    }
+    .fb-pane__pad {
+        padding: 16px;
+        font-size: 13px;
+        color: var(--color-muted);
+        line-height: 1.5;
+    }
+
+    /* Structured panel. */
+    .fb-panel {
+        background: var(--color-panel);
+        border: 1px solid var(--color-line);
+        border-radius: var(--r-lg);
+    }
+    .fb-panel__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--color-line);
+        flex-wrap: wrap;
+    }
+    .fb-panel__head h2 {
+        font: 600 14.5px var(--font-sans);
+        color: var(--color-ink);
+        margin: 0;
+    }
+    .fb-panel__meta {
+        font-size: 12px;
+        color: var(--color-muted);
+    }
+    .fb-panel__body {
+        padding: 16px;
+    }
+
+    /* Stats, bars, and framework rows. */
+    .fb-stat {
+        background: var(--color-panel);
+        border: 1px solid var(--color-line);
+        border-radius: var(--r-lg);
+        padding: 13px 15px;
+    }
+    .fb-stat__label {
+        font: 600 9.5px var(--font-mono);
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--color-faint);
+        margin-bottom: 8px;
+    }
+    .fb-stat__main {
+        font: 700 19px var(--font-sans);
+        letter-spacing: -0.01em;
+        color: var(--color-ink);
+    }
+    .fb-stat__main small {
+        font: 500 12px var(--font-sans);
+        color: var(--color-muted);
+        margin-left: 4px;
+    }
+    .fb-stat__sub {
+        font-size: 12px;
+        color: var(--color-muted);
+        margin-top: 3px;
+    }
+    .fb-stat__sub b {
+        color: var(--color-fail-ink);
+        font-weight: 600;
+    }
+    .fb-bar {
+        height: 5px;
+        background: var(--color-neutral-soft);
+        border-radius: 99px;
+        margin-top: 10px;
+        overflow: hidden;
+    }
+    .fb-bar > i {
+        display: block;
+        height: 100%;
+        background: var(--color-ok);
+        border-radius: 99px;
+    }
+    .fb-bar > i.warn {
+        background: var(--color-warn);
+    }
+    .fb-fwrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--color-line);
+    }
+    .fb-fwrow:last-child {
+        border-bottom: none;
+    }
+    .fb-fwname {
+        font: 600 13px var(--font-sans);
+        color: var(--color-ink);
+        width: 92px;
+        flex: none;
+    }
+    .fb-fwrow .fb-bar {
+        flex: 1;
+        margin: 0;
+    }
+    .fb-pct {
+        font: 500 11px var(--font-mono);
+        color: var(--color-muted);
+        width: 38px;
+        text-align: right;
+        flex: none;
+    }
+
+    /* Activity feed. */
+    .fb-feed {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .fb-feed li {
+        display: flex;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--color-line);
+        font-size: 12.5px;
+        color: var(--color-muted);
+        line-height: 1.5;
+    }
+    .fb-feed li:last-child {
+        border-bottom: none;
+    }
+    .fb-feed .t {
+        font: 500 10px var(--font-mono);
+        color: var(--color-faint);
+        width: 52px;
+        flex: none;
+        padding-top: 2px;
+    }
+    .fb-feed b {
+        color: var(--color-ink);
+        font-weight: 600;
+    }
+    .fb-kind {
+        font: 600 9.5px var(--font-mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--color-faint);
+        width: 62px;
+        display: inline-block;
+    }
+
+    /* Dashboard grids. */
+    .fb-posture {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+    .fb-cols {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 16px;
+        align-items: start;
+    }
+    @media (max-width: 1080px) {
+        .fb-posture {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        .fb-cols {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Report document and its marks. */
+    .fb-report {
+        max-width: 880px;
+        margin: 0 auto;
+    }
+    .fb-rdoc {
+        background: var(--color-panel);
+        border: 1px solid var(--color-line);
+        border-radius: var(--r-lg);
+        padding: 30px 38px;
+    }
+    .fb-fwmeta {
+        display: flex;
+        gap: 22px;
+        flex-wrap: wrap;
+        padding: 0 0 18px;
+        border-bottom: 1px solid var(--color-line);
+    }
+    .fb-fwmeta .m {
+        min-width: 110px;
+    }
+    .fb-fwmeta .ml {
+        font: 600 9.5px var(--font-mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--color-faint);
+    }
+    .fb-fwmeta .mv {
+        font: 600 14px var(--font-sans);
+        color: var(--color-ink);
+        margin-top: 2px;
+    }
+    .fb-rsec {
+        margin-top: 26px;
+        padding-top: 20px;
+        border-top: 1px solid var(--color-line);
+    }
+    .fb-rsec-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+    }
+    .fb-rp {
+        font-size: 13.5px;
+        color: var(--color-ink);
+        max-width: 70ch;
+        line-height: 1.6;
+        margin: 0;
+    }
+    .fb-rp + .fb-rp {
+        margin-top: 8px;
+    }
+    .fb-rp b {
+        font-weight: 700;
+    }
+    .fb-rmetrics {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin-top: 4px;
+    }
+    .fb-rm .rl {
+        font: 600 9.5px var(--font-mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--color-faint);
+        margin-bottom: 5px;
+    }
+    .fb-rm .rv {
+        font: 700 22px var(--font-sans);
+        letter-spacing: -0.01em;
+        color: var(--color-ink);
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+    .fb-rm .rs {
+        font-size: 11.5px;
+        color: var(--color-muted);
+        margin-top: 3px;
+    }
+    .fb-delta {
+        font: 500 10.5px var(--font-mono);
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+    }
+    .fb-delta.good {
+        color: var(--color-ok-ink);
+        background: var(--color-ok-soft);
+    }
+    .fb-delta.bad {
+        color: var(--color-fail-ink);
+        background: var(--color-fail-soft);
+    }
+    .fb-delta.flat {
+        color: var(--color-muted);
+        background: var(--color-neutral-soft);
+    }
+    .fb-spark {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 20px;
+        flex: none;
+    }
+    .fb-spark i {
+        width: 5px;
+        background: var(--color-line-strong);
+        border-radius: 1px;
+        display: block;
+    }
+    .fb-spark i.now {
+        background: var(--color-brand);
+    }
+    .fb-rrow {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--color-line);
+        font-size: 13px;
+        color: var(--color-ink);
+    }
+    .fb-rrow:last-child {
+        border-bottom: none;
+    }
+    .fb-rrow .rname {
+        font-weight: 600;
+        width: 96px;
+        flex: none;
+    }
+    .fb-rrow .rnote {
+        font-size: 11.5px;
+        color: var(--color-faint);
+        flex: 1;
+    }
+    .fb-decision {
+        border: 1px solid var(--color-line-strong);
+        border-radius: var(--r);
+        padding: 12px 14px;
+        display: flex;
+        gap: 14px;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+    .fb-decision + .fb-decision {
+        margin-top: 10px;
+    }
+    .fb-decision .dtitle {
+        font: 700 13.5px var(--font-sans);
+        color: var(--color-ink);
+    }
+    .fb-decision .dbody {
+        font-size: 12.5px;
+        color: var(--color-muted);
+        margin-top: 3px;
+        max-width: 58ch;
+        line-height: 1.5;
+    }
+    .fb-decision .dmeta {
+        flex: none;
+        text-align: right;
+    }
+    .fb-asof {
+        font: 500 10.5px var(--font-mono);
+        color: var(--color-faint);
+        border-top: 1px dashed var(--color-line-strong);
+        margin-top: 26px;
+        padding-top: 14px;
+    }
+    .fb-risknums {
+        font: 500 12px var(--font-mono);
+        white-space: nowrap;
+    }
+    .fb-risknums .from {
+        color: var(--color-fail-ink);
+    }
+    .fb-risknums .arrow {
+        color: var(--color-faint);
+        padding: 0 3px;
+    }
+    .fb-risknums .to {
+        color: var(--color-warn-ink);
+    }
+    .fb-risknums .tgt {
+        color: var(--color-faint);
+        font-size: 10px;
+        margin-left: 5px;
+    }
+    @media (max-width: 1080px) {
+        .fb-rmetrics {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    /* Guidance callout. */
+    .fb-guidance {
+        background: var(--color-panel-dim);
+        border: 1px dashed var(--color-line-strong);
+        border-radius: var(--r);
+        padding: 10px 12px;
+        font-size: 12.5px;
+        color: var(--color-muted);
     }
 }
 
