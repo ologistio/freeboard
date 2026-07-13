@@ -4,10 +4,11 @@
 
 Web UI changes (`src/Freeboard`) follow the Freeboard UX ruleset. Do not restate the rules here; read them from the source of truth and cite a rule by its ID in review comments (for example "this breaks L4"):
 
-- Rules (numbered N/O/L/S/T/P/X/E/F/A/W): `src/Freeboard/stories/UxRules.mdx`
+- Rules (numbered N/O/L/S/T/P/X/E/F/A/W): `openspec/specs/web-ux-conventions/spec.md` - the ratified source of truth; cite a rule by its requirement ID
 - Why each rule exists: `src/Freeboard/stories/UxPhilosophy.mdx`
+- Visual reference (tracks the spec, not authoritative): `src/Freeboard/stories/UxRules.mdx`
 
-Apply a rule only where the surface it governs exists in the change; several rules describe features not yet built and do not apply until they are. The accessibility rules are also checked by the automated axe-core audit.
+Apply a rule only where the surface it governs exists in the change; several rules describe features not yet built and do not apply until they are. Accessibility automation is partial: the axe-core audit (owned by the `web-accessibility` capability) covers A1 contrast and A6's AA-in-both-themes contrast; A2-A5 and A6's semantic-stability and personal-setting checks are not caught by axe and must be reviewed by hand.
 
 ## Specification review
 

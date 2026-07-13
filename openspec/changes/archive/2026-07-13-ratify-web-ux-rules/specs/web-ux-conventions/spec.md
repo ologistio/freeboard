@@ -456,8 +456,8 @@ SHALL coalesce.
 
 ### Requirement: X3 Notifications deep-link and can be muted at source
 
-Every notification SHALL deep-link to the object and SHALL be mutable at the object,
-category, or channel level from the notification itself.
+Every notification SHALL deep-link to the object, and the viewer SHALL be able to mute it at
+the object, category, or channel level from the notification itself.
 
 #### Scenario: Mute from the notification
 
