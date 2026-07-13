@@ -52,9 +52,15 @@
     --color-neutral-ink: #626a66;
 
     /* Aliases mapping the pre-token utility names onto the new tokens so existing page
-       utilities (bg-brand, text-danger, ...) keep resolving. */
-    --color-brand-hover: #3d36a3;
-    --color-danger: #b3372d;
+       utilities (bg-brand, text-danger, ...) keep resolving. They alias the canonical
+       token so a theme override on the canonical value carries through automatically. */
+    --color-brand-hover: var(--color-brand-ink);
+    --color-danger: var(--color-fail);
+}
+
+/* Default (no explicit override) renders light; the dark and light overrides set their own. */
+:root {
+    color-scheme: light;
 }
 
 @font-face {
@@ -117,6 +123,8 @@
    data-theme="dark" override. The stylesheet emits no prefers-color-scheme rule, so a
    dark system preference does not auto-apply dark. */
 html[data-theme="dark"] {
+    color-scheme: dark;
+
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.55);
     --shadow-lg: 0 10px 34px rgba(0, 0, 0, 0.6);
@@ -150,14 +158,13 @@ html[data-theme="dark"] {
     --color-neutral: #97a09a;
     --color-neutral-soft: rgba(151, 160, 154, 0.16);
     --color-neutral-ink: #97a09a;
-
-    --color-brand-hover: #aca6f4;
-    --color-danger: #e07068;
 }
 
 /* Re-assert light after dark so an explicit data-theme="light" wins by source order
    at equal specificity. */
 html[data-theme="light"] {
+    color-scheme: light;
+
     --shadow: 0 1px 2px rgba(26, 29, 28, 0.06);
     --shadow-md: 0 4px 12px rgba(26, 29, 28, 0.1);
     --shadow-lg: 0 10px 34px rgba(26, 29, 28, 0.12);
@@ -191,9 +198,6 @@ html[data-theme="light"] {
     --color-neutral: #6a726e;
     --color-neutral-soft: #eceeea;
     --color-neutral-ink: #626a66;
-
-    --color-brand-hover: #3d36a3;
-    --color-danger: #b3372d;
 }
 
 /* Component classes. One class per visual job: where an established bare name is
@@ -285,7 +289,6 @@ html[data-theme="light"] {
         @apply border-fail/40 text-fail-ink;
     }
 
-    /* App-shell sidebar navigation. */
     .nav-link {
         @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted;
         @apply hover:bg-panel-dim hover:text-ink;
@@ -299,12 +302,10 @@ html[data-theme="light"] {
         @apply px-3 pt-5 pb-1 text-xs font-semibold tracking-wider text-muted uppercase;
     }
 
-    /* App-shell user-menu item. */
     .menu-item {
         @apply block w-full px-4 py-2 text-left text-sm text-ink hover:bg-panel-dim;
     }
 
-    /* Dashboard link card. */
     .app-card {
         @apply block rounded-lg border border-line bg-panel p-5 transition;
         @apply hover:border-brand/40;
@@ -315,13 +316,11 @@ html[data-theme="light"] {
         box-shadow: var(--shadow-md);
     }
 
-    /* Static content card. */
     .card {
         @apply rounded-lg border border-line bg-panel p-5;
         box-shadow: var(--shadow);
     }
 
-    /* Account settings tab. */
     .acct-tab {
         @apply -mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted hover:text-ink;
     }
@@ -330,7 +329,6 @@ html[data-theme="light"] {
         @apply border-brand text-brand hover:text-brand;
     }
 
-    /* Page header. */
     .fb-eyebrow {
         font: 600 10px var(--font-mono);
         letter-spacing: 0.14em;
@@ -364,7 +362,6 @@ html[data-theme="light"] {
         flex: none;
     }
 
-    /* Table panel, toolbar, and search. */
     .fb-tp {
         background: var(--color-panel);
         border: 1px solid var(--color-line);
@@ -402,7 +399,6 @@ html[data-theme="light"] {
         flex: 1;
     }
 
-    /* Filter chip (label + count + selected state). */
     .fb-chiprow {
         display: flex;
         gap: 6px;
@@ -432,7 +428,6 @@ html[data-theme="light"] {
         margin-left: 4px;
     }
 
-    /* Table and its row marks. */
     .fb-tbl {
         width: 100%;
         border-collapse: collapse;
@@ -503,7 +498,6 @@ html[data-theme="light"] {
         text-decoration: underline;
     }
 
-    /* Status: seal (decorative shape) plus accessible word. */
     .fb-status {
         display: inline-flex;
         align-items: center;
@@ -511,6 +505,7 @@ html[data-theme="light"] {
         font-size: 12.5px;
         font-weight: 500;
         white-space: nowrap;
+        color: var(--color-neutral-ink);
     }
     .fb-status.ok {
         color: var(--color-ok-ink);
@@ -546,10 +541,9 @@ html[data-theme="light"] {
     }
     .fb-seal.off {
         background: transparent;
-        border: 1.5px solid var(--color-line-strong);
+        border: 1.5px solid var(--color-neutral);
     }
 
-    /* Provenance stamp (source kind and age). */
     .fb-stamp {
         font: 500 10px var(--font-mono);
         letter-spacing: 0.06em;
@@ -569,7 +563,6 @@ html[data-theme="light"] {
         border-color: color-mix(in srgb, var(--color-brand) 40%, transparent);
     }
 
-    /* Tag (rectangular tint), distinct from the pill badge. */
     .fb-tag {
         display: inline-flex;
         font: 500 11px var(--font-sans);
@@ -596,7 +589,6 @@ html[data-theme="light"] {
         background: var(--color-fail-soft);
     }
 
-    /* Owner (initials avatar plus name). */
     .fb-owner {
         display: inline-flex;
         align-items: center;
@@ -618,7 +610,6 @@ html[data-theme="light"] {
         flex: none;
     }
 
-    /* Due date (relative near, absolute far, overdue in words). */
     .fb-due {
         font: 500 11px var(--font-mono);
         color: var(--color-muted);
@@ -634,7 +625,6 @@ html[data-theme="light"] {
         padding: 1px 6px;
     }
 
-    /* Tabs (in-page, distinct from the account tabs). */
     .fb-tabwrap {
         background: var(--color-panel);
         border: 1px solid var(--color-line);
@@ -688,7 +678,6 @@ html[data-theme="light"] {
         line-height: 1.5;
     }
 
-    /* Structured panel. */
     .fb-panel {
         background: var(--color-panel);
         border: 1px solid var(--color-line);
@@ -716,7 +705,6 @@ html[data-theme="light"] {
         padding: 16px;
     }
 
-    /* Stats, bars, and framework rows. */
     .fb-stat {
         background: var(--color-panel);
         border: 1px solid var(--color-line);
@@ -793,7 +781,6 @@ html[data-theme="light"] {
         flex: none;
     }
 
-    /* Activity feed. */
     .fb-feed {
         list-style: none;
         margin: 0;
@@ -831,7 +818,6 @@ html[data-theme="light"] {
         display: inline-block;
     }
 
-    /* Dashboard grids. */
     .fb-posture {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -853,7 +839,6 @@ html[data-theme="light"] {
         }
     }
 
-    /* Report document and its marks. */
     .fb-report {
         max-width: 880px;
         margin: 0 auto;
@@ -1051,7 +1036,6 @@ html[data-theme="light"] {
         }
     }
 
-    /* Guidance callout. */
     .fb-guidance {
         background: var(--color-panel-dim);
         border: 1px dashed var(--color-line-strong);

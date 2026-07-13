@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace Freeboard.Web.Tests;
@@ -10,7 +11,7 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class ThemeAndFontHeadGuardTests
 {
-    private static string AnonPage = "/login";
+    private static readonly string AnonPage = "/login";
 
     [Fact]
     public async Task NoFontRequestTargetsAThirdPartyOrigin()
@@ -25,19 +26,20 @@ public sealed class ThemeAndFontHeadGuardTests
         Assert.DoesNotContain("gstatic", css, StringComparison.OrdinalIgnoreCase);
 
         // Every font url() in the served stylesheet is same-origin (app-relative).
-        foreach (Match m in Regex.Matches(css, @"url\(\s*([^)]+?)\s*\)"))
-        {
-            var url = m.Groups[1].Value.Trim('"', '\'');
-            if (url.Contains(".woff", StringComparison.OrdinalIgnoreCase))
-                Assert.StartsWith("/fonts/", url);
-        }
+        var fontUrls = Regex.Matches(css, @"url\(\s*([^)]+?)\s*\)")
+            .Cast<Match>()
+            .Select(m => m.Groups[1].Value.Trim('"', '\''))
+            .Where(url => url.Contains(".woff", StringComparison.OrdinalIgnoreCase));
+        foreach (var url in fontUrls)
+            Assert.StartsWith("/fonts/", url);
 
         // Preloaded faces are served from the app too.
-        foreach (Match m in Regex.Matches(head, @"<link[^>]*rel=""preload""[^>]*>"))
-        {
-            if (m.Value.Contains("as=\"font\"", StringComparison.Ordinal))
-                Assert.Contains("href=\"/fonts/", m.Value, StringComparison.Ordinal);
-        }
+        var preloadedFonts = Regex.Matches(head, @"<link[^>]*rel=""preload""[^>]*>")
+            .Cast<Match>()
+            .Select(m => m.Value)
+            .Where(link => link.Contains("as=\"font\"", StringComparison.Ordinal));
+        foreach (var link in preloadedFonts)
+            Assert.Contains("href=\"/fonts/", link, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -108,13 +110,36 @@ public sealed class ThemeAndFontHeadGuardTests
             + string.Join("\n", missing));
     }
 
+    [Fact]
+    public void DarkAndLightOverridesCoverTheSameThemeVaryingTokens()
+    {
+        // The dark block and the light re-assert block must override the identical set of
+        // theme-varying tokens. A token overridden in one but not the other would silently fall
+        // back to the other theme's value (for example dropping a dark --color-brand-hover). Read
+        // the source, not the gitignored output. Aliases that resolve via var() (--color-brand-hover,
+        // --color-danger) live only in @theme, so they are absent from both blocks and excluded here.
+        var css = CssTokenSource.Read();
+        var dark = CssTokenSource.Tokens(CssTokenSource.Block(css, "html[data-theme=\"dark\"]")).Keys;
+        var light = CssTokenSource.Tokens(CssTokenSource.Block(css, "html[data-theme=\"light\"]")).Keys;
+
+        var onlyInDark = dark.Except(light).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        var onlyInLight = light.Except(dark).OrderBy(k => k, StringComparer.Ordinal).ToList();
+
+        Assert.True(onlyInDark.Count == 0 && onlyInLight.Count == 0,
+            "The dark and light override blocks must set the identical theme-varying token set:\n"
+            + "Only in dark: " + string.Join(", ", onlyInDark) + "\n"
+            + "Only in light: " + string.Join(", ", onlyInLight));
+    }
+
     // The :root rule that carries the design tokens (Tailwind emits :root,:host{...}).
     private static string ServedRoot(string css)
     {
-        foreach (Match m in Regex.Matches(css, @":root[^{]*\{(?<b>[^}]*)\}"))
-            if (m.Groups["b"].Value.Contains("--color-brand:", StringComparison.Ordinal))
-                return m.Groups["b"].Value;
-        throw new Xunit.Sdk.XunitException("Token-bearing :root block not found in served CSS.");
+        var body = Regex.Matches(css, @":root[^{]*\{(?<b>[^}]*)\}")
+            .Cast<Match>()
+            .Where(m => m.Groups["b"].Value.Contains("--color-brand:", StringComparison.Ordinal))
+            .Select(m => m.Groups["b"].Value)
+            .FirstOrDefault();
+        return body ?? throw new Xunit.Sdk.XunitException("Token-bearing :root block not found in served CSS.");
     }
 
     private static string ThemeSnippet(string html)

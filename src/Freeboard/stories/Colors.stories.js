@@ -39,9 +39,12 @@ const semanticCard = (t) => `
     <figcaption style="padding:10px 12px 12px">
       <div style="font:600 12.5px ${MONO};color:#1a1d1c">--${t.n}</div>
       <div style="font-size:12.5px;color:#616a66;margin-top:3px;line-height:1.45">${t.u}</div>
-      <div style="margin-top:9px">
+      <div style="margin-top:9px;display:flex;flex-wrap:wrap;gap:8px">
         <span style="display:inline-flex;align-items:center;gap:7px;background:${t.sl};color:${t.il};font:600 11.5px ${SANS};padding:3px 10px;border-radius:99px">
           <span style="width:8px;height:8px;border-radius:2px;background:${t.l};display:block"></span>${t.word}
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:7px;background:${t.sd};color:${t.id};font:600 11.5px ${SANS};padding:3px 10px;border-radius:99px">
+          <span style="width:8px;height:8px;border-radius:2px;background:${t.d};display:block"></span>${t.word}
         </span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px">

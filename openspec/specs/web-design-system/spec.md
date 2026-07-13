@@ -1,7 +1,11 @@
 # web-design-system Specification
 
 ## Purpose
-TBD - created by archiving change migrate-ui-tokens-and-components. Update Purpose after archive.
+
+The design-system contract for the web UI: the light and dark token set defined
+from one source, the system-default-with-personal-override theming applied before
+first paint, self-hosted typography, the tokenized component classes that carry no
+literal color, and the invariant-safe mark tag helpers.
 ## Requirements
 ### Requirement: Full token set from one source, both themes
 

@@ -107,7 +107,7 @@ public sealed class ContrastGuardTests
     public void SealFillsClearGraphicalContrast(bool dark)
     {
         var css = CssTokenSource.Read();
-        var (t, panel, _, _) = Theme(css, dark);
+        var (t, panel, field, _) = Theme(css, dark);
         var fails = new List<string>();
         foreach (var s in new[] { "ok", "warn", "fail", "info", "neutral" })
         {
@@ -116,6 +116,15 @@ public sealed class ContrastGuardTests
             var r = Ratio(baseC, soft);
             if (r < 3.0) fails.Add($"{s} seal on {s}-soft: {r:F2}");
         }
+
+        // The off-seal (Snoozed/Waiting/Draft/OutOfScope) is a transparent square outlined in
+        // --color-neutral; its border must clear 3:1 against both grounds it renders on.
+        var neutral = Parse(t["--color-neutral"], panel);
+        var offPanel = Ratio(neutral, panel);
+        if (offPanel < 3.0) fails.Add($"off-seal neutral border on panel: {offPanel:F2}");
+        var offField = Ratio(neutral, field);
+        if (offField < 3.0) fails.Add($"off-seal neutral border on field: {offField:F2}");
+
         Assert.True(fails.Count == 0, $"Seal contrast failures ({(dark ? "dark" : "light")}):\n" + string.Join("\n", fails));
     }
 }

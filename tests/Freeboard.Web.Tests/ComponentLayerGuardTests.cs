@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace Freeboard.Web.Tests;
@@ -57,9 +58,8 @@ public sealed class ComponentLayerGuardTests
             hits.Add("hex " + m.Value);
         foreach (Match m in Regex.Matches(body, @"\b(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\s*\("))
             hits.Add("func " + m.Value);
-        foreach (var nc in NamedColors)
+        foreach (var nc in NamedColors.Where(c => !AllowedColourKeywords.Contains(c, StringComparer.OrdinalIgnoreCase)))
         {
-            if (AllowedColourKeywords.Contains(nc, StringComparer.OrdinalIgnoreCase)) continue;
             foreach (Match m in Regex.Matches(body, $@"(^|[^-\w])({nc})(?![-\w])", RegexOptions.IgnoreCase))
                 hits.Add("named " + m.Groups[2].Value);
         }

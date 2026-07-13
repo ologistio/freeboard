@@ -223,12 +223,10 @@ public sealed class MarkTagHelperTests
     }
 
     [Fact]
-    public void ChipWithoutCountOmitsTheCountSpan()
+    public void ChipWithoutACountThrows()
     {
-        var html = Render(new ChipTagHelper { Label = "Owned by me", Selected = false }, "fb-chip");
-        Assert.Contains("class=\"fb-chip\"", html, StringComparison.Ordinal);
-        Assert.Contains("aria-pressed=\"false\"", html, StringComparison.Ordinal);
-        Assert.DoesNotContain("class=\"n\"", html, StringComparison.Ordinal);
+        // L2: a filter chip must show its count without opening a menu, so a count is mandatory.
+        Assert.Throws<InvalidOperationException>(() => Render(new ChipTagHelper { Label = "Owned by me" }, "fb-chip"));
     }
 
     [Fact]

@@ -9,12 +9,17 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 internal static class CssTokenSource
 {
+    // Precomputed as one relative unit so it combines with each ancestor as a single trailing
+    // segment; no element can be rooted and silently drop the ancestor base.
+    private static readonly string RelativeCssPath =
+        Path.Combine("src", "Freeboard", "assets", "css", "app.css");
+
     internal static string Read()
     {
         var dir = AppContext.BaseDirectory;
         for (var d = new DirectoryInfo(dir); d is not null; d = d.Parent)
         {
-            var candidate = Path.Combine(d.FullName, "src", "Freeboard", "assets", "css", "app.css");
+            var candidate = Path.Combine(d.FullName, RelativeCssPath);
             if (File.Exists(candidate)) return File.ReadAllText(candidate);
         }
         throw new FileNotFoundException("Could not locate src/Freeboard/assets/css/app.css from " + dir);
