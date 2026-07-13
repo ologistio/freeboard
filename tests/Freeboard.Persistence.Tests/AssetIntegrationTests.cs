@@ -112,15 +112,16 @@ public sealed class AssetIntegrationTests
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
 
-        // Identity, kind, state, and source tokens are utf8mb4_bin so the org-scoped unique keys compare by
-        // exact bytes and never fold case (e.g. 'fleetdm' vs 'FleetDM').
+        // Identity, kind, state, and source tokens use the no-pad binary collation utf8mb4_0900_bin so the
+        // org-scoped unique keys compare by exact bytes: they never fold case ('fleetdm' vs 'FleetDM') and
+        // never pad trailing whitespace ('x' vs 'x ').
         async Task AssertBinCollation(string table, string column)
         {
             var collation = await conn.ExecuteScalarAsync<string>(
                 "SELECT collation_name FROM information_schema.columns "
                 + "WHERE table_schema = DATABASE() AND table_name = @Table AND column_name = @Column;",
                 new { Table = table, Column = column });
-            Assert.Equal("utf8mb4_bin", collation);
+            Assert.Equal("utf8mb4_0900_bin", collation);
         }
 
         await AssertBinCollation("asset", "identity_kind");
@@ -473,6 +474,30 @@ public sealed class AssetIntegrationTests
         var count = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM asset WHERE organisation_id = 'org-a' AND identity_kind = 'Serial';");
         Assert.Equal(2, count);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task TrailingSpaceSourceKeysAreDistinct()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var (_, writes) = Stores(db);
+
+        var created = await writes.UpsertMachineFromSourceAsync(Obs("org-a", "fleetdm", "x", serial: "SN-1"));
+
+        // No-pad binary collation: an external id of 'x ' (trailing space) must not collide with 'x' on the
+        // (organisation_id, source, external_id) unique key. Under a padded collation this insert would fail
+        // with a duplicate-key error; under no-pad it is a second, distinct source row.
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(
+            "INSERT INTO asset_source (id, asset_id, organisation_id, source, external_id, "
+            + "observed_serial, observed_host_uuid, first_seen_at, last_seen_at, created_at) "
+            + "VALUES ('00000000000000000000000005', @AssetId, 'org-a', 'fleetdm', 'x ', NULL, NULL, "
+            + "NOW(6), NOW(6), NOW(6));",
+            new { created.AssetId });
+
+        Assert.Equal(2, await SourceCountAsync(db, created.AssetId!));
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

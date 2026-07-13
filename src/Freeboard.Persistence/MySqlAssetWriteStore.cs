@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using System.Linq;
 using Dapper;
 using Freeboard.Core.Assets;
 using Freeboard.Persistence.Auth;
@@ -256,7 +257,11 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
         return created ? AssetUpsertResult.Created(targetAssetId) : AssetUpsertResult.Updated(targetAssetId);
     }
 
-    private static bool TooLong(string? value, int maxLength) => value is not null && value.Length > maxLength;
+    // MySQL VARCHAR(n) limits characters (code points), while string.Length counts UTF-16 code units, so a
+    // string with surrogate pairs (e.g. emoji) would be over-counted and wrongly rejected. Count runes to
+    // match the column's character limit.
+    private static bool TooLong(string? value, int maxLength) =>
+        value is not null && value.EnumerateRunes().Count() > maxLength;
 
     private static Task<string?> LockAssetIdByIdentityAsync(
         DbConnection connection, DbTransaction transaction, string organisationId,

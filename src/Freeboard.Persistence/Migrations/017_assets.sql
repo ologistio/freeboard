@@ -4,6 +4,11 @@
 -- recording what that source observed and its (source, external_id). Ids and reference columns use
 -- utf8mb4_bin to match Core's exact-byte id identity.
 --
+-- Key and enum-name columns (identity_kind, identity_value, kind, state, source, external_id) use the
+-- no-pad binary collation utf8mb4_0900_bin, not utf8mb4_bin: utf8mb4_bin pads with trailing spaces
+-- (PAD SPACE), so 'x' and 'x ' would compare equal inside the org-scoped unique keys. No-pad makes the
+-- keys byte-exact, so values differing only in trailing whitespace stay distinct.
+--
 -- Mutable, not append-only: an asset's state, last_seen_at, and hostname change over time, so unlike
 -- evidence these tables carry no BEFORE UPDATE / BEFORE DELETE triggers and the write store upserts.
 --
@@ -16,9 +21,10 @@
 -- sources is never hard-deleted. InnoDB maintains an index on the referencing (asset_id, organisation_id),
 -- whose leftmost asset_id prefix also serves the asset-id reverse lookup, so no separate KEY (asset_id).
 --
--- Exact-byte columns: identity_kind, identity_value, kind, state, source, and external_id are utf8mb4_bin
--- so identity and source uniqueness compare by exact case-sensitive bytes; without it MySQL 8's
--- case-insensitive default would collide 'fleetdm' with 'FleetDM' inside the org-scoped unique keys.
+-- Exact-byte columns: identity_kind, identity_value, kind, state, source, and external_id are
+-- utf8mb4_0900_bin so identity and source uniqueness compare by exact bytes; without a binary collation
+-- MySQL 8's case-insensitive default would collide 'fleetdm' with 'FleetDM', and a padded binary collation
+-- would collide 'x' with 'x ', inside the org-scoped unique keys.
 --
 -- No KEY (organisation_id, state): nothing reads assets by organisation and state, so an index here would
 -- carry write and storage cost with no reader to justify it. Add it alongside the query that needs it.
@@ -29,11 +35,11 @@
 CREATE TABLE IF NOT EXISTS asset (
     id CHAR(26) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     organisation_id VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-    kind VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-    identity_kind VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-    identity_value VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    kind VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    identity_kind VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    identity_value VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     hostname VARCHAR(255) NULL,
-    state VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    state VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     first_seen_at DATETIME(6) NOT NULL,
     last_seen_at DATETIME(6) NOT NULL,
     retired_at DATETIME(6) NULL,
@@ -47,8 +53,8 @@ CREATE TABLE IF NOT EXISTS asset_source (
     id CHAR(26) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     asset_id CHAR(26) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     organisation_id VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-    source VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-    external_id VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    source VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    external_id VARCHAR(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     observed_serial VARCHAR(190) NULL,
     observed_host_uuid VARCHAR(190) NULL,
     first_seen_at DATETIME(6) NOT NULL,

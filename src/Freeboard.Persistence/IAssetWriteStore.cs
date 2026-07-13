@@ -9,10 +9,11 @@ public interface IAssetWriteStore
 {
     /// <summary>
     /// Resolves the observation to one asset by its derived identity and attaches the source in one
-    /// transaction. Returns <c>Invalid</c> (writing nothing) when the observation has no derivable
-    /// identity, <c>Conflict</c> (writing nothing) when the source would relink to a different asset or a
-    /// serial and uuid resolve to two different existing assets, else <c>Created</c> or <c>Updated</c> with
-    /// the resolved asset id. Re-observing the same asset (including a retired one) is an <c>Updated</c>
+    /// transaction. Returns <c>Invalid</c> (writing nothing) when the observation fails input validation -
+    /// a missing required key (organisation, source, or external id), an over-long field, or no derivable
+    /// identity. Returns <c>Conflict</c> (writing nothing) when the source would relink to a different asset
+    /// or a serial and uuid resolve to two different existing assets, else <c>Created</c> or <c>Updated</c>
+    /// with the resolved asset id. Re-observing the same asset (including a retired one) is an <c>Updated</c>
     /// that returns it to <c>Seen</c>.
     /// </summary>
     Task<AssetUpsertResult> UpsertMachineFromSourceAsync(

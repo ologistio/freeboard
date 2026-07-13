@@ -49,7 +49,8 @@ public enum AssetUpsertStatus
 /// The outcome of a resolve-and-attach upsert. <see cref="AssetId"/> is the resolved asset id on
 /// <c>Created</c>/<c>Updated</c> and null otherwise. <see cref="Error"/> names the reason on
 /// <c>Conflict</c>/<c>Invalid</c> and is null on success. A <c>Conflict</c> (source relink or cross-axis
-/// collision) and an <c>Invalid</c> (no derivable identity) both write nothing.
+/// collision) and an <c>Invalid</c> (any input-validation failure: a missing required key, an over-long
+/// field, or no derivable identity) both write nothing.
 /// </summary>
 public sealed record AssetUpsertResult(AssetUpsertStatus Status, string? AssetId, string? Error)
 {

@@ -69,10 +69,12 @@ per resolved machine) and an `asset_source` table (one row per reporting source
 attachment). Every id and foreign-key column SHALL use `utf8mb4_bin` collation to
 match the exact-byte id identity used elsewhere in the schema. The columns that
 carry identity, enum-name, or source-key semantics - `kind`, `identity_kind`,
-`identity_value`, `state`, `source`, and `external_id` - SHALL also use
-`utf8mb4_bin` collation so they compare by exact bytes; identity and source
-uniqueness are therefore case-sensitive and treat differently-cased values (for
-example `fleetdm` and `FleetDM`) as distinct rather than colliding. The `asset`
+`identity_value`, `state`, `source`, and `external_id` - SHALL use a no-pad binary
+collation (`utf8mb4_0900_bin`) so they compare by exact bytes; identity and source
+uniqueness are therefore case-sensitive and whitespace-exact, treating values that
+differ only in letter case (for example `fleetdm` and `FleetDM`) or in trailing
+whitespace (for example `x` and `x `) as distinct rather than colliding. A padded
+binary collation is insufficient because it would treat `x` and `x ` as equal. The `asset`
 table SHALL carry the resolved `identity_kind` and `identity_value`, the `kind`,
 the `state`, and seen/retired/created timestamps. The `asset_source` table SHALL
 carry `source`, `external_id`, the observed serial and uuid, `asset_id`, and
@@ -133,12 +135,13 @@ cannot reference an `asset` in another even if a caller supplies a mismatched id
 - **THEN** the database rejects the write, so no `asset_source` ever points at an
   `asset` outside its own organisation
 
-#### Scenario: Identity and source keys are case-sensitive
+#### Scenario: Identity and source keys are case- and whitespace-exact
 
 - **WHEN** two observations in one organisation differ only in the letter case of
-  the source token or the identity value (for example `fleetdm` versus `FleetDM`)
+  the source token or the identity value (for example `fleetdm` versus `FleetDM`),
+  or only in trailing whitespace (for example `x` versus `x `)
 - **THEN** they are treated as distinct keys rather than colliding on a
-  case-insensitive match
+  case-insensitive or space-padded match
 
 ### Requirement: A source attaches to an asset by source and external id
 
