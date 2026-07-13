@@ -1,6 +1,8 @@
 # Freeboard
 
-.NET 10 solution. Solution file: `Freeboard.slnx`.
+## Agent routing
+
+- Code review agents: see `.claude/rules/code-review.md`.
 
 ## Projects
 
