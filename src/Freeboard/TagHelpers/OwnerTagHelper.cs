@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 
 namespace Freeboard.TagHelpers;
@@ -16,6 +17,11 @@ public sealed class OwnerTagHelper : TagHelper
 
     public override void Process(TagHelperContext context, TagHelperOutput output)
     {
+        // The name carries the mark's meaning (the avatar is aria-hidden); a blank one emits an empty
+        // mark, so reject it as the other required mark helpers do.
+        if (string.IsNullOrWhiteSpace(Name))
+            throw new InvalidOperationException("An <fb-owner> requires a non-blank 'name'.");
+
         output.TagName = "span";
         output.TagMode = TagMode.StartTagAndEndTag;
         output.Attributes.SetAttribute("class", "fb-owner");
@@ -33,9 +39,12 @@ public sealed class OwnerTagHelper : TagHelper
     {
         var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0) return "";
-        var first = char.ToUpperInvariant(parts[0][0]);
-        if (parts.Length == 1) return first.ToString();
-        var last = char.ToUpperInvariant(parts[^1][0]);
-        return $"{first}{last}";
+        var first = FirstLetter(parts[0]);
+        return parts.Length == 1 ? first : first + FirstLetter(parts[^1]);
     }
+
+    // First letter as a full Unicode scalar, not a UTF-16 code unit, so a name that starts with a
+    // non-BMP character (e.g. a supplementary-plane letter) yields a whole glyph, not a lone surrogate.
+    private static string FirstLetter(string word)
+        => Rune.ToUpperInvariant(Rune.GetRuneAt(word, 0)).ToString();
 }

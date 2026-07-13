@@ -8,7 +8,7 @@
     var canAdministerSystem = await Freeboard.Authz.AuthzViewHelpers.CanAdministerSystemAsync(AuthzFacts, User, Context.RequestAborted);
     var customRolesEntitled = Entitlements.IsEntitled(Freeboard.Core.Enterprise.EnterpriseEntitlement.CustomPolicies);
     var displayName = string.IsNullOrWhiteSpace(name) ? "Account" : name;
-    var initials = Initials(name);
+    var initials = Freeboard.TagHelpers.OwnerTagHelper.DeriveInitials(name ?? "");
 }
 @functions {
     private bool IsActive(string href)
@@ -18,20 +18,6 @@
     }
 
     private string NavClass(string href) => IsActive(href) ? "nav-link nav-link-active" : "nav-link";
-
-    private static string Initials(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return string.Empty;
-        }
-
-        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var first = char.ToUpperInvariant(parts[0][0]);
-        return parts.Length == 1
-            ? first.ToString()
-            : $"{first}{char.ToUpperInvariant(parts[^1][0])}";
-    }
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -50,7 +36,7 @@
                 <rect x="13" y="7" width="6" height="4" rx="1" fill="#ffffff" fill-opacity="0.55" />
                 <rect x="5" y="13" width="14" height="4" rx="1" fill="#ffffff" fill-opacity="0.55" />
             </svg>
-            <span class="text-lg font-bold tracking-tight">Freeboard</span>
+            <span class="text-lg font-bold tracking-tight text-brand-ink">Freeboard</span>
         </a>
         <nav aria-label="Main" class="flex-1 space-y-1 overflow-y-auto p-3">
             <a href="/home" class="@NavClass("/home")">

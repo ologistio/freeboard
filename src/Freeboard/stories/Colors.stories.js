@@ -76,7 +76,7 @@ const page = (title, lead, body) => `
   </div>`;
 
 const BRAND = [
-    { n: "brand", l: "#4f46c8", d: "#8f88ee", u: "Primary brand. Actions, active nav, focus rings." },
+    { n: "brand", l: "#433bb6", d: "#8f88ee", u: "Primary brand. Actions, active nav, focus rings." },
     { n: "brand-ink", l: "#3d36a3", d: "#aca6f4", u: "Brand text on soft grounds; primary-button hover." },
     { n: "brand-soft", l: "#edecfa", d: "rgba(143,136,238,.16)", u: "Tint ground for brand chips and notices." },
 ];
@@ -86,7 +86,7 @@ const NEUTRALS = [
     { n: "panel", l: "#ffffff", d: "#1d2220", u: "Cards, tables, panels, and menus." },
     { n: "panel-dim", l: "#fafbf8", d: "#181d1b", u: "Recessed rows, toolbars, table group headers." },
     { n: "ink", l: "#1a1d1c", d: "#e7eae6", u: "Primary text and high-emphasis marks." },
-    { n: "muted", l: "#616a66", d: "#a2aba5", u: "Secondary text and inactive nav." },
+    { n: "muted", l: "#4d534f", d: "#a2aba5", u: "Secondary text and inactive nav." },
     { n: "faint", l: "#66706b", d: "#828c86", u: "Tertiary text, eyebrows, mono labels." },
     { n: "line", l: "#e0e3dc", d: "#2a302c", u: "Default borders and dividers." },
     { n: "line-strong", l: "#c9cec5", d: "#3d4540", u: "Emphasis borders and control outlines." },
@@ -96,9 +96,9 @@ const NEUTRALS = [
 // (l/d); the word is painted from il/id so status text clears WCAG AA on the soft
 // ground and on panel, which the base alone does not for every pairing.
 const SEMANTIC = [
-    { n: "ok", word: "Ready", l: "#1b7a4e", d: "#55b586", il: "#1b7a4e", id: "#55b586", sl: "#e3f1e9", sd: "rgba(85,181,134,.16)", u: "Passing tests, ready controls, success." },
+    { n: "ok", word: "Ready", l: "#1b7a4e", d: "#55b586", il: "#125a37", id: "#55b586", sl: "#e3f1e9", sd: "rgba(85,181,134,.16)", u: "Passing tests, ready controls, success." },
     { n: "warn", word: "Due soon", l: "#96690a", d: "#d3a24a", il: "#875e08", id: "#d3a24a", sl: "#f6eed6", sd: "rgba(211,162,74,.16)", u: "Due-soon, drifting, and degraded sources." },
-    { n: "fail", word: "Failing", l: "#b3372d", d: "#e07068", il: "#b3372d", id: "#ec8a82", sl: "#f9e9e6", sd: "rgba(224,112,104,.16)", u: "Failing tests, overdue items, blockers." },
+    { n: "fail", word: "Failing", l: "#b3372d", d: "#e07068", il: "#932b22", id: "#ec8a82", sl: "#f9e9e6", sd: "rgba(224,112,104,.16)", u: "Failing tests, overdue items, blockers." },
     { n: "info", word: "In progress", l: "#2a6db0", d: "#6ea8dd", il: "#2a6db0", id: "#6ea8dd", sl: "#e7f0f8", sd: "rgba(110,168,221,.16)", u: "In-progress and informational states." },
     { n: "neutral", word: "Snoozed", l: "#6a726e", d: "#97a09a", il: "#626a66", id: "#97a09a", sl: "#eceeea", sd: "rgba(151,160,154,.16)", u: "Snoozed, excluded, and inert states." },
 ];

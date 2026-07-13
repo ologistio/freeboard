@@ -21,7 +21,7 @@
     --shadow-md: 0 4px 12px rgba(26, 29, 28, 0.1);
     --shadow-lg: 0 10px 34px rgba(26, 29, 28, 0.12);
 
-    --color-brand: #4f46c8;
+    --color-brand: #433bb6;
     --color-brand-ink: #3d36a3;
     --color-brand-soft: #edecfa;
     --color-on-brand: #ffffff;
@@ -30,20 +30,20 @@
     --color-panel: #ffffff;
     --color-panel-dim: #fafbf8;
     --color-ink: #1a1d1c;
-    --color-muted: #616a66;
+    --color-muted: #4d534f;
     --color-faint: #66706b;
     --color-line: #e0e3dc;
     --color-line-strong: #c9cec5;
 
     --color-ok: #1b7a4e;
     --color-ok-soft: #e3f1e9;
-    --color-ok-ink: #1b7a4e;
+    --color-ok-ink: #125a37;
     --color-warn: #96690a;
     --color-warn-soft: #f6eed6;
     --color-warn-ink: #875e08;
     --color-fail: #b3372d;
     --color-fail-soft: #f9e9e6;
-    --color-fail-ink: #b3372d;
+    --color-fail-ink: #932b22;
     --color-info: #2a6db0;
     --color-info-soft: #e7f0f8;
     --color-info-ink: #2a6db0;
@@ -169,7 +169,7 @@ html[data-theme="light"] {
     --shadow-md: 0 4px 12px rgba(26, 29, 28, 0.1);
     --shadow-lg: 0 10px 34px rgba(26, 29, 28, 0.12);
 
-    --color-brand: #4f46c8;
+    --color-brand: #433bb6;
     --color-brand-ink: #3d36a3;
     --color-brand-soft: #edecfa;
     --color-on-brand: #ffffff;
@@ -178,20 +178,20 @@ html[data-theme="light"] {
     --color-panel: #ffffff;
     --color-panel-dim: #fafbf8;
     --color-ink: #1a1d1c;
-    --color-muted: #616a66;
+    --color-muted: #4d534f;
     --color-faint: #66706b;
     --color-line: #e0e3dc;
     --color-line-strong: #c9cec5;
 
     --color-ok: #1b7a4e;
     --color-ok-soft: #e3f1e9;
-    --color-ok-ink: #1b7a4e;
+    --color-ok-ink: #125a37;
     --color-warn: #96690a;
     --color-warn-soft: #f6eed6;
     --color-warn-ink: #875e08;
     --color-fail: #b3372d;
     --color-fail-soft: #f9e9e6;
-    --color-fail-ink: #b3372d;
+    --color-fail-ink: #932b22;
     --color-info: #2a6db0;
     --color-info-soft: #e7f0f8;
     --color-info-ink: #2a6db0;
@@ -229,7 +229,7 @@ html[data-theme="light"] {
     }
 
     .btn-danger {
-        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-fail/30 bg-panel px-4 py-2 font-semibold text-fail;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-fail/30 bg-panel px-4 py-2 font-semibold text-fail-ink;
         @apply hover:bg-fail/5 focus:ring-2 focus:ring-fail/30 focus:ring-offset-2 focus:outline-none;
     }
 
@@ -251,7 +251,7 @@ html[data-theme="light"] {
     }
 
     .link {
-        @apply font-medium text-brand hover:underline;
+        @apply font-medium text-brand-ink hover:underline;
     }
 
     /* Informational panel (a sent link, an already-done state). */
@@ -261,7 +261,7 @@ html[data-theme="light"] {
 
     /* Error panel (a dead-end link, a blocked action). */
     .notice-error {
-        @apply rounded-md border border-fail/40 bg-panel px-4 py-3 text-sm text-fail;
+        @apply rounded-md border border-fail/40 bg-panel px-4 py-3 text-sm text-fail-ink;
     }
 
     /* Status pills: a coloured border plus an accessible word on a panel ground. */
@@ -295,7 +295,7 @@ html[data-theme="light"] {
     }
 
     .nav-link-active {
-        @apply bg-panel-dim text-brand hover:bg-panel-dim hover:text-brand;
+        @apply bg-panel-dim text-brand-ink hover:bg-panel-dim hover:text-brand-ink;
     }
 
     .nav-section-title {
@@ -326,7 +326,7 @@ html[data-theme="light"] {
     }
 
     .acct-tab-active {
-        @apply border-brand text-brand hover:text-brand;
+        @apply border-brand text-brand-ink hover:text-brand-ink;
     }
 
     .fb-eyebrow {

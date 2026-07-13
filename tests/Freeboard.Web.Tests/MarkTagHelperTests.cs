@@ -239,6 +239,29 @@ public sealed class MarkTagHelperTests
     }
 
     [Fact]
+    public void OwnerWithoutANameThrows()
+    {
+        // The name carries the mark's meaning (avatar is aria-hidden); a blank one is an empty mark.
+        Assert.Throws<InvalidOperationException>(() => Render(new OwnerTagHelper(), "fb-owner"));
+        Assert.Throws<InvalidOperationException>(() => Render(new OwnerTagHelper { Name = "   " }, "fb-owner"));
+    }
+
+    [Fact]
+    public void OwnerInitialsHandleANonBmpFirstLetter()
+    {
+        // A name starting with a supplementary-plane letter (Deseret small letter, U+10428, which
+        // upper-cases to U+10400) must yield the whole glyph, not a lone surrogate half.
+        Assert.Equal("\U00010400S", OwnerTagHelper.DeriveInitials("\U00010428 Smith"));
+    }
+
+    [Fact]
+    public void ChipWithANegativeCountThrows()
+    {
+        // A count is a cardinality; a negative value would render "Failing, -1".
+        Assert.Throws<InvalidOperationException>(() => Render(new ChipTagHelper { Label = "Failing", Count = -1 }, "fb-chip"));
+    }
+
+    [Fact]
     public void StampNamesSourceAndAgeOrMarksManual()
     {
         var auto = Render(new StampTagHelper { Source = "AWS Config", Age = "2h ago" }, "fb-stamp");

@@ -79,7 +79,8 @@ public sealed class ComponentLayerGuardTests
             @"\b(bg|text|border|ring|divide|outline|fill|stroke|from|via|to|accent|caret|placeholder|decoration|ring-offset)-"
             + @"(white|black|neutral-\d{1,3}|gray-\d{1,3}|slate-\d{1,3}|zinc-\d{1,3}|stone-\d{1,3}|red-\d{1,3}"
             + @"|green-\d{1,3}|emerald-\d{1,3}|amber-\d{1,3}|yellow-\d{1,3}|orange-\d{1,3}|rose-\d{1,3}|blue-\d{1,3}"
-            + @"|sky-\d{1,3}|cyan-\d{1,3}|indigo-\d{1,3}|violet-\d{1,3}|purple-\d{1,3}|pink-\d{1,3}|teal-\d{1,3}|lime-\d{1,3})\b");
+            + @"|sky-\d{1,3}|cyan-\d{1,3}|indigo-\d{1,3}|violet-\d{1,3}|purple-\d{1,3}|pink-\d{1,3}|fuchsia-\d{1,3}"
+            + @"|teal-\d{1,3}|lime-\d{1,3})\b");
 
         var hits = util.Matches(body).Select(m => m.Value).Distinct().ToList();
         Assert.True(hits.Count == 0,
@@ -92,9 +93,11 @@ public sealed class ComponentLayerGuardTests
     {
         var body = ComponentsBody();
         // Tailwind's shadow utilities compile a fixed shadow colour and never resolve --shadow*, so a
-        // component elevation must set box-shadow: var(--shadow...) instead. The lookbehind excludes
-        // the CSS property (box-shadow) and the token (var(--shadow-md)), which both carry a leading -.
-        var util = new Regex(@"(?<![-\w])(shadow|drop-shadow)-(sm|md|lg|xl|2xl|inner|none)\b");
+        // component elevation must set box-shadow: var(--shadow...) instead. The size suffix is
+        // optional so the bare `shadow`/`drop-shadow` utility (Tailwind's default elevation) is caught
+        // too. The lookbehind excludes the CSS property (box-shadow) and the token (var(--shadow-md)),
+        // which both carry a leading -.
+        var util = new Regex(@"(?<![-\w])(shadow|drop-shadow)(-(sm|md|lg|xl|2xl|inner|none))?\b");
 
         var hits = util.Matches(body).Select(m => m.Value).Distinct().ToList();
         Assert.True(hits.Count == 0,

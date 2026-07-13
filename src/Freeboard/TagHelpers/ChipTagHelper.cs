@@ -28,6 +28,10 @@ public sealed class ChipTagHelper : TagHelper
         if (Count is not { } count)
             throw new InvalidOperationException("An <fb-chip> requires a 'count'.");
 
+        // A count is a cardinality; a negative value would render nonsense like "Failing, -1".
+        if (count < 0)
+            throw new InvalidOperationException("An <fb-chip> 'count' cannot be negative.");
+
         output.TagName = "button";
         output.TagMode = TagMode.StartTagAndEndTag;
         output.Attributes.SetAttribute("type", "button");
