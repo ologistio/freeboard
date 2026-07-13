@@ -7,7 +7,7 @@ planning, review, or agent workflow.
 ## Prohibited in comments, code, and commits
 
 - OpenSpec artifacts: change names, `tasks.md` items, task numbers ("group 5",
-  "task 8.2"), capability/spec ids, `openspec/changes/...` paths.
+  "task 8.2"), capability names, change/proposal ids, `openspec/changes/...` paths.
 - Plan-implement-review-loop internals: finding ids (`F-12`, `I-22`, `D-F-7`),
   round numbers, session-file notes, reviewer/dispute/gate terminology.
 - Any other private working note: ticket-tracker scratch ids, agent names, or
@@ -34,3 +34,21 @@ pointed at a finding id, rewrite it to state the actual reason.
 
 Permanent, public references are fine: RFCs, CVEs, library docs, a standard's
 section number, or a stable issue URL the project intends to keep.
+
+## Carve-out: ratified requirement IDs
+
+Requirement IDs from an established, ratified spec under `openspec/specs/` are
+permitted in code, comments, and tests. These are stable, versioned clauses of an
+adopted contract - the project's own "standard's section number" - not ephemeral
+working notes, and they stay resolvable because the spec is kept, not archived and
+deleted like a change proposal. `code-review.md` directs reviewers to cite them by
+ID (for example "this breaks L4"), so referencing them in the code they govern is
+consistent, not a process leak.
+
+Concretely, the `web-ux-conventions` rule IDs (the `N`/`O`/`L`/`S`/`T`/`P`/`X`/
+`E`/`F`/`A`/`W` requirements, such as `S2`, `S3`, `T6`, `L2`, `A6`) may appear as a
+terse citation next to the code that enforces the invariant they name. Cite the
+rule to point at the durable requirement; do not restate the ephemeral process that
+implemented it. Still prefer a plain-language reason where the code is not
+self-evidently tied to the rule - the ID is a pointer, not a substitute for the
+"why".

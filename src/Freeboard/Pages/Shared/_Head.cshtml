@@ -2,6 +2,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>@(ViewData["Title"] ?? "Freeboard")</title>
+    <script>
+        // Apply the saved theme before first paint so there is no flash. Static text
+        // (no server interpolation) keeps a stable hash for a future strict CSP.
+        try {
+            var t = localStorage.getItem("fb-theme");
+            if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        } catch (e) {}
+    </script>
+    <link rel="preload" as="font" type="font/woff2" href="~/fonts/schibsted-grotesk-latin-400-normal.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="~/fonts/schibsted-grotesk-latin-500-normal.woff2" crossorigin />
     <link rel="stylesheet" href="~/css/app.css" />
     <script src="~/js/app.js" defer></script>
 </head>
