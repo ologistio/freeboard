@@ -203,6 +203,20 @@ html[data-theme="light"] {
     --color-neutral-ink: #626a66;
 }
 
+/* Honour a reduced-motion request (A3): near-instantly finish any transition, animation, or smooth
+   scroll rather than animating it. One global rule covers every component transition, so individual
+   rules do not each need to guard. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
 /* Component classes. One class per visual job: where an established bare name is
    already used by pages or asserted by tests it is redefined against these tokens
    rather than twinned with an fb-* alias, so a job has a single source of truth.
@@ -215,23 +229,25 @@ html[data-theme="light"] {
     }
 
     .form-input {
-        @apply block w-full rounded-md border border-control-outline bg-panel px-3 py-2 text-ink;
+        @apply block w-full rounded-md border border-control-outline bg-panel px-3 py-2 text-ink min-h-11;
         box-shadow: var(--shadow);
     }
 
-    /* Buttons size to their content; add w-full where a full-width submit is wanted (auth forms). */
+    /* Buttons size to their content; add w-full where a full-width submit is wanted (auth forms).
+       min-h-11/min-w-11 hold the 44px hit target (A4) even for a short or icon-only label; the dense
+       btn-sm variant below lowers it to 32px for table rows. */
     .btn-primary {
-        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold min-h-11 min-w-11;
         @apply bg-brand text-on-brand hover:bg-brand-hover;
     }
 
     .btn-secondary {
-        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-control-outline bg-panel px-4 py-2 font-semibold text-ink;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-control-outline bg-panel px-4 py-2 font-semibold text-ink min-h-11 min-w-11;
         @apply hover:bg-panel-dim;
     }
 
     .btn-danger {
-        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-fail/30 bg-panel px-4 py-2 font-semibold text-fail-ink;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-fail bg-panel px-4 py-2 font-semibold text-fail-ink min-h-11 min-w-11;
         @apply hover:bg-fail/5;
     }
 
@@ -253,7 +269,7 @@ html[data-theme="light"] {
 
     /* Quiet button: no fill or border until hover. */
     .btn-quiet {
-        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold text-muted;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold text-muted min-h-11 min-w-11;
         background-color: transparent;
     }
 
@@ -262,10 +278,10 @@ html[data-theme="light"] {
         background-color: color-mix(in srgb, var(--color-ink) 5%, transparent);
     }
 
-    /* Compact button for dense contexts like table rows. Defined after the variants so its
-       padding wins. */
+    /* Compact button for dense contexts like table rows. Defined after the variants so its padding
+       and the dense 32px target (A4 dense-table minimum) win over the comfortable 44px. */
     .btn-sm {
-        @apply px-3 py-1 text-sm font-medium;
+        @apply px-3 py-1 text-sm font-medium min-h-8 min-w-8;
     }
 
     .link {
@@ -400,11 +416,12 @@ html[data-theme="light"] {
     .fb-search {
         font: 400 12.5px var(--font-sans);
         color: var(--color-ink);
-        border: 1px solid var(--color-line);
+        border: 1px solid var(--color-control-outline);
         border-radius: var(--r);
         padding: 5px 10px;
         background: var(--color-panel-dim);
         width: 200px;
+        min-height: 44px;
     }
     .fb-search::placeholder {
         color: var(--color-faint);
@@ -423,16 +440,20 @@ html[data-theme="light"] {
         flex-wrap: wrap;
     }
     .fb-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         font: 500 12px var(--font-sans);
         color: var(--color-muted);
-        border: 1px solid var(--color-line);
+        border: 1px solid var(--color-control-outline);
         border-radius: 99px;
         padding: 3px 11px;
         background: var(--color-panel);
         cursor: pointer;
+        min-height: 44px;
     }
     .fb-chip:hover {
-        border-color: var(--color-line-strong);
+        border-color: var(--color-ink);
         color: var(--color-ink);
     }
     .fb-chip.on {
@@ -442,7 +463,6 @@ html[data-theme="light"] {
     }
     .fb-chip .n {
         font: 500 10.5px var(--font-mono);
-        opacity: 0.7;
         margin-left: 4px;
     }
 
@@ -474,6 +494,9 @@ html[data-theme="light"] {
     .fb-tbl tr.fb-row:hover {
         background: var(--color-panel-dim);
     }
+    /* Row-click is a pointer-only enhancement: it adds no keyboard path of its own, so the row's
+       primary cell MUST carry a real link/button (fb-linkname) that is the focusable, keyboard-
+       activatable target (A2). A <tr> is not a valid interactive control. */
     .fb-tbl tr.fb-rowlink {
         cursor: pointer;
     }
@@ -503,6 +526,8 @@ html[data-theme="light"] {
         border-top: 1px solid var(--color-line);
     }
     .fb-linkname {
+        display: inline-flex;
+        align-items: center;
         font: 600 13px var(--font-sans);
         color: var(--color-ink);
         background: none;
@@ -510,6 +535,7 @@ html[data-theme="light"] {
         padding: 0;
         cursor: pointer;
         text-align: left;
+        min-height: 32px;
     }
     .fb-linkname:hover {
         color: var(--color-brand-ink);
@@ -656,6 +682,8 @@ html[data-theme="light"] {
         border-bottom: 1px solid var(--color-line);
     }
     .fb-tab {
+        display: inline-flex;
+        align-items: center;
         font: 500 13px var(--font-sans);
         color: var(--color-muted);
         padding: 10px 12px;
@@ -664,6 +692,7 @@ html[data-theme="light"] {
         border-bottom: 2px solid transparent;
         margin-bottom: -1px;
         cursor: pointer;
+        min-height: 44px;
     }
     .fb-tab:hover {
         color: var(--color-ink);

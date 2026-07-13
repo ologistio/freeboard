@@ -89,6 +89,41 @@ public sealed class ComponentLayerGuardTests
     }
 
     [Fact]
+    public void InteractiveControlsUseAThreeToOneBoundaryToken()
+    {
+        // The ContrastGuard proves the boundary tokens clear 3:1; this proves the interactive controls
+        // actually use them for their resting border (A1), so a control cannot regress to a low-
+        // contrast divider (line/line-strong) or an alpha of a token (for example fail/30). Approved
+        // boundary tokens are the ones the ContrastGuard holds at >=3:1.
+        var body = ComponentsBody();
+        string[] approved = ["control-outline", "fail", "brand", "ink"];
+        var fails = new List<string>();
+
+        foreach (var cls in new[] { "btn-secondary", "btn-danger", "form-input", "fb-search", "fb-chip" })
+        {
+            // The base rule only (a pseudo/compound selector like .fb-chip:hover has a non-space
+            // char before the brace, so it is not matched).
+            var rule = Regex.Match(body, $@"\.{Regex.Escape(cls)}(?![\w-])\s*\{{([^}}]*)\}}");
+            if (!rule.Success) { fails.Add($"{cls}: rule not found"); continue; }
+            var b = rule.Groups[1].Value;
+
+            var tokens = new List<string>();
+            foreach (Match u in Regex.Matches(b, @"\bborder-(control-outline|fail|brand|ink|line-strong|line)(/\d+)?\b"))
+                tokens.Add(u.Groups[1].Value + u.Groups[2].Value);
+            foreach (Match raw in Regex.Matches(b, @"border(?:-color)?\s*:[^;]*var\(--color-([a-z-]+)\)"))
+                tokens.Add(raw.Groups[1].Value);
+
+            if (tokens.Count == 0) { fails.Add($"{cls}: no border colour token"); continue; }
+            foreach (var tk in tokens)
+                if (tk.Contains('/') || !approved.Contains(tk))
+                    fails.Add($"{cls}: resting border uses '{tk}' (need one of {string.Join("/", approved)}, no alpha)");
+        }
+
+        Assert.True(fails.Count == 0,
+            "Interactive control resting boundaries must use a >=3:1 token:\n" + string.Join("\n", fails));
+    }
+
+    [Fact]
     public void ComponentsLayerHasNoBuiltInShadowUtility()
     {
         var body = ComponentsBody();
