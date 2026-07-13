@@ -2,7 +2,7 @@
 
 ## Agent routing
 
-* Code review agents: see `.claude/rules/code-review.md`.
+- Code review agents: see `.claude/rules/code-review.md`.
 
 ## Projects
 
