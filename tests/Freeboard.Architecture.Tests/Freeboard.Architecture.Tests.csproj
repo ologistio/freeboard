@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Freeboard.Core\Freeboard.Core.csproj" />
+    <ProjectReference Include="..\..\src\Freeboard.Persistence\Freeboard.Persistence.csproj" />
     <ProjectReference Include="..\..\src\Freeboard.CLI\Freeboard.CLI.csproj" />
     <ProjectReference Include="..\..\src\Freeboard.Agent\Freeboard.Agent.csproj" />
   </ItemGroup>
