@@ -10,23 +10,28 @@
   in a fixed, small placeholder deny-list (blank/OEM filler such as `UNKNOWN`,
   `NONE`, `DEFAULT STRING`, `TO BE FILLED BY O.E.M.`); the deny-list is an in-code
   constant, not configuration. Normalize the host uuid to its canonical form and
-  reject it when it does not parse. Keep it minimal (single responsibility, no
-  speculative kinds).
+  reject it when it does not parse or is a firmware sentinel uuid (the all-zero
+  uuid or the all-ones uuid), which many unrelated machines report identically.
+  Keep it minimal (single responsibility, no speculative kinds).
 - [x] 1.3 Add `Freeboard.Core.Tests` unit tests: assert `AssetKind` has `Machine`
   and `AssetState` has `Seen` and `Retired` (the "Machine kind exists" scenario);
   and for identity derivation: serial chosen when present, uuid fallback when
   serial blank, no identity when both unusable, serial normalization
   (whitespace/case) collapses to one value, a placeholder serial is treated as
-  missing and falls through to the uuid, and uuid variants (`{...}`, brace, case)
+  missing and falls through to the uuid, a sentinel host uuid (all-zero or
+  all-ones) is treated as missing so an observation with only a placeholder serial
+  and a sentinel uuid yields no identity, and uuid variants (`{...}`, brace, case)
   canonicalize to one value.
 
 ## 2. Persistence migration (feat(persistence): asset schema migration 017)
 
 - [x] 2.1 Add `src/Freeboard.Persistence/Migrations/017_assets.sql` creating the
-  `asset` and `asset_source` tables per design: `utf8mb4_bin` ids, and
-  `utf8mb4_bin` also on the exact-byte enum/token/key columns `identity_kind`,
-  `identity_value`, `kind`, `state`, `source`, and `external_id` (so `fleetdm` and
-  `FleetDM` do not collide, and identity values compare by exact bytes); org-scoped
+  `asset` and `asset_source` tables per design: `utf8mb4_bin` ids, and the no-pad
+  binary collation `utf8mb4_0900_bin` on the exact-byte enum/token/key columns
+  `identity_kind`, `identity_value`, `kind`, `state`, `source`, and `external_id`
+  (so `fleetdm` and `FleetDM` do not collide, and `x` and `x ` do not collide as a
+  padded `utf8mb4_bin` collation would, and identity values compare by exact bytes);
+  org-scoped
   unique keys (`(organisation_id, identity_kind, identity_value)` and
   `(organisation_id, source, external_id)`); a `UNIQUE (id, organisation_id)` on
   `asset` and a composite `FOREIGN KEY (asset_id, organisation_id) REFERENCES asset
@@ -65,16 +70,22 @@
   algorithm, in one transaction opened at `IsolationLevel.ReadCommitted` (so a
   `FOR UPDATE` on a not-yet-existing identity/source row takes no gap lock and the
   first-observation race degrades to a plain 1062 duplicate-key error, as in
-  `MySqlAuthRateLimitStore`): derive identity (return `Invalid` when none);
+  `MySqlAuthRateLimitStore`): validate and derive identity, returning `Invalid`
+  (writing nothing) when a required key is missing, a field exceeds its column
+  width (length checked as Unicode runes), or no identity is derivable;
   `SELECT ... FOR UPDATE` the existing `asset_source` for
   `(organisation_id, source, external_id)` and the candidate asset(s) by identity;
   return `Conflict` when the serial and uuid resolve to two different existing
   assets (cross-axis) or when the existing source would relink to a different
-  asset; otherwise update the matched asset (preserve id, `state='Seen'`, clear
-  `retired_at`) or insert a new one, then update or insert the `asset_source`
-  pointing at the resolved asset. Retry the resolution once on a duplicate-key
-  race (the org-scoped unique constraint is the backstop). Implement `RetireAsync`
-  as a `state`/`retired_at` UPDATE returning `WriteResult`.
+  asset; otherwise update the matched asset (preserve id) or insert a new one, then
+  update or insert the `asset_source` pointing at the resolved asset. Make both
+  updates monotonic so a late-arriving older observation cannot regress state: gate
+  the mutable fields on `@Now >= last_seen_at` (`state='Seen'`, clear `retired_at`,
+  and the observed values only when the observation is at least as recent) and
+  advance `last_seen_at` via `GREATEST(last_seen_at, @Now)`. Retry the resolution
+  once on a duplicate-key race (the org-scoped unique constraint is the backstop).
+  Implement `RetireAsync` as a `state`/`retired_at` UPDATE returning `WriteResult`,
+  gated on `@Now >= last_seen_at` so a stale retirement is a no-op.
 - [x] 4.3 Add DI extensions `AddAssetStore` and `AddAssetWriteStore` in
   `PersistenceServiceCollectionExtensions`, `TryAdd`-ing the shared
   `IUlidFactory`, mirroring the evidence registrations.

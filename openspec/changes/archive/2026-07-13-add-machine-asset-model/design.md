@@ -89,20 +89,26 @@ Normalization and the "usable" test:
   `NONE`, `NULL`, `N/A`, `NA`, `DEFAULT STRING`, `TO BE FILLED BY O.E.M.`,
   `SYSTEM SERIAL NUMBER`, `0`. Comparison is against the normalized (trimmed,
   whitespace-collapsed, upper-cased) value.
-- Host uuid: parse as a `Guid`; the value is unusable when it does not parse. The
-  normalized value is the canonical lower-case hyphenated (`D`) form, so `{...}`,
-  brace, and case variants of one uuid collapse to a single identity.
+- Host uuid: parse as a `Guid`; the value is unusable when it does not parse or is
+  a firmware sentinel uuid (the all-zero uuid or the all-ones uuid). The normalized
+  value is the canonical lower-case hyphenated (`D`) form, so `{...}`, brace, and
+  case variants of one uuid collapse to a single identity.
 
-Placeholder rejection is a correctness requirement, adopted from the Codex plan
-(its H3): several unrelated machines commonly report a blank or identical BIOS
-filler serial (for example `To be filled by O.E.M.`). Without rejecting those,
-they would all normalize to one `identity_value` and collapse into a single
-asset - silently merging distinct machines. When the serial is a placeholder the
-derivation falls through to the host uuid, exactly as if the serial were absent.
-The Planner plan only trimmed and case-folded; that is insufficient. The deny-list
-is deliberately short and documented rather than an elaborate configurable filter
-(code-as-liability): it covers the values seen in practice and can be extended in
-a later change if a real collector reports another.
+Placeholder and sentinel rejection is a correctness requirement: several unrelated
+machines commonly report a blank or identical BIOS filler serial (for example `To
+be filled by O.E.M.`), and firmware commonly reports a sentinel host uuid - the
+all-zero uuid `00000000-0000-0000-0000-000000000000` or the all-ones uuid
+`ffffffff-ffff-ffff-ffff-ffffffffffff` - identically across many machines. Without
+rejecting those, the placeholder serials would all normalize to one
+`identity_value`, and the sentinel uuids likewise, collapsing distinct machines
+into a single asset - silently merging them. When the serial is a placeholder the
+derivation falls through to the host uuid, exactly as if the serial were absent;
+when the host uuid is a sentinel it too is treated as absent, so an observation
+with only a placeholder serial and a sentinel uuid yields no identity. The serial
+deny-list and the sentinel-uuid set are deliberately short in-code constants rather
+than an elaborate configurable filter (code-as-liability): they cover the values
+seen in practice and can be extended in a later change if a real collector reports
+another.
 
 Rationale: a single canonical identity column pair gives one org-scoped unique
 constraint to dedup on, keeps the store logic simple, and lets both the write
@@ -175,7 +181,10 @@ serialize on real rows, avoid gap-lock contention on seeded/first-touch rows.
 once on a duplicate-key race:
 
 1. Validate the observation and derive `(identity_kind, identity_value)` in Core.
-   No identity -> return `Invalid`, write nothing.
+   Return `Invalid` and write nothing when a required key is missing, when a field
+   exceeds its column width (length checked as Unicode runes against the column
+   widths so surrogate-pair characters are not over-counted), or when no identity
+   is derivable.
 2. Open a connection and `BEGIN` at `READ COMMITTED` (so a `FOR UPDATE` on a
    not-yet-existing identity or source row takes no gap lock; see above).
 3. `SELECT ... FOR UPDATE` the `asset_source` row for
@@ -190,10 +199,18 @@ once on a duplicate-key race:
    differ, `ROLLBACK` and return `Conflict` (see divergence 3). Do not merge, do
    not pick one.
 6. Target asset:
-   - `canonicalAsset` present -> target is it; `UPDATE` it: `last_seen_at = @Now`,
-     `state = 'Seen'`, `retired_at = NULL`, `hostname = COALESCE(@Hostname,
-     hostname)`. The `id` is never touched, so an existing machine keeps its id
-     and any attached evidence stays resolvable.
+   - `canonicalAsset` present -> target is it; `UPDATE` it monotonically. The lock
+     serializes writers on this row, but a writer can hold an observation timestamp
+     older than one that already committed, so a late-arriving older observation
+     must not regress the machine. Every mutable field is therefore gated on this
+     observation being at least as recent as the stored `last_seen_at`:
+     `state = IF(@Now >= last_seen_at, 'Seen', state)`,
+     `retired_at = IF(@Now >= last_seen_at, NULL, retired_at)`,
+     `hostname = IF(@Now >= last_seen_at, COALESCE(@Hostname, hostname), hostname)`,
+     and `last_seen_at = GREATEST(last_seen_at, @Now)` so the seen time only ever
+     advances. A stale observation thus advances nothing and cannot regress state,
+     `retired_at`, or the hostname. The `id` is never touched, so an existing
+     machine keeps its id and any attached evidence stays resolvable.
    - else `INSERT` a new asset with a fresh ULID. A duplicate-key error here means
      a concurrent transaction inserted the same identity first: `ROLLBACK` and
      restart the algorithm once, which now takes the update path.
@@ -201,8 +218,13 @@ once on a duplicate-key race:
    target id, `ROLLBACK` and return `Conflict` (see divergence 2). Never silently
    move an existing `(source, external_id)` to a different asset.
 8. Attach the source:
-   - `existingSourceAssetId` equals the target id -> `UPDATE` the `asset_source`:
-     `last_seen_at = @Now`, `observed_serial`, `observed_host_uuid`.
+   - `existingSourceAssetId` equals the target id -> `UPDATE` the `asset_source`
+     under the same monotonic guard as the asset row:
+     `observed_serial = IF(@Now >= last_seen_at, @Serial, observed_serial)`,
+     `observed_host_uuid = IF(@Now >= last_seen_at, @HostUuid, observed_host_uuid)`,
+     and `last_seen_at = GREATEST(last_seen_at, @Now)`, so a late-arriving older
+     observation neither overwrites the recorded observed values with older ones
+     nor regresses the seen time.
    - no existing source -> `INSERT` a new `asset_source` pointing at the target. A
      duplicate-key error here is the same race as step 6; restart once.
 9. `COMMIT`. Return `Created` (asset inserted) or `Updated` (asset matched) with
@@ -256,11 +278,16 @@ two distinct existing assets, which is the case that would otherwise corrupt dat
 ### Decision: seen/retired is a `state` column; retirement is an UPDATE
 
 `asset.state` is `Seen` or `Retired`, defaulting to `Seen`. `RetireAsync` sets
-`state = 'Retired'` and `retired_at = @Now`; the row and its sources persist, so
-any evidence attached later still resolves. Re-observing a retired machine
-(step 2 above) sets `state = 'Seen'` and clears `retired_at`, because a machine
-that reports again is live. Retirement is owned by the discovery runner (T4),
-not by this change; the store only exposes the state transition.
+`state = 'Retired'` and `retired_at = @Now`, but only when `@Now >= last_seen_at`
+(the same monotonic rule the upsert uses); the row and its sources persist, so any
+evidence attached later still resolves. Gating the retire on the timestamp is a
+correctness requirement: a retirement that predates a more recent observation must
+not win and leave a machine `Retired` that was seen afterwards, so a stale
+retirement is a no-op (still a success - the terminal state the caller asked for is
+already at least as fresh). Re-observing a retired machine (step 6 above) sets
+`state = 'Seen'` and clears `retired_at`, because a machine that reports again is
+live. Retirement is owned by the discovery runner (T4), not by this change; the
+store only exposes the state transition.
 
 Rationale: acceptance requires retirement to be a state change, not a delete;
 the append-only history argument does not apply (assets are mutable), so a plain
@@ -305,11 +332,11 @@ discovery runner and UI is deliberately omitted until those consumers exist
 
 - `id CHAR(26) utf8mb4_bin NOT NULL` PK (ULID).
 - `organisation_id VARCHAR(190) utf8mb4_bin NOT NULL` (scalar ref, no FK).
-- `kind VARCHAR(32) utf8mb4_bin NOT NULL` (AssetKind name, `Machine`).
-- `identity_kind VARCHAR(16) utf8mb4_bin NOT NULL` (`Serial`/`HostUuid`).
-- `identity_value VARCHAR(190) utf8mb4_bin NOT NULL`.
+- `kind VARCHAR(32) utf8mb4_0900_bin NOT NULL` (AssetKind name, `Machine`).
+- `identity_kind VARCHAR(16) utf8mb4_0900_bin NOT NULL` (`Serial`/`HostUuid`).
+- `identity_value VARCHAR(190) utf8mb4_0900_bin NOT NULL`.
 - `hostname VARCHAR(255) NULL` (display only).
-- `state VARCHAR(16) utf8mb4_bin NOT NULL` (`Seen`/`Retired`).
+- `state VARCHAR(16) utf8mb4_0900_bin NOT NULL` (`Seen`/`Retired`).
 - `first_seen_at DATETIME(6) NOT NULL`, `last_seen_at DATETIME(6) NOT NULL`,
   `retired_at DATETIME(6) NULL`, `created_at DATETIME(6) NOT NULL`.
 - `UNIQUE (organisation_id, identity_kind, identity_value)` - org-scoped dedup.
@@ -325,12 +352,12 @@ discovery runner and UI is deliberately omitted until those consumers exist
 - `asset_id CHAR(26) utf8mb4_bin NOT NULL`.
 - `organisation_id VARCHAR(190) utf8mb4_bin NOT NULL` (denormalized so the
   uniqueness and scoping are org-local without a join).
-- `source VARCHAR(64) utf8mb4_bin NOT NULL` (integration token, e.g. `fleetdm`).
-  Binary collation so the source token dedups by exact case-sensitive bytes:
-  without it MySQL 8's case-insensitive default would collide `fleetdm` and
-  `FleetDM` inside `UNIQUE (organisation_id, source, external_id)`, matching how
-  `011_evidence.sql` binary-collates its key columns.
-- `external_id VARCHAR(190) utf8mb4_bin NOT NULL`.
+- `source VARCHAR(64) utf8mb4_0900_bin NOT NULL` (integration token, e.g.
+  `fleetdm`). No-pad binary collation so the source token dedups by exact bytes:
+  without a binary collation MySQL 8's case-insensitive default would collide
+  `fleetdm` and `FleetDM`, and a padded binary collation (`utf8mb4_bin`) would
+  collide `x` and `x ` inside `UNIQUE (organisation_id, source, external_id)`.
+- `external_id VARCHAR(190) utf8mb4_0900_bin NOT NULL`.
 - `observed_serial VARCHAR(190) NULL`, `observed_host_uuid VARCHAR(190) NULL`.
 - `first_seen_at DATETIME(6) NOT NULL`, `last_seen_at DATETIME(6) NOT NULL`,
   `created_at DATETIME(6) NOT NULL`.
