@@ -25,6 +25,10 @@ public sealed record MachineIdentity(MachineIdentityKind Kind, string Value)
         "TO BE FILLED BY O.E.M.", "SYSTEM SERIAL NUMBER", "0",
     };
 
+    // SMBIOS sentinel host uuids that firmware reports identically on many unrelated machines: the all-zero
+    // uuid and the all-ones uuid. Treated as absent so distinct machines do not collapse onto one identity.
+    private static readonly Guid AllOnesHostUuid = new("ffffffff-ffff-ffff-ffff-ffffffffffff");
+
     /// <summary>
     /// Derives the identity from an observed hardware serial and host uuid: the serial when usable, else
     /// the host uuid when usable, else null (no stable identity, reject the observation).
@@ -62,7 +66,8 @@ public sealed record MachineIdentity(MachineIdentityKind Kind, string Value)
 
     /// <summary>
     /// Normalizes a host uuid to its canonical lower-case hyphenated form so brace/case variants of one
-    /// uuid collapse to one identity, and returns null when it does not parse as a uuid.
+    /// uuid collapse to one identity. Returns null when it does not parse as a uuid or is a firmware sentinel
+    /// (all-zero or all-ones), so an unusable uuid is treated as absent rather than merging machines.
     /// </summary>
     public static string? NormalizeHostUuid(string? hostUuid)
     {
@@ -71,6 +76,11 @@ public sealed record MachineIdentity(MachineIdentityKind Kind, string Value)
             return null;
         }
 
-        return Guid.TryParse(hostUuid, out var parsed) ? parsed.ToString("D") : null;
+        if (!Guid.TryParse(hostUuid, out var parsed) || parsed == Guid.Empty || parsed == AllOnesHostUuid)
+        {
+            return null;
+        }
+
+        return parsed.ToString("D");
     }
 }

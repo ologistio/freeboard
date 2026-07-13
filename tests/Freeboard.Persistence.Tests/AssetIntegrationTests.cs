@@ -498,4 +498,75 @@ public sealed class AssetIntegrationTests
         Assert.Contains("asset", tables);
         Assert.Contains("asset_source", tables);
     }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task OversizedInputReturnsInvalidAndWritesNothing()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var (store, writes) = Stores(db);
+
+        // Each field is one character over its column width. The store must reject up front with Invalid
+        // rather than let the oversized value reach MySQL and surface as a data-too-long exception.
+        var longOrg = new string('o', 191);        // organisation_id VARCHAR(190)
+        var longSource = new string('s', 65);      // source VARCHAR(64)
+        var longExternal = new string('e', 191);   // external_id VARCHAR(190)
+        var longSerial = new string('N', 191);     // observed_serial VARCHAR(190)
+        var longHostname = new string('h', 256);   // hostname VARCHAR(255)
+
+        Assert.Equal(AssetUpsertStatus.Invalid,
+            (await writes.UpsertMachineFromSourceAsync(Obs(longOrg, "fleetdm", "e1", serial: "SN-1"))).Status);
+        Assert.Equal(AssetUpsertStatus.Invalid,
+            (await writes.UpsertMachineFromSourceAsync(Obs("org-a", longSource, "e1", serial: "SN-1"))).Status);
+        Assert.Equal(AssetUpsertStatus.Invalid,
+            (await writes.UpsertMachineFromSourceAsync(Obs("org-a", "fleetdm", longExternal, serial: "SN-1"))).Status);
+        Assert.Equal(AssetUpsertStatus.Invalid,
+            (await writes.UpsertMachineFromSourceAsync(Obs("org-a", "fleetdm", "e1", serial: longSerial))).Status);
+        Assert.Equal(AssetUpsertStatus.Invalid,
+            (await writes.UpsertMachineFromSourceAsync(
+                Obs("org-a", "fleetdm", "e1", serial: "SN-1", hostname: longHostname))).Status);
+
+        // The oversized-hostname observation had valid keys, so a leaked write would be visible here.
+        Assert.Null(await store.GetBySourceAsync("org-a", "fleetdm", "e1"));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task StaleObservationDoesNotRegressLastSeenOrState()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var (store, writes) = Stores(db);
+
+        var created = await writes.UpsertMachineFromSourceAsync(
+            Obs("org-a", "fleetdm", "host-1", serial: "SN-1", hostname: "current"));
+
+        // Push last_seen_at a day into the future and retire the asset, so any observation the store makes
+        // now carries an OLDER timestamp than what is stored - the regression the monotonic guard prevents.
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(
+            "UPDATE asset SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY), state = 'Retired', "
+            + "retired_at = NOW(6) WHERE id = @Id;", new { Id = created.AssetId });
+        await conn.ExecuteAsync(
+            "UPDATE asset_source SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY) WHERE asset_id = @Id;",
+            new { Id = created.AssetId });
+
+        // Re-observe with a new hostname. The store's timestamp is older than the stored last_seen_at, so the
+        // update must not reactivate the machine, clear retired_at, overwrite the hostname, or move last_seen.
+        var stale = await writes.UpsertMachineFromSourceAsync(
+            Obs("org-a", "fleetdm", "host-1", serial: "SN-1", hostname: "stale"));
+        Assert.Equal(AssetUpsertStatus.Updated, stale.Status);
+
+        var asset = await store.GetByIdAsync("org-a", created.AssetId!);
+        Assert.Equal("Retired", asset!.State);
+        Assert.NotNull(asset.RetiredAt);
+        Assert.Equal("current", asset.Hostname);
+
+        var assetLastSeen = await conn.ExecuteScalarAsync<DateTime>(
+            "SELECT last_seen_at FROM asset WHERE id = @Id;", new { Id = created.AssetId });
+        var sourceLastSeen = await conn.ExecuteScalarAsync<DateTime>(
+            "SELECT last_seen_at FROM asset_source WHERE asset_id = @Id;", new { Id = created.AssetId });
+        Assert.True(assetLastSeen > DateTime.UtcNow, "asset last_seen_at regressed below the stored future value.");
+        Assert.True(sourceLastSeen > DateTime.UtcNow, "asset_source last_seen_at regressed below the stored future value.");
+    }
 }

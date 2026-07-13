@@ -43,6 +43,38 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
             return AssetUpsertResult.Invalid("Asset source external id is required.");
         }
 
+        // Reject oversized input up front so it returns Invalid per the declared contract rather than
+        // escaping as a MySQL data-too-long error mid-transaction. Limits match the column widths in 017.
+        if (TooLong(observation.OrganisationId, 190))
+        {
+            return AssetUpsertResult.Invalid("Asset organisation id exceeds 190 characters.");
+        }
+
+        if (TooLong(observation.Source, 64))
+        {
+            return AssetUpsertResult.Invalid("Asset source exceeds 64 characters.");
+        }
+
+        if (TooLong(observation.ExternalId, 190))
+        {
+            return AssetUpsertResult.Invalid("Asset source external id exceeds 190 characters.");
+        }
+
+        if (TooLong(observation.Hostname, 255))
+        {
+            return AssetUpsertResult.Invalid("Asset hostname exceeds 255 characters.");
+        }
+
+        if (TooLong(observation.HardwareSerial, 190))
+        {
+            return AssetUpsertResult.Invalid("Observed hardware serial exceeds 190 characters.");
+        }
+
+        if (TooLong(observation.HostUuid, 190))
+        {
+            return AssetUpsertResult.Invalid("Observed host uuid exceeds 190 characters.");
+        }
+
         var identity = MachineIdentity.Derive(observation.HardwareSerial, observation.HostUuid);
         if (identity is null)
         {
@@ -127,10 +159,17 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
             targetAssetId = canonicalAssetId;
             created = false;
             // Preserve the id (so attached evidence stays resolvable), reactivate, and only overwrite the
-            // hostname when a new one was observed.
+            // hostname when a new one was observed. The lock serializes writers on this row, but a writer can
+            // hold an older observation timestamp than one that already committed, so every mutable field is
+            // gated on this observation being at least as recent as the stored last_seen_at (which only ever
+            // advances via GREATEST). A stale observation therefore cannot regress state, retired_at, or the
+            // hostname.
             await connection.ExecuteAsync(new CommandDefinition(
-                "UPDATE asset SET last_seen_at = @Now, state = @Seen, retired_at = NULL, "
-                + "hostname = COALESCE(@Hostname, hostname) "
+                "UPDATE asset SET "
+                + "state = IF(@Now >= last_seen_at, @Seen, state), "
+                + "retired_at = IF(@Now >= last_seen_at, NULL, retired_at), "
+                + "hostname = IF(@Now >= last_seen_at, COALESCE(@Hostname, hostname), hostname), "
+                + "last_seen_at = GREATEST(last_seen_at, @Now) "
                 + "WHERE id = @Id AND organisation_id = @Org;",
                 new
                 {
@@ -174,9 +213,13 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
 
         if (existingSourceAssetId is not null)
         {
+            // Same monotonic guard as the asset row: a stale observation only advances last_seen_at (a no-op
+            // when older) and does not overwrite the observed values with older ones.
             await connection.ExecuteAsync(new CommandDefinition(
-                "UPDATE asset_source SET last_seen_at = @Now, observed_serial = @Serial, "
-                + "observed_host_uuid = @HostUuid "
+                "UPDATE asset_source SET "
+                + "observed_serial = IF(@Now >= last_seen_at, @Serial, observed_serial), "
+                + "observed_host_uuid = IF(@Now >= last_seen_at, @HostUuid, observed_host_uuid), "
+                + "last_seen_at = GREATEST(last_seen_at, @Now) "
                 + "WHERE organisation_id = @Org AND source = @Source AND external_id = @ExternalId;",
                 new
                 {
@@ -212,6 +255,8 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return created ? AssetUpsertResult.Created(targetAssetId) : AssetUpsertResult.Updated(targetAssetId);
     }
+
+    private static bool TooLong(string? value, int maxLength) => value is not null && value.Length > maxLength;
 
     private static Task<string?> LockAssetIdByIdentityAsync(
         DbConnection connection, DbTransaction transaction, string organisationId,

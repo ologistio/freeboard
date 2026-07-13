@@ -18,8 +18,10 @@ SHALL be treated as unusable (as if absent) when the normalized value is empty o
 matches a fixed, small deny-list of common blank or OEM-filler placeholder values
 (for example `UNKNOWN`, `NONE`, `DEFAULT STRING`, `TO BE FILLED BY O.E.M.`). A
 host uuid SHALL be normalized to its canonical form and SHALL be treated as
-unusable when it does not parse as a uuid. This code SHALL NOT reference
-`Freeboard.Enterprise` and SHALL add no new package dependency.
+unusable when it does not parse as a uuid or is a firmware sentinel uuid (the
+all-zero uuid or the all-ones uuid), which many unrelated machines report
+identically. This code SHALL NOT reference `Freeboard.Enterprise` and SHALL add no
+new package dependency.
 
 #### Scenario: Machine kind exists
 
@@ -52,6 +54,12 @@ unusable when it does not parse as a uuid. This code SHALL NOT reference
   O.E.M.`) and whose host uuid is usable
 - **THEN** the placeholder serial is ignored and the identity kind is `HostUuid`
   with the normalized uuid value
+
+#### Scenario: Sentinel host uuid is treated as missing
+
+- **WHEN** identity is derived from an observation with no usable serial and a
+  host uuid that is a firmware sentinel (the all-zero uuid or the all-ones uuid)
+- **THEN** the sentinel uuid is ignored and no identity is produced
 
 ### Requirement: Asset and asset-source schema and migration
 

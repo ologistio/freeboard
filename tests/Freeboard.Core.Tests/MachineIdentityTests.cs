@@ -77,6 +77,24 @@ public sealed class MachineIdentityTests
     }
 
     [Theory]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    [InlineData("ffffffff-ffff-ffff-ffff-ffffffffffff")]
+    [InlineData("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")]
+    [InlineData("{00000000-0000-0000-0000-000000000000}")]
+    public void SentinelHostUuidIsTreatedAsMissing(string sentinel)
+    {
+        // Firmware reports these identically on many unrelated machines, so a sentinel must not become an
+        // identity: with no usable serial there is no identity at all.
+        Assert.Null(MachineIdentity.Derive(null, sentinel));
+
+        // And it must not be chosen over a usable serial either.
+        var identity = MachineIdentity.Derive("ABC123", sentinel);
+        Assert.NotNull(identity);
+        Assert.Equal(MachineIdentityKind.Serial, identity!.Kind);
+        Assert.Equal("ABC123", identity.Value);
+    }
+
+    [Theory]
     [InlineData("{550E8400-E29B-41D4-A716-446655440000}")]
     [InlineData("550e8400-e29b-41d4-a716-446655440000")]
     [InlineData("550E8400E29B41D4A716446655440000")]
