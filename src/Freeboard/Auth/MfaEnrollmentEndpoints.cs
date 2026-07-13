@@ -51,8 +51,7 @@ public static class MfaEnrollmentEndpoints
         });
     }
 
-    // ---- TOTP ----
-
+    #region TOTP
     private static async Task<IResult> TotpEnrollAsync(HttpContext ctx, ITotpStore totp, IUserStore users, CancellationToken ct)
     {
         var provisioningUri = await AuthFlows.TotpEnrollAsync(UserId(ctx), totp, users, ct).ConfigureAwait(false);
@@ -76,8 +75,9 @@ public static class MfaEnrollmentEndpoints
         return ok ? Results.Ok(new { deleted = true }) : Unauthorized();
     }
 
-    // ---- passkey ----
+    #endregion
 
+    #region passkey
     private static async Task<IResult> PasskeyOptionsAsync(
         HttpContext ctx, WebAuthnCeremony webAuthn, WebAuthnEnrollmentStore store, IUserStore users, CancellationToken ct)
     {
@@ -137,8 +137,9 @@ public static class MfaEnrollmentEndpoints
         };
     }
 
-    // ---- recovery ----
+    #endregion
 
+    #region recovery
     private static async Task<IResult> RecoveryRegenerateAsync(
         HttpContext ctx, IRecoveryCodeStore recovery, IOptions<WebAuthOptions> options, CancellationToken ct)
     {
@@ -146,8 +147,9 @@ public static class MfaEnrollmentEndpoints
         return codes is null ? Unauthorized() : Results.Ok(new { recovery_codes = codes });
     }
 
-    // ---- helpers ----
+    #endregion
 
+    #region helpers
     private static string? UserId(HttpContext ctx) => ctx.User.FindFirst(AuthClaims.UserId)?.Value;
 
     private static IResult Unauthorized() => Results.Json(new { error = "unauthorized" }, statusCode: StatusCodes.Status401Unauthorized);
@@ -166,4 +168,6 @@ public static class MfaEnrollmentEndpoints
             AuthFlows.FactorActivationResult.Activated a => Results.Ok(okBody(a.RecoveryCodes)),
             _ => Unauthorized(),
         };
+
+    #endregion
 }

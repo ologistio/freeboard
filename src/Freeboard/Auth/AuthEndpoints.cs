@@ -283,8 +283,7 @@ public static class AuthEndpoints
         };
     }
 
-    // ---- helpers ----
-
+    #region helpers
     private static IResult GenericUnauthorized() => Results.Json(
         new { error = "unauthorized" }, statusCode: StatusCodes.Status401Unauthorized);
 
@@ -333,4 +332,6 @@ public static class AuthEndpoints
         last_seen_at = s.LastSeenAt,
         sudo_at = s.SudoAt,
     };
+
+    #endregion
 }

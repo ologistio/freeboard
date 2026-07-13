@@ -122,8 +122,7 @@ public static class MfaLoginEndpoints
             challenge => challenges.VerifyMagicLinkAsync(challenge.Id, body?.LinkToken ?? string.Empty, DateTime.UtcNow, ct),
             mfa, users, rateLimiter, ct).ConfigureAwait(false));
 
-    // ---- result mapping ----
-
+    #region result mapping
     private static IResult MapVerify(AuthFlows.MfaVerifyResult result) => result switch
     {
         AuthFlows.MfaVerifyResult.RateLimited r => AuthRateLimiter.Throttled(r.Outcome),
@@ -147,4 +146,6 @@ public static class MfaLoginEndpoints
         var payload = root.TryGetProperty(payloadProperty, out var p) ? p.GetRawText() : null;
         return (mfaToken, payload);
     }
+
+    #endregion
 }

@@ -134,8 +134,7 @@ public static class ComplianceWriteEndpoints
             id, input.Title, input.Organisation, input.Requirement, input.Disposition, storedOrg, ct));
     }
 
-    // ---- selectors ----
-
+    #region selectors
     private static async ValueTask<AuthzResource?> OrganisationPutSelector(EndpointFilterInvocationContext context)
     {
         var id = (string)context.HttpContext.Request.RouteValues["id"]!;
@@ -184,8 +183,9 @@ public static class ComplianceWriteEndpoints
         return org is null ? null : new AuthzResource("requirement_scope", id, org, []);
     }
 
-    // ---- helpers ----
+    #endregion
 
+    #region helpers
     private static async Task<bool> AuthorizeOrgAsync(
         IAuthorizer authorizer, ClaimsPrincipal user, string action, string orgId, CancellationToken ct)
     {
@@ -281,4 +281,6 @@ public static class ComplianceWriteEndpoints
         title: "Compliance store unreachable",
         detail: "The compliance store could not be reached. Check the database connection.",
         statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    #endregion
 }

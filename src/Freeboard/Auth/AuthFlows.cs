@@ -23,8 +23,7 @@ internal static class AuthFlows
     // shape (one indexed PK lookup) as the known-user path, keeping timing uniform.
     private const string UniformLookupId = "00000000000000000000000000";
 
-    // ---- login ----
-
+    #region login
     internal abstract record LoginResult
     {
         internal sealed record RateLimited(AuthRateLimitOutcome Outcome) : LoginResult;
@@ -129,8 +128,9 @@ internal static class AuthFlows
         return new LoginResult.Success(user, token);
     }
 
-    // ---- me ----
+    #endregion
 
+    #region me
     internal static async Task<UserRow?> MeAsync(string? userId, IUserStore users, CancellationToken ct)
     {
         if (userId is null)
@@ -141,8 +141,9 @@ internal static class AuthFlows
         return await users.GetByIdAsync(userId, ct).ConfigureAwait(false);
     }
 
-    // ---- logout ----
+    #endregion
 
+    #region logout
     internal static async Task LogoutAsync(string? sessionId, ISessionStore sessions, CancellationToken ct)
     {
         if (sessionId is not null)
@@ -151,8 +152,9 @@ internal static class AuthFlows
         }
     }
 
-    // ---- password change/forgot/reset, forced-reset completion ----
+    #endregion
 
+    #region password change/forgot/reset, forced-reset completion
     /// <summary>Outcome shared by the password-mutation flows.</summary>
     internal abstract record PasswordResult
     {
@@ -323,8 +325,9 @@ internal static class AuthFlows
         return new PasswordResult.Ok();
     }
 
-    // ---- sessions ----
+    #endregion
 
+    #region sessions
     internal static async Task<SessionRow?> GetSessionAsync(
         string id, string? callerUserId, bool callerIsAdmin, ISessionStore sessions, CancellationToken ct)
     {
@@ -382,8 +385,9 @@ internal static class AuthFlows
         return await sessions.DeleteAllForUserAsync(id, ct).ConfigureAwait(false);
     }
 
-    // ---- bootstrap (first-admin setup) ----
+    #endregion
 
+    #region bootstrap (first-admin setup)
     internal abstract record BootstrapResult
     {
         internal sealed record Unauthorized : BootstrapResult;
@@ -456,8 +460,9 @@ internal static class AuthFlows
         return new BootstrapResult.Created(admin, token);
     }
 
-    // ---- admin user management (create / reset-password credential handoff) ----
+    #endregion
 
+    #region admin user management (create / reset-password credential handoff)
     /// <summary>The credential handoff a create requests: a one-time temp password, or an emailed invite.</summary>
     internal enum CreateUserHandoff
     {
@@ -643,8 +648,9 @@ internal static class AuthFlows
         return new ResetUserPasswordResult.Success(tempPassword);
     }
 
-    // ---- MFA login verify ----
+    #endregion
 
+    #region MFA login verify
     internal abstract record MfaVerifyResult
     {
         internal sealed record Unauthorized : MfaVerifyResult;
@@ -777,8 +783,9 @@ internal static class AuthFlows
         return new MagicLinkSendResult.Sent();
     }
 
-    // ---- MFA enrollment ----
+    #endregion
 
+    #region MFA enrollment
     internal sealed record MfaStatus(
         bool Totp, IReadOnlyList<WebAuthnCredentialRow> Passkeys, int RecoveryCodesRemaining);
 
@@ -1000,8 +1007,9 @@ internal static class AuthFlows
         return await recovery.RegenerateAsync(userId, options.Value.RecoveryCodeCount, ct).ConfigureAwait(false);
     }
 
-    // ---- sudo step-up ----
+    #endregion
 
+    #region sudo step-up
     internal abstract record SudoResult
     {
         internal sealed record Unauthorized : SudoResult;
@@ -1182,8 +1190,9 @@ internal static class AuthFlows
         return new SudoMagicLinkSendResult.Sent(result.ChallengeId);
     }
 
-    // ---- shared helpers ----
+    #endregion
 
+    #region shared helpers
     private static async Task<bool> VerifyPasswordAsync(
         IPasswordCredentialStore credentials, IPasswordHasher hasher, string userId, string? password, CancellationToken ct)
     {
@@ -1267,4 +1276,6 @@ internal static class AuthFlows
         var presentedDigest = SHA256.HashData(Encoding.UTF8.GetBytes(presented ?? string.Empty));
         return CryptographicOperations.FixedTimeEquals(configuredDigest, presentedDigest);
     }
+
+    #endregion
 }
