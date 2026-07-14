@@ -17,8 +17,8 @@ function isVisible(element) {
 // handles from propagating, so one keypress closes only the topmost overlay and never also dismisses an
 // overlay behind it (e.g. the mobile nav drawer), which would restore focus to a hidden control. It owns
 // no result/filter/arrow/active-descendant logic - the composing component layers that on top - and it
-// captures each inert node's prior state so releasing it never clobbers an overlay still holding it
-// inert (the drawer already inerts the stage below the desktop breakpoint). The composing component must
+// releases only the inert it applied itself, so a node another overlay still holds inert (the drawer
+// inerts the stage below the desktop breakpoint) is left to its owner. The composing component must
 // supply a close() method, called from the Escape handler. On close it restores focus to the captured
 // opener when that opener is still visible; otherwise to the caller's fallback control when the fallback
 // is itself visible; failing both, to the main landmark - so focus never lands on a hidden control or body.
@@ -47,8 +47,12 @@ function overlayFocus({ inert = [], focus, fallback }) {
         },
         exitOverlay() {
             for (const state of this.overlayInert || []) {
-                if (state.node) {
-                    state.node.inert = state.was;
+                // Release only the inert this overlay applied. If a node was already inert when we
+                // opened (the mobile drawer inerts the stage), leave it to its owner: writing the
+                // captured "true" back could re-inert a node the drawer has since released when the
+                // viewport crossed the desktop breakpoint, stranding the topbar and main inert.
+                if (state.node && !state.was) {
+                    state.node.inert = false;
                 }
             }
 
@@ -278,6 +282,12 @@ Alpine.data("commandPalette", () => ({
     },
 }));
 
+// Input types that take typed text, where a bare "/" is a character the user means literally.
+// Checkboxes, radios, buttons, and selects are not text entry, so the shortcut still opens there.
+const TEXT_INPUT_TYPES = new Set([
+    "text", "search", "email", "url", "tel", "password", "number",
+]);
+
 function isEditable(element) {
     if (!element) {
         return false;
@@ -288,7 +298,14 @@ function isEditable(element) {
     }
 
     const tag = element.tagName;
-    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    if (tag === "TEXTAREA") {
+        return true;
+    }
+    if (tag === "INPUT") {
+        const type = (element.getAttribute("type") || "text").toLowerCase();
+        return TEXT_INPUT_TYPES.has(type);
+    }
+    return false;
 }
 
 // Couples the rail opener (in the rail scope) to the sibling palette without a shared x-data spanning

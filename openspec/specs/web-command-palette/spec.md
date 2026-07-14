@@ -1,7 +1,11 @@
 # web-command-palette Specification
 
 ## Purpose
-TBD - created by archiving change add-command-palette. Update Purpose after archive.
+The command palette is the app chrome's single global search-or-ask surface (web-ux-conventions
+N7): one keyboard- and pointer-reachable overlay, built as an ARIA combobox over a listbox, that
+filters and runs tagged results - jumping to a gated nav destination (Page) or running an in-app
+Command such as toggling dark mode. It also defines the reusable focus-overlay primitive (opener
+capture, background inert, Escape handling, and focus restore) that later overlays share.
 ## Requirements
 ### Requirement: One command palette is the single search-or-ask surface
 
