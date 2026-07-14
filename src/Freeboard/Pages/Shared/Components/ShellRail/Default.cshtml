@@ -2,8 +2,9 @@
 @model ShellNavView
 @*
     The rail lives inside the layout's x-data="railDrawer" scope, so the drawer bindings resolve here.
-    The palette entry is currently inert: keyboard-focusable and in the tab order, opening nothing and
-    claiming no dialog (no aria-haspopup), and NOT disabled so the keyboard path stays whole (A2).
+    The palette entry opens the command palette (advertised with aria-haspopup="dialog"); it stays a
+    keyboard-focusable button in the tab order and is NOT disabled, so the keyboard path stays whole (A2).
+    It reaches the sibling palette through the shared "palette" store.
 *@
 <nav id="fb-rail-nav" class="fb-rail" aria-label="Primary" x-ref="rail" :class="{ 'is-open': open }">
     <div class="fb-brand">
@@ -17,7 +18,8 @@
             </svg>
         </button>
     </div>
-    <button type="button" class="fb-search-entry">
+    <button type="button" class="fb-search-entry" aria-haspopup="dialog"
+            @@click="$store.palette.request()" :aria-expanded="$store.palette.open">
         <span>Search or ask...</span>
         <kbd class="fb-kbd">Ctrl K</kbd>
     </button>

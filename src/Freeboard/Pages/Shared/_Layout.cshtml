@@ -18,6 +18,9 @@
             @RenderBody()
         </main>
     </div>
+    @* Third sibling of the rail and stage: the palette holds those two inert while open and is itself
+       outside that list, so it stays reachable. Coupled to the rail opener through the "palette" store. *@
+    <vc:shell-palette />
 </div>
 </body>
 </html>

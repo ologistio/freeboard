@@ -97,6 +97,10 @@ public sealed class ContrastGuardTests
             Text($"--color-{s}-ink", pdim, $"{s}-ink on panel-dim", AaText);
         }
 
+        // The command-palette highlight is ink on the brand-soft tint (label and darkened tag); it carries
+        // the strict neutral-text AAA bar in both themes.
+        Text("--color-ink", C("--color-brand-soft", panel), "ink on brand-soft", AaaText);
+
         // Brand word on its soft ground and on the panel grounds; button label on the solid brand fill.
         Text("--color-brand-ink", C("--color-brand-soft", panel), "brand-ink on brand-soft", AaText);
         Text("--color-brand-ink", panel, "brand-ink on panel", AaText);
