@@ -1,0 +1,50 @@
+name: Feature request
+description: New capability, or an improvement to an existing one.
+labels: [feature]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        State the capability, not the code. Keep it factual and scoped. Leave a
+        section blank if it does not apply.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this exists now. What it builds on or unblocks, and any related issues (#nn).
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / capability
+      description: The gap today and the capability this delivers to a user, operator, or maintainer.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in this change. List the concrete pieces (types, tables, endpoints, surfaces). Note what is explicitly out of scope.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: Observable conditions that mean this is done.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: MIT vs EE placement, GitOps vs runtime state, licensing or dependency constraints, and any blocked-by/blocks links.
+    validations:
+      required: false
