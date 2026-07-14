@@ -7,7 +7,7 @@
 }
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Vendor Register</h1>
-    <p class="mt-1 text-sm text-neutral-600">Vendors in use and their per-requirement or per-control exceptions.</p>
+    <p class="mt-1 text-sm text-muted">Vendors in use and their per-requirement or per-control exceptions.</p>
 </div>
 
 @if (Model.StoreUnreachable)
@@ -16,7 +16,7 @@
 }
 else if (Model.Vendors.Count == 0)
 {
-    <p class="text-sm text-neutral-600" data-empty>No vendors are registered.</p>
+    <p class="text-sm text-muted" data-empty>No vendors are registered.</p>
 }
 else
 {
@@ -27,7 +27,7 @@ else
             <section class="card p-0" data-vendor-id="@vendor.Id">
                 <div class="border-b border-neutral-200 px-4 py-3">
                     <h2 class="font-semibold">@vendor.Title</h2>
-                    <p class="font-mono text-xs text-neutral-600">@vendor.Id</p>
+                    <p class="font-mono text-xs text-muted">@vendor.Id</p>
                 </div>
                 @if (scopes.Count == 0)
                 {
@@ -36,7 +36,7 @@ else
                 else
                 {
                     <table class="vendor-scopes w-full text-sm">
-                        <thead class="border-b border-neutral-200 text-left text-neutral-600">
+                        <thead class="border-b border-neutral-200 text-left text-muted">
                             <tr>
                                 <th class="px-4 py-3 font-medium">Target</th>
                                 <th class="px-4 py-3 font-medium">Disposition</th>
@@ -74,7 +74,7 @@ else
                                         }
                                         else if (!string.IsNullOrWhiteSpace(scope.Justification))
                                         {
-                                            <span class="text-neutral-600" data-justification>@scope.Justification</span>
+                                            <span class="text-muted" data-justification>@scope.Justification</span>
                                         }
                                         else
                                         {

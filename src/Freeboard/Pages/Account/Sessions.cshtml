@@ -9,7 +9,7 @@
 <partial name="_AccountNav" />
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Active sessions</h1>
-    <p class="mt-1 text-sm text-neutral-600">Devices and browsers currently signed in to your account.</p>
+    <p class="mt-1 text-sm text-muted">Devices and browsers currently signed in to your account.</p>
 </div>
 @if (Model.Sessions.Count == 0)
 {
@@ -19,7 +19,7 @@ else
 {
     <div class="card overflow-x-auto p-0">
         <table class="w-full text-sm">
-            <thead class="border-b border-neutral-200 text-left text-neutral-600">
+            <thead class="border-b border-neutral-200 text-left text-muted">
                 <tr>
                     <th class="px-4 py-3 font-medium">Session</th>
                     <th class="px-4 py-3 font-medium">Signed in</th>
@@ -33,15 +33,15 @@ else
             {
                 <tr>
                     <td class="px-4 py-3">
-                        <span class="font-mono text-xs text-neutral-600">@s.Id</span>
+                        <span class="font-mono text-xs text-muted">@s.Id</span>
                         @if (s.IsCurrent)
                         {
                             <span class="ml-1 badge badge-brand">This session</span>
                         }
                     </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-neutral-600">@s.CreatedAt.ToString("u")</td>
-                    <td class="px-4 py-3 whitespace-nowrap text-neutral-600">@(s.LastSeenAt?.ToString("u") ?? "-")</td>
-                    <td class="px-4 py-3 whitespace-nowrap text-neutral-600">@s.ExpiresAt.ToString("u")</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-muted">@s.CreatedAt.ToString("u")</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-muted">@(s.LastSeenAt?.ToString("u") ?? "-")</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-muted">@s.ExpiresAt.ToString("u")</td>
                     <td class="px-4 py-3 text-right">
                         <form method="post" action="/account/sessions/revoke" asp-antiforgery="true">
                             <input type="hidden" name="sessionId" value="@s.Id" />

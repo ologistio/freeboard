@@ -68,6 +68,7 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         // GET stashes it and 302s to the bare path, so navigating with the query lands on the form.
         { "/reset-password?token=a11y", Access.ResetToken },
         // Authenticated (full session).
+        { "/home", Access.Full },
         { "/compliance/vendors", Access.Full },
         { "/settings/evidence-collectors", Access.Full },
         { "/settings/attestation-templates", Access.Full },
@@ -84,6 +85,9 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         // Admin role.
         { "/settings/users", Access.Admin },
         { "/settings/usercredential", Access.Admin },
+        // The bare role-assignments page renders with no org loaded; the GET returns 200 without an
+        // org guard, so an authenticated admin lands on the page itself, not a redirect.
+        { "/settings/role-assignments", Access.Admin },
     };
 
     [RequiresEnvVarTheory(EnvVar = E2EGate.EnvVar)]
