@@ -5,12 +5,13 @@
     The palette entry is currently inert: keyboard-focusable and in the tab order, opening nothing and
     claiming no dialog (no aria-haspopup), and NOT disabled so the keyboard path stays whole (A2).
 *@
-<nav class="fb-rail" aria-label="Primary" x-ref="rail" :class="{ 'is-open': open }">
+<nav id="fb-rail-nav" class="fb-rail" aria-label="Primary" x-ref="rail" :class="{ 'is-open': open }">
     <div class="fb-brand">
         <span class="fb-mark" aria-hidden="true">F</span>
         <span class="fb-name">Freeboard</span>
         <button type="button" class="fb-iconbtn fb-drawer-toggle" style="margin-left:auto"
-                @@click="hide()" aria-label="Close navigation">
+                @@click="hide()" :aria-expanded="open ? 'true' : 'false'" aria-controls="fb-rail-nav"
+                aria-label="Close navigation">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                 <path stroke-linecap="round" d="M4 4l8 8M12 4l-8 8" />
             </svg>

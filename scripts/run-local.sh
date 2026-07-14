@@ -9,7 +9,7 @@
 #
 # Pass --ee (or --enterprise) to start as an Enterprise install: it turns on the
 # CustomPolicies entitlement (Enterprise:CustomPolicies), which enables the
-# custom-role designer at /admin/custom-roles. Default is off (community).
+# custom-role designer at /settings/custom-roles. Default is off (community).
 #
 # Pass --watch (or --hot-reload) to run the web app under `dotnet watch`, so edits
 # to .cs/.cshtml/.razor hot-reload (or restart) without re-running the script. The
@@ -218,7 +218,7 @@ FREEBOARD_BOOTSTRAP_SECRET="$bootstrap_secret" \
 
 if [ "$enterprise" = true ]; then
   edition_line="  Edition:   Enterprise (CustomPolicies on; custom-role
-             designer at /admin/custom-roles)"
+             designer at /settings/custom-roles)"
 else
   edition_line="  Edition:   Community (run with --ee for Enterprise)"
 fi

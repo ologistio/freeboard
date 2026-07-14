@@ -3,7 +3,8 @@
 <header class="fb-topbar">
     <div style="display:flex;align-items:center;gap:8px;min-width:0">
         @* The drawer opener lives in the topbar; it shows only below the desktop breakpoint. *@
-        <button type="button" class="fb-iconbtn fb-drawer-toggle" @@click="show($event)" aria-label="Open navigation">
+        <button type="button" class="fb-iconbtn fb-drawer-toggle" @@click="show($event)"
+                :aria-expanded="open ? 'true' : 'false'" aria-controls="fb-rail-nav" aria-label="Open navigation">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
                 <path stroke-linecap="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
             </svg>
@@ -48,7 +49,7 @@
         <div class="fb-acctwrap" x-data="accountMenu" @@keydown.escape.window="close()" @@click.outside="close()">
             <button type="button" class="fb-avatar" x-ref="opener" @@click="toggle()"
                     :aria-expanded="open ? 'true' : 'false'"
-                    aria-haspopup="true" aria-label="Account menu">
+                    aria-label="Account menu">
                 @if (string.IsNullOrEmpty(Model.Initials))
                 {
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">

@@ -88,6 +88,10 @@ public static class AuthzViewHelpers
                 || loaded.SystemPermissions.Contains(AuthzActions.AuthzAssignmentWrite)
                 || loaded.OrgGrants.Any(g => string.Equals(g.PermissionKey, AuthzActions.AuthzAssignmentWrite, StringComparison.Ordinal));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return false;
