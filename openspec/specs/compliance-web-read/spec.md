@@ -96,8 +96,15 @@ consistent with the identifier identity semantics.
 
 ### Requirement: Read path tolerates an unavailable store
 
-The web app SHALL NOT auto-connect to MySQL at startup, so an unreachable store
-SHALL NOT crash the app. When the store is unreachable at request time, a read
+The web app SHALL NOT require MySQL at startup: an unreachable store SHALL NOT crash
+the app or block boot. The web app MAY perform a single guarded, best-effort read
+just after the server has started, off the boot-blocking path, whose sole effect is
+logging integration-connection token warnings; that read SHALL NOT be awaited before
+the server begins accepting requests, so a hung or unreachable store can never delay
+or gate boot. That read SHALL be non-fatal and SHALL silently skip - never throwing,
+and never blocking or gating boot - on any store outage, so the app still boots when
+the store is unreachable. Apart from that one guarded warning read, the web app SHALL
+NOT auto-connect to MySQL at startup. When the store is unreachable at request time, a read
 endpoint SHALL return a clear error response (an RFC 7807 problem body, HTTP 503)
 rather than an unhandled exception, and the `GET /api/v1/freeboard/compliance/status`
 endpoint's `persisted` summary SHALL degrade to all-null per-kind values rather
@@ -147,6 +154,14 @@ an unhandled exception.
   `/api/v1/freeboard/attestation-templates`
 - **THEN** the endpoint returns HTTP 503 with an RFC 7807 problem body rather than
   an unhandled exception
+
+#### Scenario: Guarded post-start warning read skips a store outage without failing boot
+
+- **WHEN** the web app starts and the compliance store is unreachable during the
+  single guarded, best-effort integration-connection token warning read that runs
+  just after the server has started, off the boot-blocking path
+- **THEN** the read is skipped silently, it emits no warning, boot is neither blocked
+  nor failed, and the app starts
 
 ### Requirement: Web tests inject a compliance store double
 
