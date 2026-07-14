@@ -1128,9 +1128,9 @@ html[data-theme="light"] {
         letter-spacing: -0.01em;
         color: var(--color-ink);
     }
-    /* The command-palette entry (N7). Currently inert: keyboard-focusable and in the tab order, but it
-       opens nothing and claims no dialog (no aria-haspopup) until the palette exists. A1: its resting
-       border uses the >=3:1 control-outline token, not the low-contrast divider line. */
+    /* The command-palette entry (N7): the chrome's single search-or-ask affordance. It opens the palette
+       (aria-haspopup="dialog" in the markup) and stays keyboard-focusable and in the tab order (A2). A1:
+       its resting border uses the >=3:1 control-outline token, not the low-contrast divider line. */
     .fb-search-entry {
         display: flex;
         align-items: center;
@@ -1146,7 +1146,11 @@ html[data-theme="light"] {
         color: var(--color-faint);
         font-size: 13px;
         text-align: left;
-        cursor: default;
+        cursor: pointer;
+    }
+    .fb-search-entry:hover {
+        border-color: var(--color-ink);
+        color: var(--color-muted);
     }
     .fb-search-entry:focus-visible {
         outline: 2px solid var(--color-brand);
@@ -1427,6 +1431,111 @@ html[data-theme="light"] {
             inset: 0;
             z-index: 40;
             background: color-mix(in srgb, var(--color-ink) 28%, transparent);
+        }
+    }
+
+    /* The command palette (N7). Every colour is a token so both themes render from one set; the active
+       row is ink on brand-soft, because the suite's AAA gate (7:1 color-contrast-enhanced) requires it -
+       brand-ink on brand-soft is only 5.73:1 in dark and would fail. The scrim dim reuses the same ink-mix
+       the mobile drawer scrim uses. Closed, it is opacity:0/visibility:hidden - out of the tab order and
+       skipped by an accessibility audit - and opening fades it in and slides the box down. The fade/slide
+       have a real duration so the global reduced-motion rule (A3) has something to zero; the visibility
+       delay that keeps the box on screen through the close is dropped under reduced motion so it hides at
+       once. */
+    .fb-pal {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 12vh 16px 16px;
+        background: color-mix(in srgb, var(--color-ink) 28%, transparent);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.16s ease, visibility 0s 0.16s;
+    }
+    .fb-pal.is-open {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transition-delay: 0s;
+    }
+    .fb-palbox {
+        width: 560px;
+        max-width: 92vw;
+        background: var(--color-panel);
+        border: 1px solid var(--color-line-strong);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+        box-shadow: var(--shadow-lg);
+        transform: translateY(-8px);
+        transition: transform 0.16s ease;
+    }
+    .fb-pal.is-open .fb-palbox {
+        transform: none;
+    }
+    .fb-palinput {
+        display: block;
+        width: 100%;
+        padding: 13px 16px;
+        font: 400 14px var(--font-sans);
+        color: var(--color-ink);
+        background: none;
+        border: none;
+        border-bottom: 1px solid var(--color-line);
+        outline: none;
+    }
+    .fb-palinput::placeholder {
+        color: var(--color-faint);
+    }
+    .fb-pallist {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        max-height: 320px;
+        overflow-y: auto;
+    }
+    .fb-pallist li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 44px;
+        padding: 9px 16px;
+        font-size: 13px;
+        color: var(--color-ink);
+        cursor: pointer;
+    }
+    /* The highlight is a brand-soft tint; the label stays ink and the tag darkens from faint to ink, so
+       both clear the AAA bar on the tint in each theme (brand-ink on brand-soft only clears AA in dark). */
+    .fb-pallist li:hover,
+    .fb-pallist li[aria-selected="true"] {
+        background: var(--color-brand-soft);
+    }
+    .fb-hint {
+        font: 500 10px var(--font-mono);
+        color: var(--color-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        flex: none;
+    }
+    .fb-pallist li:hover .fb-hint,
+    .fb-pallist li[aria-selected="true"] .fb-hint {
+        color: var(--color-ink);
+    }
+    .fb-palfoot {
+        font: 500 10px var(--font-mono);
+        color: var(--color-faint);
+        padding: 8px 16px;
+        border-top: 1px solid var(--color-line);
+    }
+    @media (prefers-reduced-motion: reduce) {
+        /* Drop the close visibility delay so the palette hides at once; the global rule zeroes the
+           fade/slide durations. */
+        .fb-pal {
+            transition-delay: 0s;
         }
     }
 }

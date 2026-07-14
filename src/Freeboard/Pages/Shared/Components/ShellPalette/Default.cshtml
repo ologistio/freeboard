@@ -1,0 +1,53 @@
+@using Freeboard.Navigation
+@model ShellNavView
+@*
+    The command palette (N7). Server-rendered so the options, their ids, roles, and tags are correct
+    without JS and an accessibility audit sees real markup. commandPalette (app.js) layers the ARIA
+    combobox behaviour on top: the input keeps focus while aria-activedescendant tracks the highlight.
+    The root holds .fb-rail and .fb-stage inert while open; it sits outside both, so it stays reachable.
+    Escape closes only this overlay (overlayEscape stops the event) and restores focus to the opener.
+*@
+<div class="fb-pal" x-data="commandPalette" x-cloak
+     :class="{ 'is-open': $store.palette.open }"
+     @@click.self="close()"
+     @@keydown.escape="overlayEscape($event)">
+    <div class="fb-palbox" role="dialog" aria-modal="true" aria-label="Command palette">
+        <input class="fb-palinput" type="text" role="combobox"
+               aria-expanded="true" aria-controls="fb-pal-list" aria-autocomplete="list"
+               aria-label="Command palette search" placeholder="Jump to a page or ask..."
+               autocomplete="off" x-model="query"
+               :aria-activedescendant="activeId || null"
+               @@keydown.down.prevent="move(1)"
+               @@keydown.up.prevent="move(-1)"
+               @@keydown.enter.prevent="run()" />
+        <ul class="fb-pallist" id="fb-pal-list" role="listbox" aria-label="Results" x-ref="list">
+            @{ var index = 0; }
+            @foreach (var group in Model.Groups)
+            {
+                foreach (var item in group.Items)
+                {
+                    var optionId = $"fb-pal-opt-{index}";
+                    <li id="@optionId" role="option" data-kind="page" data-route="@item.Route"
+                        data-label="@item.Label.ToLowerInvariant()"
+                        :aria-selected="activeId === '@optionId'"
+                        x-show="optionVisible($el)"
+                        @@click="run($el)" @@mouseenter="activeId = $el.id">
+                        <span>@item.Label</span>
+                        <span class="fb-hint">Page</span>
+                    </li>
+                    index++;
+                }
+            }
+            @{ var commandId = $"fb-pal-opt-{index}"; }
+            <li id="@commandId" role="option" data-kind="command" data-command="toggle-theme"
+                data-label="toggle dark mode"
+                :aria-selected="activeId === '@commandId'"
+                x-show="optionVisible($el)"
+                @@click="run($el)" @@mouseenter="activeId = $el.id">
+                <span>Toggle dark mode</span>
+                <span class="fb-hint">Command</span>
+            </li>
+        </ul>
+        <div class="fb-palfoot">Enter to open / Esc to close / arrows to move</div>
+    </div>
+</div>

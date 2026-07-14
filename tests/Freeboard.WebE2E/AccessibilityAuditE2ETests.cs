@@ -169,6 +169,51 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
                 + string.Join("\n", result.Violations.Select(DescribeViolation)));
     }
 
+    /// <summary>
+    /// Audits the command palette OPEN, in both themes. Axe skips hidden nodes and the palette is
+    /// visibility:hidden until opened, so it is opened (Ctrl-K) and its box waited visible before the
+    /// audit. The suite seeds no theme, so the dark pass seeds <c>fb-theme=dark</c> via an init script
+    /// that runs before the page loads; the pre-paint reader then applies <c>data-theme="dark"</c>.
+    /// </summary>
+    [RequiresEnvVarTheory(EnvVar = E2EGate.EnvVar)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenCommandPalette_HasNoAccessibilityViolations(bool dark)
+    {
+        Gate();
+
+        await using var context = await NewContextAsync();
+        if (dark)
+        {
+            await context.AddInitScriptAsync("localStorage.setItem('fb-theme','dark')");
+        }
+
+        var token = App.SeedSession(E2EAppFixture.MakeUser("a11y-palette"));
+        await AddSessionCookieAsync(context, token);
+
+        var page = await context.NewPageAsync();
+        await page.GotoAsync($"{App.BaseUrl}/home");
+        Assert.Equal("/home", new Uri(page.Url).AbsolutePath);
+        if (dark)
+        {
+            Assert.Equal("dark", await page.EvaluateAsync<string>("() => document.documentElement.dataset.theme"));
+        }
+
+        await page.Keyboard.PressAsync("Control+k");
+        await page.Locator(".fb-palinput").WaitForAsync(new() { State = WaitForSelectorState.Visible });
+        // Wait out the open fade: Playwright reports the box visible the moment visibility flips, but a
+        // mid-transition opacity would have axe measure every colour as a semi-transparent composite.
+        await page.WaitForFunctionAsync(
+            "() => getComputedStyle(document.querySelector('.fb-pal')).opacity === '1'");
+
+        var result = await page.RunAxe(AccessibilityStandards);
+
+        Assert.True(
+            result.Violations.Length == 0,
+            $"open palette ({(dark ? "dark" : "light")}): {result.Violations.Length} accessibility violation(s)\n"
+                + string.Join("\n", result.Violations.Select(DescribeViolation)));
+    }
+
     /// <summary>Renders one axe violation as the rule, its impact and help, the docs URL, and each
     /// failing node's CSS selector and HTML - enough for a developer or agent to locate and fix it.</summary>
     private static string DescribeViolation(AxeResultItem v)
