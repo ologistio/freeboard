@@ -1,0 +1,30 @@
+name: Labeler
+
+# Reconciles repo labels to .github/labels.yml. On main it applies changes
+# (create/update/delete); on PRs it dry-runs so label edits can be reviewed
+# before merge.
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/labels.yml']
+  pull_request:
+    paths: ['.github/labels.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  labeler:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write        # create/update/delete labels
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: crazy-max/ghaction-github-labeler@v5
+        with:
+          yaml-file: .github/labels.yml
+          skip-delete: false   # labels.yml is authoritative; prune the rest
+          dry-run: ${{ github.event_name == 'pull_request' }}

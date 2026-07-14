@@ -1,0 +1,105 @@
+# Source of truth for this repo's labels. The Labeler workflow
+# (.github/workflows/labeler.yml) reconciles GitHub to match this file:
+# labels here are created or updated, labels not here are deleted.
+# Edit here, not in the GitHub UI. Colors are 6-digit hex, no leading '#'.
+
+# --- Issue type (drives release-drafter categories and SemVer bump) ---
+# One label per Conventional Commit type. Applied to bug/feature issues by the
+# issue templates and to PRs by release-drafter's autolabeler.
+- name: feature
+  color: a2eeef
+  description: Feature request, or a feat change (minor bump)
+- name: fix
+  color: d73a4a
+  description: Bug report, or a fix change (patch bump)
+- name: chore
+  color: ededed
+  description: Maintenance (build, ci, docs, perf, refactor, style, test)
+- name: breaking
+  color: b60205
+  description: Breaking change (major bump)
+
+# --- Triage ---
+- name: documentation
+  color: 0075ca
+  description: Improvements or additions to documentation
+- name: question
+  color: d876e3
+  description: Further information is requested
+- name: duplicate
+  color: cfd3d7
+  description: This issue or pull request already exists
+- name: invalid
+  color: e4e669
+  description: This doesn't seem right
+- name: wontfix
+  color: ffffff
+  description: This will not be worked on
+- name: good first issue
+  color: 7057ff
+  description: Good for newcomers
+- name: help wanted
+  color: "008672"
+  description: Extra attention is needed
+- name: backlog
+  color: c5def5
+  description: Out of the October V1 cut; roadmap
+
+# --- Domain ---
+# Durable code area a change touches. Orthogonal to epic:* (roadmap
+# initiatives): an issue can carry a domain and an epic. Apply the domains that
+# fit; leave others off.
+- name: authn
+  color: 0052cc
+  description: Authentication (sign-in, sessions, MFA)
+- name: authz
+  color: 1d76db
+  description: Authorization / access control
+- name: email
+  color: 006b75
+  description: Email transport and delivery
+- name: compliance
+  color: 0e8a16
+  description: Compliance evidence, scoring, CE+ programme
+- name: ee
+  color: 6f42c1
+  description: Enterprise Edition carve-out
+- name: dogfood
+  color: fbca04
+  description: Ologist's own CE+ programme config
+- name: web-ui
+  color: e36209
+  description: Web UI app (src/Freeboard)
+- name: cli
+  color: 6e7781
+  description: Command-line client (src/Freeboard.CLI)
+- name: agent
+  color: 8b5a2b
+  description: End-device data-collection agent (src/Freeboard.Agent)
+- name: persistence
+  color: 5319e7
+  description: Database, migrations, and stores (src/Freeboard.Persistence)
+- name: gitops
+  color: "168387"
+  description: Config authoring - kinds, loader, validator, sync
+- name: integrations
+  color: 3d4d5c
+  description: External-system collectors, connectors, and asset sources
+- name: design-system
+  color: eb8f34
+  description: Storybook, components, and web UX conventions
+- name: scoring
+  color: 0e7a5a
+  description: Score computation, control status, and rollup read-models
+- name: attestation
+  color: b08800
+  description: Manual and training attestation flows
+- name: accessibility
+  color: c2185b
+  description: Accessibility audits, contrast, and theming
+- name: ci
+  color: 455a64
+  description: CI workflows, build, and test infrastructure
+- name: security
+  color: 9e1c1c
+  description: Cross-cutting security hardening (crypto, tokens, pentests)

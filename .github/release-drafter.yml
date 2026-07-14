@@ -7,7 +7,7 @@ categories:
   - title: 'Bug Fixes'
     labels: ['fix']
   - title: 'Maintenance'
-    labels: ['chore', 'build', 'ci', 'docs', 'perf', 'refactor', 'style', 'test']
+    labels: ['chore']
 
 change-template: '- $TITLE ([#$NUMBER](https://github.com/ologistio/freeboard/pull/$NUMBER)) @$AUTHOR'
 

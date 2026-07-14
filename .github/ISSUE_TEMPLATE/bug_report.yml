@@ -1,0 +1,63 @@
+name: Bug report
+description: "A defect: something behaves incorrectly, flakily, or against spec."
+labels: [fix]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the failure with concrete facts: exact errors, commands, and
+        the observed vs expected behaviour. Leave a section blank if it does not
+        apply.
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: What goes wrong, and where. Include the exact error, stack trace, or failing assertion.
+      placeholder: |
+        The `X` job fails with:
+
+        ```
+        <paste exact error / stack trace>
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that triggers it. Note if it is intermittent or environment-dependent.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should happen instead. Cite the spec or rule it contradicts if there is one.
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence / scope
+      description: How often it happens, which runs or commits show it, and whether it is pre-existing or introduced by a change.
+    validations:
+      required: false
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root cause (if known)
+      description: Likely cause and any candidate fixes. Mark inferences "Likely" and gaps "Unknown".
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, .NET version, project, branch/commit, CI vs local - whatever is relevant.
+      placeholder: linux, net10.0, src/Freeboard.Persistence, main @ <sha>
+    validations:
+      required: false
