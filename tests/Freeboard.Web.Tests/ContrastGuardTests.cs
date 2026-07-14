@@ -4,10 +4,12 @@ using System.Text.RegularExpressions;
 namespace Freeboard.Web.Tests;
 
 /// <summary>
-/// Computes WCAG contrast ratios from the token values in the source stylesheet and holds the AA
-/// line in BOTH themes (A1 and the AA-in-both-themes half of A6). Text pairs must clear 4.5:1; a
-/// seal/fill against its ground must clear 3:1. Dark is checked from its authored token set: dark
-/// applies only via an explicit override, but the override reaches those values.
+/// Computes WCAG contrast ratios from the token values in the source stylesheet and holds the
+/// contrast line in BOTH themes (A1 and the both-themes half of A6). The neutral text tokens
+/// (ink/muted/faint) carry body and label copy on the panel grounds and must clear AAA (7:1); the
+/// semantic and brand word tokens are AA (4.5:1); a seal/fill against its ground must clear 3:1.
+/// Dark is checked from its authored token set: dark applies only via an explicit override, but the
+/// override reaches those values.
 /// </summary>
 public sealed class ContrastGuardTests
 {
@@ -56,28 +58,32 @@ public sealed class ContrastGuardTests
         return (t, Parse(t["--color-panel"], opaque), Parse(t["--color-field"], opaque), Parse(t["--color-panel-dim"], opaque));
     }
 
+    private const double AaText = 4.5;
+    private const double AaaText = 7.0;
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void TextPairsClearAa(bool dark)
+    public void TextPairsClearContrast(bool dark)
     {
         var css = CssTokenSource.Read();
         var (t, panel, field, pdim) = Theme(css, dark);
         Rgb C(string name, Rgb ground) => Parse(t[name], ground);
 
         var fails = new List<string>();
-        void Text(string fg, Rgb ground, string label)
+        void Text(string fg, Rgb ground, string label, double min)
         {
             var r = Ratio(C(fg, ground), ground);
-            if (r < 4.5) fails.Add($"{label}: {r:F2}");
+            if (r < min) fails.Add($"{label}: {r:F2} (need {min:F1})");
         }
 
-        // Neutral text on the three grounds.
+        // Neutral text (body copy and labels) on the three grounds must clear AAA: this is the token
+        // layer the whole UI reads for prose, so it carries the strict bar.
         foreach (var (name, _) in new[] { ("--color-ink", 0), ("--color-muted", 0), ("--color-faint", 0) })
         {
-            Text(name, panel, $"{name} on panel");
-            Text(name, field, $"{name} on field");
-            Text(name, pdim, $"{name} on panel-dim");
+            Text(name, panel, $"{name} on panel", AaaText);
+            Text(name, field, $"{name} on field", AaaText);
+            Text(name, pdim, $"{name} on panel-dim", AaaText);
         }
 
         // Semantic word (-ink) on its soft ground and on every panel ground a badge/tag can render
@@ -85,20 +91,20 @@ public sealed class ContrastGuardTests
         foreach (var s in new[] { "ok", "warn", "fail", "info", "neutral" })
         {
             var soft = C($"--color-{s}-soft", panel);
-            Text($"--color-{s}-ink", soft, $"{s}-ink on {s}-soft");
-            Text($"--color-{s}-ink", panel, $"{s}-ink on panel");
-            Text($"--color-{s}-ink", field, $"{s}-ink on field");
-            Text($"--color-{s}-ink", pdim, $"{s}-ink on panel-dim");
+            Text($"--color-{s}-ink", soft, $"{s}-ink on {s}-soft", AaText);
+            Text($"--color-{s}-ink", panel, $"{s}-ink on panel", AaText);
+            Text($"--color-{s}-ink", field, $"{s}-ink on field", AaText);
+            Text($"--color-{s}-ink", pdim, $"{s}-ink on panel-dim", AaText);
         }
 
         // Brand word on its soft ground and on the panel grounds; button label on the solid brand fill.
-        Text("--color-brand-ink", C("--color-brand-soft", panel), "brand-ink on brand-soft");
-        Text("--color-brand-ink", panel, "brand-ink on panel");
-        Text("--color-brand-ink", field, "brand-ink on field");
-        Text("--color-brand-ink", pdim, "brand-ink on panel-dim");
-        Text("--color-on-brand", C("--color-brand", panel), "on-brand on brand");
+        Text("--color-brand-ink", C("--color-brand-soft", panel), "brand-ink on brand-soft", AaText);
+        Text("--color-brand-ink", panel, "brand-ink on panel", AaText);
+        Text("--color-brand-ink", field, "brand-ink on field", AaText);
+        Text("--color-brand-ink", pdim, "brand-ink on panel-dim", AaText);
+        Text("--color-on-brand", C("--color-brand", panel), "on-brand on brand", AaText);
 
-        Assert.True(fails.Count == 0, $"AA text failures ({(dark ? "dark" : "light")}):\n" + string.Join("\n", fails));
+        Assert.True(fails.Count == 0, $"Text contrast failures ({(dark ? "dark" : "light")}):\n" + string.Join("\n", fails));
     }
 
     [Theory]

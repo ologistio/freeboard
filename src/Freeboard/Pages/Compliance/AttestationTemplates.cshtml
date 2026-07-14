@@ -1,11 +1,13 @@
-@page "/compliance/attestation-templates"
+@page "/settings/attestation-templates"
 @model Freeboard.Pages.Compliance.AttestationTemplatesModel
 @{
     ViewData["Title"] = "Attestation Template Register";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["NavItem"] = "attestation-templates";
 }
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Attestation Template Register</h1>
-    <p class="mt-1 text-sm text-neutral-600">Controls and the attestation forms and training quizzes attached to each.</p>
+    <p class="mt-1 text-sm text-muted">Controls and the attestation forms and training quizzes attached to each.</p>
 </div>
 
 @if (Model.StoreUnreachable)
@@ -14,7 +16,7 @@
 }
 else if (Model.Controls.Count == 0)
 {
-    <p class="text-sm text-neutral-600" data-empty>No attestation templates are registered.</p>
+    <p class="text-sm text-muted" data-empty>No attestation templates are registered.</p>
 }
 else
 {
@@ -24,7 +26,7 @@ else
             <section class="card p-0" data-control-id="@control.Id">
                 <div class="border-b border-neutral-200 px-4 py-3">
                     <h2 class="font-semibold">@control.Title</h2>
-                    <p class="font-mono text-xs text-neutral-600">@control.Id</p>
+                    <p class="font-mono text-xs text-muted">@control.Id</p>
                 </div>
                 <div class="divide-y divide-neutral-100">
                     @foreach (var template in Model.TemplatesFor(control.Id))

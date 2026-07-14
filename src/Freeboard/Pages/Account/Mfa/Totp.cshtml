@@ -2,16 +2,19 @@
 @model Freeboard.Pages.Account.Mfa.TotpModel
 @{
     ViewData["Title"] = "Set up an authenticator app";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["BreadcrumbParent"] = "Account";
+    ViewData["BreadcrumbParentHref"] = "/account";
 }
 <partial name="_AccountNav" />
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Set up an authenticator app</h1>
-    <p class="mt-1 text-sm text-neutral-600">Use a one-time code from an app as a second factor.</p>
+    <p class="mt-1 text-sm text-muted">Use a one-time code from an app as a second factor.</p>
 </div>
 @if (Model.ProvisioningUri is null)
 {
     <div class="card max-w-md space-y-4">
-        <p class="text-sm text-neutral-600">Set up an authenticator app to use a one-time code as a second factor.</p>
+        <p class="text-sm text-muted">Set up an authenticator app to use a one-time code as a second factor.</p>
         <form method="post" asp-page-handler="Begin">
             <button class="btn-primary" type="submit">Set up authenticator app</button>
         </form>
@@ -21,7 +24,7 @@ else
 {
     <partial name="_ErrorSummary" model="ModelState" />
     <div class="card max-w-md space-y-4">
-        <p class="text-sm text-neutral-600">Add this to your authenticator app, then enter the 6-digit code it shows to confirm.</p>
+        <p class="text-sm text-muted">Add this to your authenticator app, then enter the 6-digit code it shows to confirm.</p>
         <p class="rounded-md bg-neutral-50 p-3 text-sm break-all"><code>@Model.ProvisioningUri</code></p>
         <form method="post" class="space-y-4">
             <div class="space-y-1.5">

@@ -1,11 +1,13 @@
-@page "/admin/users"
+@page "/settings/users"
 @model Freeboard.Pages.Admin.UsersModel
 @{
     ViewData["Title"] = "Users";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["NavItem"] = "users";
 }
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Users</h1>
-    <p class="mt-1 text-sm text-neutral-600">Create and manage user accounts.</p>
+    <p class="mt-1 text-sm text-muted">Create and manage user accounts.</p>
 </div>
 
 @if (Model.Notice is not null)
@@ -26,7 +28,7 @@
 
 <div class="card mb-8 overflow-x-auto p-0">
     <table class="w-full text-sm">
-        <thead class="border-b border-neutral-200 text-left text-neutral-600">
+        <thead class="border-b border-neutral-200 text-left text-muted">
             <tr>
                 <th class="px-4 py-3 font-medium">Email</th>
                 <th class="px-4 py-3 font-medium">Name</th>
@@ -40,7 +42,7 @@
             {
                 <tr>
                     <td class="px-4 py-3">@user.Email</td>
-                    <td class="px-4 py-3 text-neutral-600">@user.Name</td>
+                    <td class="px-4 py-3 text-muted">@user.Name</td>
                     <td class="px-4 py-3">
                         @if (string.Equals(user.GlobalRole, "admin", StringComparison.OrdinalIgnoreCase))
                         {
@@ -117,8 +119,8 @@
             }
             else
             {
-                <label class="flex items-center gap-2 text-sm text-neutral-600"><input type="radio" name="handoff" value="invite" class="accent-brand" disabled /> Email an invite link</label>
-                <p class="text-xs text-neutral-600">Email is not configured; new users get a temporary password.</p>
+                <label class="flex items-center gap-2 text-sm text-muted"><input type="radio" name="handoff" value="invite" class="accent-brand" disabled /> Email an invite link</label>
+                <p class="text-xs text-muted">Email is not configured; new users get a temporary password.</p>
             }
         </fieldset>
         <button class="btn-primary" type="submit">Create user</button>

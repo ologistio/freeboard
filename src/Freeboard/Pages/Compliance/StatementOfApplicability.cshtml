@@ -3,10 +3,12 @@
 @model Freeboard.Pages.Compliance.StatementOfApplicabilityModel
 @{
     ViewData["Title"] = "Statement of Applicability";
+    ViewData["NavGroup"] = "Comply";
+    ViewData["NavItem"] = "soa";
 }
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Statement of Applicability</h1>
-    <p class="mt-1 text-sm text-neutral-600">Review how each standard applies across your organisation.</p>
+    <p class="mt-1 text-sm text-muted">Review how each standard applies across your organisation.</p>
 </div>
 
 @if (Model.StoreUnreachable)
@@ -42,14 +44,14 @@ else
     }
     else if (Model.StandardId is not null)
     {
-        <p class="mb-3 text-sm text-neutral-600">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
+        <p class="mb-3 text-sm text-muted">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
         @* No-JS reveal: the whole tree renders server-side, so neutralize x-cloak when Alpine cannot run.
            Scoped to the SoA tree so it never reveals layout chrome (mobile-nav overlay, account menu)
            that also uses x-cloak. *@
         <noscript><style>.soa-nodes [x-cloak]{display:revert !important}</style></noscript>
         <div class="card overflow-x-auto p-0">
             <table class="soa-nodes w-full text-sm" data-standard="@Model.StandardId">
-                <thead class="border-b border-neutral-200 text-left text-neutral-600">
+                <thead class="border-b border-neutral-200 text-left text-muted">
                     <tr>
                         <th class="px-4 py-3 font-medium">Id</th>
                         <th class="px-4 py-3 font-medium">Title</th>
@@ -63,7 +65,7 @@ else
                     var hasRequirements = node.Requirements.Count > 0;
                     <tbody x-data="{ open: false }" class="border-b border-neutral-100 last:border-0">
                         <tr data-node-id="@node.Id">
-                            <td class="px-4 py-3 font-mono text-xs text-neutral-600">
+                            <td class="px-4 py-3 font-mono text-xs text-muted">
                                 <div class="flex items-center gap-2">
                                     @if (hasRequirements)
                                     {
@@ -115,7 +117,7 @@ else
                                                             </svg>
                                                         </button>
                                                     }
-                                                    <span class="font-mono text-xs text-neutral-600">@requirement.Id</span>
+                                                    <span class="font-mono text-xs text-muted">@requirement.Id</span>
                                                     <span class="text-xs">@requirement.Title</span>
                                                     @if (requirement.Disposition == "In")
                                                     {
@@ -146,7 +148,7 @@ else
                                                                             </svg>
                                                                         </button>
                                                                     }
-                                                                    <span class="font-mono text-xs text-neutral-600">@control.Id</span>
+                                                                    <span class="font-mono text-xs text-muted">@control.Id</span>
                                                                     <span class="text-xs">@control.Title</span>
                                                                     @if (!string.IsNullOrEmpty(control.Evaluation))
                                                                     {
@@ -160,7 +162,7 @@ else
                                                                         {
                                                                             <li data-check-id="@check.Id" data-check-kind="@check.Kind.ToWireValue()"
                                                                                 class="flex items-center gap-2">
-                                                                                <span class="font-mono text-xs text-neutral-600">@check.Id</span>
+                                                                                <span class="font-mono text-xs text-muted">@check.Id</span>
                                                                                 <span class="text-xs">@check.Title</span>
                                                                                 <span class="badge badge-neutral">@(check.Kind == SoaCheckKind.Collector ? "Collector" : "Attestation")</span>
                                                                                 <span class="text-xs text-neutral-500">@check.Type</span>

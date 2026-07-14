@@ -6,12 +6,13 @@
     var allSelected = Model.SelectedId is null;
     var allHref = $"/org/select?return={ViewData["OrgSelectorReturn"]}";
 }
-<p class="nav-section-title" id="org-selector-heading">Organisation</p>
-<ul class="space-y-0.5 text-sm" aria-labelledby="org-selector-heading">
+<div class="fb-navgroup" id="org-selector-heading">Organisation</div>
+<ul class="space-y-0.5" aria-labelledby="org-selector-heading">
     <li>
-        <a href="@allHref" class="@(allSelected ? "nav-link nav-link-active" : "nav-link")"
+        <a href="@allHref" class="@(allSelected ? "fb-wspick is-active" : "fb-wspick")"
            aria-current="@(allSelected ? "true" : null)">
-            All Organisations
+            <span class="fb-dot" aria-hidden="true"></span>
+            <span>All Organisations</span>
             @if (allSelected)
             {
                 <span class="sr-only">(current selection)</span>

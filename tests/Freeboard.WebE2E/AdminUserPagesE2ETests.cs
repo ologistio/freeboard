@@ -46,23 +46,23 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         await WaitForUrlAsync(page, $"{App.BaseUrl}/account");
 
         // Create a user via the temp-password handoff.
-        await page.GotoAsync($"{App.BaseUrl}/admin/users");
+        await page.GotoAsync($"{App.BaseUrl}/settings/users");
         await page.FillAsync("#email", "newhire@example.com");
         await page.FillAsync("#name", "New Hire");
         await page.CheckAsync("input[name=handoff][value=temp]");
         await page.ClickAsync("button:has-text('Create user')");
 
         // The one-time display page shows the temp password once.
-        await WaitForUrlAsync(page, $"{App.BaseUrl}/admin/usercredential");
+        await WaitForUrlAsync(page, $"{App.BaseUrl}/settings/usercredential");
         var tempPassword = (await page.InnerTextAsync(".temp-password")).Trim();
         Assert.False(string.IsNullOrEmpty(tempPassword));
 
         // A refresh of the display page shows nothing.
-        await page.GotoAsync($"{App.BaseUrl}/admin/usercredential");
+        await page.GotoAsync($"{App.BaseUrl}/settings/usercredential");
         Assert.Equal(0, await page.Locator(".temp-password").CountAsync());
 
         // The new user appears in the list.
-        await page.GotoAsync($"{App.BaseUrl}/admin/users");
+        await page.GotoAsync($"{App.BaseUrl}/settings/users");
         Assert.Contains("newhire@example.com", await page.ContentAsync(), StringComparison.Ordinal);
 
         // Log out, then log in as the new user with the displayed temp password and complete the
@@ -97,7 +97,7 @@ public sealed class AdminUserPagesE2ETests : E2ETestBase
         await page.ClickAsync("button[type=submit]");
         await WaitForUrlAsync(page, $"{App.BaseUrl}/account");
 
-        await page.GotoAsync($"{App.BaseUrl}/admin/users");
+        await page.GotoAsync($"{App.BaseUrl}/settings/users");
         await page.FillAsync("#email", "invitee@example.com");
         await page.FillAsync("#name", "Invitee");
         await page.CheckAsync("input[name=handoff][value=invite]");

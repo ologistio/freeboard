@@ -2,11 +2,14 @@
 @model Freeboard.Pages.Account.Password.ChangeModel
 @{
     ViewData["Title"] = "Change password";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["BreadcrumbParent"] = "Account";
+    ViewData["BreadcrumbParentHref"] = "/account";
 }
 <partial name="_AccountNav" />
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Change password</h1>
-    <p class="mt-1 text-sm text-neutral-600">Update the password you use to sign in.</p>
+    <p class="mt-1 text-sm text-muted">Update the password you use to sign in.</p>
 </div>
 @if (Model.Changed)
 {

@@ -1,16 +1,18 @@
-@page "/admin/custom-roles"
+@page "/settings/custom-roles"
 @using System.Linq
 @using Freeboard.Core.Authz
 @model Freeboard.Pages.Admin.CustomRolesModel
 @{
     ViewData["Title"] = "Custom roles";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["NavItem"] = "custom-roles";
 }
 <div class="mb-6 flex items-start justify-between gap-4">
     <div>
         <h1 class="text-2xl font-bold">Custom roles</h1>
-        <p class="mt-1 text-sm text-neutral-600">Organisation-scoped roles built from the allowed permissions.</p>
+        <p class="mt-1 text-sm text-muted">Organisation-scoped roles built from the allowed permissions.</p>
     </div>
-    <a href="/admin/custom-roles/designer" class="btn-primary">Create custom role</a>
+    <a href="/settings/custom-roles/designer" class="btn-primary">Create custom role</a>
 </div>
 
 @if (Model.Notice is not null)
@@ -21,14 +23,14 @@
 @if (Model.Roles.Count == 0)
 {
     <div class="card">
-        <p class="text-sm text-neutral-600">No custom roles yet. Create one to get started.</p>
+        <p class="text-sm text-muted">No custom roles yet. Create one to get started.</p>
     </div>
 }
 else
 {
     <div class="card max-w-4xl overflow-x-auto p-0">
         <table class="w-full text-sm">
-            <thead class="border-b border-neutral-200 text-left text-neutral-600">
+            <thead class="border-b border-neutral-200 text-left text-muted">
                 <tr>
                     <th class="px-4 py-3 font-medium">Role key</th>
                     <th class="px-4 py-3 font-medium">Name</th>
@@ -58,10 +60,10 @@ else
                             </div>
                         </td>
                         <td class="px-4 py-3">@role.Role.Title</td>
-                        <td class="px-4 py-3 text-neutral-600">@role.PermissionKeys.Count</td>
+                        <td class="px-4 py-3 text-muted">@role.PermissionKeys.Count</td>
                         <td class="px-4 py-3">
                             <div class="flex justify-end gap-2">
-                                <a href="/admin/custom-roles/designer/@slug" class="btn-secondary btn-sm" @@click.stop>Edit</a>
+                                <a href="/settings/custom-roles/designer/@slug" class="btn-secondary btn-sm" @@click.stop>Edit</a>
                                 <form method="post" asp-page-handler="Delete" @@click.stop>
                                     <input type="hidden" name="roleKey" value="@key" />
                                     <button type="submit" class="btn-danger btn-sm">Delete</button>
@@ -73,7 +75,7 @@ else
                         <td colspan="4" class="bg-neutral-50 px-4 py-4">
                             @if (!string.IsNullOrWhiteSpace(role.Role.Description))
                             {
-                                <p class="mb-3 text-sm text-neutral-600">@role.Role.Description</p>
+                                <p class="mb-3 text-sm text-muted">@role.Role.Description</p>
                             }
                             @if (granted.Count == 0)
                             {

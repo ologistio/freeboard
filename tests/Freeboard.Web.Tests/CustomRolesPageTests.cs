@@ -6,14 +6,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace Freeboard.Web.Tests;
 
 /// <summary>
-/// The custom-role LIST page (/admin/custom-roles): the entitlement gate (404 when off), the in-page
+/// The custom-role LIST page (/settings/custom-roles): the entitlement gate (404 when off), the in-page
 /// super-admin gate (403 for a non-admin), an expandable table of roles with an Edit link into the
 /// designer, and an inline Delete that writes an audit event through the shared store. Create and edit
 /// live on the designer page (see <see cref="CustomRoleDesignerPageTests"/>).
 /// </summary>
 public sealed class CustomRolesPageTests
 {
-    private const string Path = "/admin/custom-roles";
+    private const string Path = "/settings/custom-roles";
 
     private static HttpClient NoRedirectClient(AuthWebFactory factory)
         => factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -66,7 +66,7 @@ public sealed class CustomRolesPageTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("custom:auditor", html);
-        Assert.Contains("/admin/custom-roles/designer/auditor", html);
+        Assert.Contains("/settings/custom-roles/designer/auditor", html);
     }
 
     [Fact]

@@ -1,11 +1,13 @@
-@page "/compliance/evidence-collectors"
+@page "/settings/evidence-collectors"
 @model Freeboard.Pages.Compliance.EvidenceCollectorsModel
 @{
     ViewData["Title"] = "Evidence Collector Register";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["NavItem"] = "evidence-collectors";
 }
 <div class="mb-6">
     <h1 class="text-2xl font-bold">Evidence Collector Register</h1>
-    <p class="mt-1 text-sm text-neutral-600">Controls, their evaluation rule, and the data sources attached to each.</p>
+    <p class="mt-1 text-sm text-muted">Controls, their evaluation rule, and the data sources attached to each.</p>
 </div>
 
 @if (Model.StoreUnreachable)
@@ -14,7 +16,7 @@
 }
 else if (Model.Controls.Count == 0)
 {
-    <p class="text-sm text-neutral-600" data-empty>No controls are registered.</p>
+    <p class="text-sm text-muted" data-empty>No controls are registered.</p>
 }
 else
 {
@@ -26,9 +28,9 @@ else
                 <div class="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-3">
                     <div>
                         <h2 class="font-semibold">@control.Title</h2>
-                        <p class="font-mono text-xs text-neutral-600">@control.Id</p>
+                        <p class="font-mono text-xs text-muted">@control.Id</p>
                     </div>
-                    <span class="text-xs text-neutral-600">
+                    <span class="text-xs text-muted">
                         Evaluation:
                         <span class="badge badge-brand" data-evaluation>@Freeboard.Pages.Compliance.EvidenceCollectorsModel.EvaluationLabel(control)</span>
                     </span>
@@ -40,7 +42,7 @@ else
                 else
                 {
                     <table class="evidence-collectors w-full text-sm">
-                        <thead class="border-b border-neutral-200 text-left text-neutral-600">
+                        <thead class="border-b border-neutral-200 text-left text-muted">
                             <tr>
                                 <th class="px-4 py-3 font-medium">Collector</th>
                                 <th class="px-4 py-3 font-medium">Type</th>
@@ -91,7 +93,7 @@ else
                                                 @foreach (var entry in collector.Config)
                                                 {
                                                     <div class="flex gap-1 font-mono text-xs" data-config-key="@entry.Key">
-                                                        <dt class="text-neutral-600">@entry.Key:</dt>
+                                                        <dt class="text-muted">@entry.Key:</dt>
                                                         <dd>@entry.Value</dd>
                                                     </div>
                                                 }

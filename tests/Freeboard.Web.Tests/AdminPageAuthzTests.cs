@@ -31,7 +31,7 @@ public sealed class AdminPageAuthzTests
         // A global-admin holding ONLY the legacy claim, with no super-admin authz grant.
         var token = factory.SeedSession(AuthWebFactory.MakeUser("adm", role: "admin"), grantRoleAuthz: false);
 
-        var response = await GetWithCookie(factory, token, "/admin/users");
+        var response = await GetWithCookie(factory, token, "/settings/users");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -42,7 +42,7 @@ public sealed class AdminPageAuthzTests
         using var factory = new AuthWebFactory();
         var token = factory.SeedSession(AuthWebFactory.MakeUser("adm2", role: "admin"), grantRoleAuthz: false);
 
-        var response = await GetWithCookie(factory, token, "/admin/usercredential");
+        var response = await GetWithCookie(factory, token, "/settings/usercredential");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -53,7 +53,7 @@ public sealed class AdminPageAuthzTests
         using var factory = new AuthWebFactory();
         var token = factory.SeedSession(AuthWebFactory.MakeUser("sa", role: "admin"));
 
-        var response = await GetWithCookie(factory, token, "/admin/users");
+        var response = await GetWithCookie(factory, token, "/settings/users");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
