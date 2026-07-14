@@ -97,6 +97,12 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json => json.EnumerateArray().Select(ReadAttestationTemplate).ToList(),
             ct);
 
+    public Task<ApiResult<IReadOnlyList<ApiIntegrationConnection>>> ListIntegrationConnectionsAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiIntegrationConnection>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/integration-connections", body: null,
+            json => json.EnumerateArray().Select(ReadIntegrationConnection).ToList(),
+            ct);
+
     public Task<ApiResult<IssuedCredential>> IssueCollectorCredentialAsync(
         string collectorId, string? expiresAt, CancellationToken ct)
         => SendAsync(
@@ -236,6 +242,15 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
                 ? passMark.GetInt32()
                 : null,
             ReadArray(json, "quiz", ReadQuizItem));
+
+    private static ApiIntegrationConnection ReadIntegrationConnection(JsonElement json) =>
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("provider").GetString()!,
+            json.GetProperty("base_url").GetString()!,
+            json.GetProperty("discovery_cadence").GetString()!,
+            OptionalString(json, "vendor"),
+            json.TryGetProperty("token_resolvable", out var resolvable) && resolvable.GetBoolean());
 
     private static ApiAttestationField ReadAttestationField(JsonElement json) =>
         new(

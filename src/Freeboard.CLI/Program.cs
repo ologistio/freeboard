@@ -7,6 +7,7 @@ app.Add<SystemCommands>("system");
 app.Add<UserCommands>("user");
 app.Add<VendorCommands>("vendor");
 app.Add<CollectorCommands>("collector");
+app.Add<ConnectionCommands>("connections");
 app.Add<AttestationTemplateCommands>("attestation-template");
 app.Run(args);
 return Environment.ExitCode;

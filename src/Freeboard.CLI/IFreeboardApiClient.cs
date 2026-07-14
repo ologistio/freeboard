@@ -43,6 +43,9 @@ internal interface IFreeboardApiClient
     /// <summary>GET /attestation-templates - list attestation-templates attached to controls.</summary>
     Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct);
 
+    /// <summary>GET /integration-connections - list integration connections with their token-resolvable health.</summary>
+    Task<ApiResult<IReadOnlyList<ApiIntegrationConnection>>> ListIntegrationConnectionsAsync(CancellationToken ct);
+
     /// <summary>
     /// POST /evidence-collectors/{id}/credentials - issue a machine credential (optional expiry);
     /// returns the raw token once.
@@ -99,6 +102,13 @@ internal sealed record ApiEvidenceCollector(
     string Frequency,
     int? Threshold,
     IReadOnlyDictionary<string, string> Config);
+
+/// <summary>
+/// An integration connection as returned by the API. <see cref="Vendor"/> is null when unset;
+/// <see cref="TokenResolvable"/> is the read-time health flag. The API never returns the token value.
+/// </summary>
+internal sealed record ApiIntegrationConnection(
+    string Id, string Provider, string BaseUrl, string DiscoveryCadence, string? Vendor, bool TokenResolvable);
 
 /// <summary>An attestation form field as returned by the API.</summary>
 internal sealed record ApiAttestationField(string Id, string Label, string Type, IReadOnlyList<string> Options);
