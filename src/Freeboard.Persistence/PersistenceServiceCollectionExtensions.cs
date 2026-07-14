@@ -105,6 +105,30 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the connection factory and the read-only <see cref="IAssetStore"/>. Does NOT register the
+    /// write store.
+    /// </summary>
+    public static IServiceCollection AddAssetStore(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<IAssetStore, MySqlAssetStore>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the connection factory and the <see cref="IAssetWriteStore"/>. The write store needs an
+    /// <see cref="Auth.IUlidFactory"/> for asset/source ids; it is TryAdded so a co-registered
+    /// <see cref="AddAuth"/>/<see cref="AddAuthz"/> keeps its single instance.
+    /// </summary>
+    public static IServiceCollection AddAssetWriteStore(this IServiceCollection services, string connectionString)
+    {
+        AddConnectionFactory(services, connectionString);
+        services.TryAddSingleton<Auth.IUlidFactory, Auth.UlidFactory>();
+        services.TryAddSingleton<IAssetWriteStore, MySqlAssetWriteStore>();
+        return services;
+    }
+
     /// <summary>Registers the connection factory and <see cref="IGitOpsImporter"/>.</summary>
     public static IServiceCollection AddGitOpsImport(this IServiceCollection services, string connectionString)
     {
