@@ -7,16 +7,18 @@ namespace Freeboard.Persistence.GitOps;
 /// <summary>
 /// Imports a validated <see cref="GitOpsConfig"/> into MySQL in one DML transaction.
 /// FK-safe order: upsert standards (with metadata), requirements (reference standards), controls (with
-/// their evaluation rule), organisations (parent-before-child), vendors, evidence-collectors (reference
-/// controls and vendors), attestation-templates (reference controls); prune absent scopes then upsert the
-/// new scope set (which references organisations and standards); replace the whole requirement-scope set
-/// and the whole vendor-scope set (delete-all then insert); replace all control->requirement join rows;
-/// then hard-remove absent domain rows (organisations child-before-parent; absent evidence-collectors and
-/// absent attestation-templates before controls and vendors, so their RESTRICT FKs stay safe; vendors;
-/// controls; requirements before standards, so a removed standard's requirements clear before the RESTRICT
-/// FK is hit; standards). The requirement-scope and vendor-scope replaces and the absent-collector and
-/// absent-template prunes precede the absent-organisation, absent-vendor, absent-control, and
-/// absent-requirement deletes, keeping those RESTRICT FKs safe. Matches on id only.
+/// their evaluation rule), organisations (parent-before-child), vendors, integration-connections
+/// (reference vendors), evidence-collectors (reference controls, vendors, and integration-connections),
+/// attestation-templates (reference controls); prune absent scopes then upsert the new scope set (which
+/// references organisations and standards); replace the whole requirement-scope set and the whole
+/// vendor-scope set (delete-all then insert); replace all control->requirement join rows; then hard-remove
+/// absent domain rows (organisations child-before-parent; absent evidence-collectors and absent
+/// attestation-templates first, then absent integration-connections before vendors, so their RESTRICT FKs
+/// stay safe; vendors; controls; requirements before standards, so a removed standard's requirements clear
+/// before the RESTRICT FK is hit; standards). The requirement-scope and vendor-scope replaces and the
+/// absent-collector, absent-template, and absent-connection prunes precede the absent-organisation,
+/// absent-vendor, absent-control, and absent-requirement deletes, keeping those RESTRICT FKs safe. Matches
+/// on id only.
 /// </summary>
 public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) : IGitOpsImporter
 {
@@ -41,8 +43,15 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await UpsertAsync(
             connection, transaction, "vendors", plan.Vendors, now, cancellationToken).ConfigureAwait(false);
 
-        // Evidence-collectors reference both controls and vendors, so upsert them after both. Upsert by
-        // id (no secondary unique key); absent collectors are pruned before their target rows in step 6.
+        // Integration-connections reference vendors, so upsert them after vendors and before the
+        // evidence-collectors that reference them. Absent connections are pruned after absent collectors
+        // and before absent vendors in step 6, keeping both RESTRICT FKs safe.
+        await UpsertIntegrationConnectionsAsync(
+            connection, transaction, plan.IntegrationConnections, now, cancellationToken).ConfigureAwait(false);
+
+        // Evidence-collectors reference controls, vendors, and integration-connections, so upsert them
+        // after all three. Upsert by id (no secondary unique key); absent collectors are pruned before
+        // their target rows in step 6.
         await UpsertEvidenceCollectorsAsync(
             connection, transaction, plan.EvidenceCollectors, now, cancellationToken).ConfigureAwait(false);
 
@@ -95,6 +104,10 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         // Prune absent attestation_templates before their target controls: the control_id FK is RESTRICT,
         // so a still-referenced control cannot be deleted while a stale template points at it.
         await DeleteAbsentAsync(connection, transaction, "attestation_templates", plan.AttestationTemplateIds, cancellationToken).ConfigureAwait(false);
+        // Prune absent integration_connections after absent evidence_collectors (whose connection_id FK
+        // is RESTRICT) and before absent vendors (the connection's vendor_id FK is RESTRICT), so both
+        // FKs stay satisfied.
+        await DeleteAbsentAsync(connection, transaction, "integration_connections", plan.IntegrationConnectionIds, cancellationToken).ConfigureAwait(false);
         // Absent vendors are pruned after their vendor_scopes are gone (step 3b). Absent controls and
         // requirements are pruned after vendor_scopes too, so a vendor-scope's RESTRICT FK to a removed
         // control/requirement is already cleared.
@@ -216,16 +229,17 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             return;
         }
 
-        // Upsert by id (identity is id only, no secondary unique key). ConfigJson is written straight
-        // into the native JSON column, which validates its well-formedness.
+        // Upsert by id (identity is id only, no secondary unique key). ConfigJson and ChecksJson are
+        // written straight into their native JSON columns, which validate well-formedness.
         const string sql =
             "INSERT INTO evidence_collectors "
-            + "(id, api_version, title, control_id, vendor_id, type, frequency, threshold, config, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Control, @Vendor, @Type, @Frequency, @Threshold, @ConfigJson, @Now, @Now) "
+            + "(id, api_version, title, control_id, vendor_id, connection_id, type, frequency, threshold, config, checks, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Control, @Vendor, @Connection, @Type, @Frequency, @Threshold, @ConfigJson, @ChecksJson, @Now, @Now) "
             + "ON DUPLICATE KEY UPDATE "
             + "api_version = VALUES(api_version), title = VALUES(title), control_id = VALUES(control_id), "
-            + "vendor_id = VALUES(vendor_id), type = VALUES(type), frequency = VALUES(frequency), "
-            + "threshold = VALUES(threshold), config = VALUES(config), updated_at = VALUES(updated_at);";
+            + "vendor_id = VALUES(vendor_id), connection_id = VALUES(connection_id), type = VALUES(type), "
+            + "frequency = VALUES(frequency), threshold = VALUES(threshold), config = VALUES(config), "
+            + "checks = VALUES(checks), updated_at = VALUES(updated_at);";
 
         var parameters = rows.Select(r => new
         {
@@ -234,10 +248,50 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             r.Title,
             r.Control,
             r.Vendor,
+            r.Connection,
             r.Type,
             r.Frequency,
             r.Threshold,
             r.ConfigJson,
+            r.ChecksJson,
+            Now = now,
+        });
+        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task UpsertIntegrationConnectionsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<IntegrationConnectionRowPlan> rows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        // Upsert by id (identity is id only; a provider is not unique - one provider backs many
+        // connections). The API token is never written here.
+        const string sql =
+            "INSERT INTO integration_connections "
+            + "(id, api_version, title, provider, discovery_cadence, base_url, vendor_id, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Provider, @DiscoveryCadence, @BaseUrl, @Vendor, @Now, @Now) "
+            + "ON DUPLICATE KEY UPDATE "
+            + "api_version = VALUES(api_version), title = VALUES(title), provider = VALUES(provider), "
+            + "discovery_cadence = VALUES(discovery_cadence), base_url = VALUES(base_url), "
+            + "vendor_id = VALUES(vendor_id), updated_at = VALUES(updated_at);";
+
+        var parameters = rows.Select(r => new
+        {
+            r.Id,
+            r.ApiVersion,
+            r.Title,
+            r.Provider,
+            r.DiscoveryCadence,
+            r.BaseUrl,
+            r.Vendor,
             Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))

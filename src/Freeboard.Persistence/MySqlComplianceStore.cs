@@ -119,15 +119,25 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     public async Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<(string Id, string Title, string Control, string? Vendor, string Type, string Frequency, int? Threshold, string? Config)>(new CommandDefinition(
+        var rows = await connection.QueryAsync<(string Id, string Title, string Control, string? Vendor, string Type, string Frequency, int? Threshold, string? Config, string? Connection)>(new CommandDefinition(
             "SELECT id AS Id, title AS Title, control_id AS Control, vendor_id AS Vendor, type AS Type, "
-            + "frequency AS Frequency, threshold AS Threshold, config AS Config "
+            + "frequency AS Frequency, threshold AS Threshold, config AS Config, connection_id AS Connection "
             + "FROM evidence_collectors ORDER BY id;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows
             .Select(r => new EvidenceCollectorRow(
-                r.Id, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, DeserializeConfig(r.Config)))
+                r.Id, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, DeserializeConfig(r.Config), r.Connection))
             .ToList();
+    }
+
+    public async Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<IntegrationConnectionRow>(new CommandDefinition(
+            "SELECT id AS Id, provider AS Provider, base_url AS BaseUrl, discovery_cadence AS DiscoveryCadence, "
+            + "vendor_id AS Vendor FROM integration_connections ORDER BY id;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.ToList();
     }
 
     /// <summary>Deserializes the stored config JSON to a string map; empty when the column is NULL.</summary>

@@ -358,6 +358,88 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
+    public void IntegrationConnectionMapsToRow()
+    {
+        var config = new GitOpsConfig
+        {
+            IntegrationConnections =
+            [
+                new IntegrationConnection
+                {
+                    Id = "fleet-prod", ApiVersion = "v1", Title = "Fleet Production", Provider = "fleet",
+                    BaseUrl = "https://fleet.example.com", DiscoveryCadence = "daily", Vendor = "vendor-a",
+                },
+                new IntegrationConnection
+                {
+                    Id = "fleet-dev", ApiVersion = "v1", Title = "Fleet Dev", Provider = "fleet",
+                    BaseUrl = "https://dev.example.com", DiscoveryCadence = "weekly", Vendor = "   ",
+                },
+            ],
+        };
+
+        var plan = ImportPlan.From(config);
+
+        var prod = plan.IntegrationConnections.Single(r => r.Id == "fleet-prod");
+        Assert.Equal("fleet", prod.Provider);
+        Assert.Equal("https://fleet.example.com", prod.BaseUrl);
+        Assert.Equal("daily", prod.DiscoveryCadence);
+        Assert.Equal("vendor-a", prod.Vendor);
+        // A blank vendor normalizes to null like other optional fields.
+        Assert.Null(plan.IntegrationConnections.Single(r => r.Id == "fleet-dev").Vendor);
+        Assert.Equal(["fleet-prod", "fleet-dev"], plan.IntegrationConnectionIds);
+    }
+
+    [Fact]
+    public void IntegrationCollectorSerializesChecksAndMapsConnection()
+    {
+        var config = new GitOpsConfig
+        {
+            EvidenceCollectors =
+            [
+                new EvidenceCollector
+                {
+                    Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
+                    Type = "integration", Frequency = "daily", Connection = "fleet-prod",
+                    Checks =
+                    [
+                        new Check { SourceKey = "12", Name = "mfa-enforced", Severity = "Hard" },
+                        new Check { SourceKey = "34", Name = "disk-encrypted", Severity = "Soft" },
+                    ],
+                },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
+
+        Assert.Equal("fleet-prod", row.Connection);
+        Assert.NotNull(row.ChecksJson);
+        Assert.Contains("\"SourceKey\":\"12\"", row.ChecksJson);
+        Assert.Contains("\"Severity\":\"Hard\"", row.ChecksJson);
+    }
+
+    [Fact]
+    public void NonIntegrationCollectorNullsConnectionAndChecksJson()
+    {
+        var config = new GitOpsConfig
+        {
+            EvidenceCollectors =
+            [
+                new EvidenceCollector
+                {
+                    Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
+                    Type = "script", Frequency = "weekly",
+                },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
+
+        Assert.Null(row.Connection);
+        // An empty checks list serializes to null (stored as SQL NULL), never throwing.
+        Assert.Null(row.ChecksJson);
+    }
+
+    [Fact]
     public void OrganisationRowCarriesKindAndNullParentForRoot()
     {
         var row = Assert.Single(ImportPlan.From(SampleConfig()).Organisations);

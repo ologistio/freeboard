@@ -89,7 +89,9 @@ public sealed record VendorScopeRow(
 /// <summary>
 /// A persisted evidence-collector attached to one control. Identity is <see cref="Id"/>.
 /// <see cref="Vendor"/> and <see cref="Threshold"/> are null when unset; <see cref="Config"/> is the
-/// type-specific settings map (empty when unset).
+/// type-specific settings map (empty when unset). <see cref="Connection"/> is the integration-connection
+/// id (null unless this is an integration collector); it is sourced only to drive the startup
+/// token-resolvability warning, not rendered on a read surface.
 /// </summary>
 public sealed record EvidenceCollectorRow(
     string Id,
@@ -99,7 +101,17 @@ public sealed record EvidenceCollectorRow(
     string Type,
     string Frequency,
     int? Threshold,
-    IReadOnlyDictionary<string, string> Config);
+    IReadOnlyDictionary<string, string> Config,
+    string? Connection = null);
+
+/// <summary>
+/// A persisted integration-connection. Identity is <see cref="Id"/>. A deliberate subset of the stored
+/// columns: <c>api_version</c> and <c>title</c> are persisted but not surfaced, and no token state is
+/// carried (token resolvability is composed at read time, never stored). <see cref="Vendor"/> is null
+/// when unset.
+/// </summary>
+public sealed record IntegrationConnectionRow(
+    string Id, string Provider, string BaseUrl, string DiscoveryCadence, string? Vendor);
 
 /// <summary>
 /// A quiz item as exposed on a read surface: prompt and option labels only. It deliberately has NO

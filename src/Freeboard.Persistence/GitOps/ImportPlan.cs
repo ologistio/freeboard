@@ -28,7 +28,23 @@ public sealed record EvidenceCollectorRowPlan(
     string Type,
     string Frequency,
     int? Threshold,
-    string? ConfigJson);
+    string? ConfigJson,
+    string? Connection,
+    string? ChecksJson);
+
+/// <summary>
+/// An integration-connection row to upsert: the provider and discovery-cadence tokens, an absolute
+/// base URL, and an optional vendor foreign key (null when blank). The API token is resolved out-of-band
+/// and is never a column here.
+/// </summary>
+public sealed record IntegrationConnectionRowPlan(
+    string Id,
+    string ApiVersion,
+    string Title,
+    string Provider,
+    string BaseUrl,
+    string DiscoveryCadence,
+    string? Vendor);
 
 /// <summary>
 /// An attestation-template row to upsert: a required control foreign key, the type token, an optional
@@ -130,6 +146,8 @@ public sealed class ImportPlan
 
     public IReadOnlyList<AttestationTemplateRowPlan> AttestationTemplates { get; }
 
+    public IReadOnlyList<IntegrationConnectionRowPlan> IntegrationConnections { get; }
+
     private ImportPlan(GitOpsConfig config)
     {
         // Optional fields normalize to null here (blank means absent), mirroring Organisation.Parent.
@@ -178,10 +196,18 @@ public sealed class ImportPlan
 
         // Threshold is parsed to int? only here, after Core validation has range-checked the raw text;
         // a blank stays null. config serializes to a JSON object string, null when the map is empty.
+        // connection is the connection foreign key (null when blank); checks serializes to a JSON array
+        // string, null when the list is empty.
         EvidenceCollectors = config.EvidenceCollectors
             .Select(c => new EvidenceCollectorRowPlan(
                 c.Id, c.ApiVersion, c.Title, c.Control, NullIfBlank(c.Vendor), c.Type, c.Frequency,
-                ParseThreshold(c.Threshold), SerializeConfig(c.Config)))
+                ParseThreshold(c.Threshold), SerializeConfig(c.Config), NullIfBlank(c.Connection), SerializeList(c.Checks)))
+            .ToList();
+
+        // Optional vendor normalizes to null (blank means absent), like the collector's vendor.
+        IntegrationConnections = config.IntegrationConnections
+            .Select(c => new IntegrationConnectionRowPlan(
+                c.Id, c.ApiVersion, c.Title, c.Provider, c.BaseUrl, c.DiscoveryCadence, NullIfBlank(c.Vendor)))
             .ToList();
 
         // pass_mark is parsed to int? only here, after Core validation has range-checked the raw text; a
@@ -227,6 +253,8 @@ public sealed class ImportPlan
     public IReadOnlyList<string> EvidenceCollectorIds => EvidenceCollectors.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> AttestationTemplateIds => AttestationTemplates.Select(r => r.Id).ToList();
+
+    public IReadOnlyList<string> IntegrationConnectionIds => IntegrationConnections.Select(r => r.Id).ToList();
 
     /// <summary>
     /// Orders organisations so every parent precedes its children (topological by depth).
