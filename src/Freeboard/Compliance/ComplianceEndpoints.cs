@@ -232,6 +232,30 @@ public static class ComplianceEndpoints
             }
         });
 
+        // Integration-connections are org-independent reference data (no organisation dimension), so - like
+        // /vendors and /evidence-collectors - they are intentionally NOT narrowed by IOrgAccess. token_resolvable
+        // is composed at read time from the out-of-band token resolver; the token value never appears here.
+        reads.MapGet("/integration-connections", async (IComplianceStore store, IIntegrationTokenResolver tokens, CancellationToken ct) =>
+        {
+            try
+            {
+                var rows = await store.GetIntegrationConnectionsAsync(ct);
+                return Results.Ok(rows.Select(r => new
+                {
+                    id = r.Id,
+                    provider = r.Provider,
+                    base_url = r.BaseUrl,
+                    discovery_cadence = r.DiscoveryCadence,
+                    vendor = r.Vendor,
+                    token_resolvable = tokens.IsResolvable(r.Id),
+                }));
+            }
+            catch (Exception ex) when (IsStoreFailure(ex))
+            {
+                return Unreachable();
+            }
+        });
+
         reads.MapGet("/statement-of-applicability/{standardId}",
             async (string standardId, IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
             {

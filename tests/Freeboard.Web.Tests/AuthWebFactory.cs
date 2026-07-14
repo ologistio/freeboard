@@ -107,6 +107,12 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// <summary>When true, the app boots in GitOps read-only mode.</summary>
     public bool ReadOnly { get; init; }
 
+    /// <summary>
+    /// Extra configuration settings applied via UseSetting, e.g. an integration API token at
+    /// <c>Freeboard:Integrations:&lt;id&gt;:ApiToken</c>. Applied before the test service overrides run.
+    /// </summary>
+    public IReadOnlyDictionary<string, string?>? Settings { get; init; }
+
     /// <summary>Drives the <c>Enterprise:CustomPolicies</c> entitlement so a test can boot on or off.</summary>
     public bool CustomPoliciesEntitled { get; init; }
 
@@ -142,6 +148,14 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
         if (AuthzMode is not null)
         {
             builder.UseSetting("Authz:Mode", AuthzMode);
+        }
+
+        if (Settings is not null)
+        {
+            foreach (var (key, value) in Settings)
+            {
+                builder.UseSetting(key, value);
+            }
         }
 
         builder.ConfigureLogging(logging => logging.AddProvider(Logs));

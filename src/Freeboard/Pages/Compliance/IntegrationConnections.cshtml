@@ -1,0 +1,67 @@
+@page "/settings/integration-connections"
+@model Freeboard.Pages.Compliance.IntegrationConnectionsModel
+@{
+    ViewData["Title"] = "Integration Connections";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["NavItem"] = "integration-connections";
+}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Integration Connections</h1>
+    <p class="mt-1 text-sm text-muted">Provider connections that drive discovery and back integration collectors.</p>
+</div>
+
+@if (Model.StoreUnreachable)
+{
+    <p class="notice-error max-w-2xl">The compliance store could not be reached. Check the database connection.</p>
+}
+else if (Model.Connections.Count == 0)
+{
+    <p class="text-sm text-muted" data-empty>No integration connections are registered.</p>
+}
+else
+{
+    <table class="integration-connections w-full text-sm">
+        <thead class="border-b border-neutral-200 text-left text-muted">
+            <tr>
+                <th class="px-4 py-3 font-medium">Connection</th>
+                <th class="px-4 py-3 font-medium">Provider</th>
+                <th class="px-4 py-3 font-medium">Base URL</th>
+                <th class="px-4 py-3 font-medium">Discovery cadence</th>
+                <th class="px-4 py-3 font-medium">Vendor</th>
+                <th class="px-4 py-3 font-medium">Token</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-neutral-100">
+            @foreach (var view in Model.Connections)
+            {
+                var connection = view.Connection;
+                <tr data-connection-id="@connection.Id">
+                    <td class="px-4 py-3"><span class="font-mono text-xs">@connection.Id</span></td>
+                    <td class="px-4 py-3"><span class="font-mono text-xs" data-provider>@connection.Provider</span></td>
+                    <td class="px-4 py-3"><span data-base-url>@connection.BaseUrl</span></td>
+                    <td class="px-4 py-3"><span data-discovery-cadence>@connection.DiscoveryCadence</span></td>
+                    <td class="px-4 py-3">
+                        @if (!string.IsNullOrEmpty(connection.Vendor))
+                        {
+                            <span class="font-mono text-xs" data-vendor>@connection.Vendor</span>
+                        }
+                        else
+                        {
+                            <span class="text-neutral-500">-</span>
+                        }
+                    </td>
+                    <td class="px-4 py-3">
+                        @if (view.TokenResolvable)
+                        {
+                            <span class="badge badge-success" data-token-resolvable="true">Resolvable</span>
+                        }
+                        else
+                        {
+                            <span class="badge badge-danger" data-token-resolvable="false">Unresolvable</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
