@@ -197,6 +197,15 @@ public sealed class ConfigLoaderTests
                 title: Vendor A
                 ---
                 apiVersion: freeboard.dev/v1alpha1
+                kind: IntegrationConnection
+                id: fleet-prod
+                title: Fleet Production
+                provider: fleet
+                base_url: https://fleet.example.com
+                discovery_cadence: daily
+                vendor: vendor-a
+                ---
+                apiVersion: freeboard.dev/v1alpha1
                 kind: EvidenceCollector
                 id: collector-integration
                 title: Endpoint MFA via Crowdstrike
@@ -205,8 +214,13 @@ public sealed class ConfigLoaderTests
                 type: integration
                 frequency: daily
                 threshold: 100
+                connection: fleet-prod
                 config:
                   endpoint: policies.mfa
+                checks:
+                  - source_key: "12"
+                    name: mfa-enforced
+                    severity: Hard
                 ---
                 apiVersion: freeboard.dev/v1alpha1
                 kind: EvidenceCollector

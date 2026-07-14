@@ -431,7 +431,7 @@ public sealed class EvidenceCollectorValidationTests
             id: collector-a
             title: T
             control: ctrl-a
-            type: integration
+            type: script
             frequency: daily
             """)));
 
@@ -515,7 +515,7 @@ public sealed class EvidenceCollectorValidationTests
             id: collector-a
             title: T
             control: ctrl-a
-            type: integration
+            type: script
             frequency: daily
             config:
             """)));

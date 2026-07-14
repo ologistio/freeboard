@@ -40,10 +40,15 @@ public static class ConfigLoader
             [GitOpsSchema.KindEvidenceCollector] = new(StringComparer.Ordinal)
             {
                 "apiVersion", "kind", "id", "title", "control", "vendor", "type", "frequency", "threshold", "config",
+                "connection", "checks",
             },
             [GitOpsSchema.KindAttestationTemplate] = new(StringComparer.Ordinal)
             {
                 "apiVersion", "kind", "id", "title", "control", "type", "body", "fields", "quiz", "pass_mark",
+            },
+            [GitOpsSchema.KindIntegrationConnection] = new(StringComparer.Ordinal)
+            {
+                "apiVersion", "kind", "id", "title", "provider", "base_url", "discovery_cadence", "vendor",
             },
         };
 
@@ -61,6 +66,7 @@ public static class ConfigLoader
         .WithAttributeOverride<VendorScope>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<EvidenceCollector>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<AttestationTemplate>(t => t.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<IntegrationConnection>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .IgnoreUnmatchedProperties()
         .Build();
 
@@ -164,7 +170,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}, {GitOpsSchema.KindIntegrationConnection}.",
             });
             return;
         }
@@ -204,9 +210,15 @@ public static class ConfigLoader
                     break;
                 case GitOpsSchema.KindEvidenceCollector:
                     var collector = Deserialize<EvidenceCollector>(mapping);
-                    // An explicit-null `config:` deserializes the map to null (overwriting the record
-                    // default); normalize to empty so ImportPlan, the page, and the CLI never NRE.
-                    config.EvidenceCollectors.Add(collector with { Config = collector.Config ?? [] });
+                    // An explicit-null `config:`/`checks:` deserializes the collection to null (overwriting
+                    // the record default), and an explicit-null `checks:` item (`checks:\n  -`) deserializes
+                    // to a null element; normalize to empty and drop null items so ImportPlan, the page, and
+                    // the CLI never NRE.
+                    config.EvidenceCollectors.Add(collector with
+                    {
+                        Config = collector.Config ?? [],
+                        Checks = (collector.Checks ?? []).Where(c => c is not null).ToList(),
+                    });
                     break;
                 case GitOpsSchema.KindAttestationTemplate:
                     var template = Deserialize<AttestationTemplate>(mapping);
@@ -219,6 +231,9 @@ public static class ConfigLoader
                         Fields = (template.Fields ?? []).Where(f => f is not null).Select(f => f with { Options = f.Options ?? [] }).ToList(),
                         Quiz = (template.Quiz ?? []).Where(q => q is not null).Select(q => q with { Options = q.Options ?? [] }).ToList(),
                     });
+                    break;
+                case GitOpsSchema.KindIntegrationConnection:
+                    config.IntegrationConnections.Add(Deserialize<IntegrationConnection>(mapping));
                     break;
             }
         }
