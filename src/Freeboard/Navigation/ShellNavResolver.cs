@@ -84,8 +84,8 @@ public sealed class ShellNavResolver(IAuthzFactProvider facts, IEnterpriseEntitl
             return activeKey;
         }
 
-        // Else the longest route that equals or prefixes the current path (the mechanism the old
-        // layout used), so a nested route (e.g. a designer under a list) still lights its parent item.
+        // Else the longest route that equals or prefixes the current path, so a nested route (e.g. a
+        // designer under a list) still lights its parent item.
         return visible
             .Where(i => IsRouteMatch(path, i.Route.ToLowerInvariant()))
             .OrderByDescending(i => i.Route.Length)

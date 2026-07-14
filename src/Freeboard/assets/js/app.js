@@ -23,6 +23,25 @@ Alpine.data("themeToggle", () => ({
 Alpine.data("railDrawer", () => ({
     open: false,
     opener: null,
+    desktop: null,
+    onDesktop: null,
+    init() {
+        // At the desktop breakpoint both drawer controls are hidden by CSS. If the viewport grows past
+        // it while the drawer is open, force it closed so the stage cannot be left inert (:inert="open")
+        // with no control to dismiss it.
+        this.desktop = window.matchMedia("(min-width: 1024px)");
+        this.onDesktop = (event) => {
+            if (event.matches) {
+                this.open = false;
+            }
+        };
+        this.desktop.addEventListener("change", this.onDesktop);
+    },
+    destroy() {
+        if (this.desktop && this.onDesktop) {
+            this.desktop.removeEventListener("change", this.onDesktop);
+        }
+    },
     show(event) {
         this.opener = (event && event.currentTarget) || null;
         this.open = true;

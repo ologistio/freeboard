@@ -5,6 +5,8 @@
     ViewData["Title"] = Model.IsEdit ? "Edit custom role" : "Create custom role";
     ViewData["NavGroup"] = "Platform";
     ViewData["NavItem"] = "custom-roles";
+    ViewData["BreadcrumbParent"] = "Custom roles";
+    ViewData["BreadcrumbParentHref"] = "/settings/custom-roles";
     var selected = Model.SelectedPermissions.ToHashSet(StringComparer.Ordinal);
     var groups = Model.PermissionOptions.GroupBy(o => o.Group).ToList();
 }

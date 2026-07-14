@@ -57,7 +57,7 @@ public sealed class ShellChromeRenderTests
     private static string BreadcrumbRegion(string html)
     {
         var start = html.IndexOf("aria-label=\"Breadcrumb\"", StringComparison.Ordinal);
-        Assert.True(start >= 0, "breadcrumb nav is present");
+        Assert.True(start >= 0, "breadcrumb nav is missing");
         var end = html.IndexOf("</nav>", start, StringComparison.Ordinal);
         return html[start..end];
     }
@@ -130,6 +130,27 @@ public sealed class ShellChromeRenderTests
 
         // The route move must not degrade the page's own <title>: it stays the leaf, not "Account".
         Assert.Contains("<title>Active sessions</title>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NestedAdminPageBreadcrumbReadsPlatformThenParentThenLeaf()
+    {
+        using var factory = new AuthWebFactory();
+        var token = factory.SeedSession(AuthWebFactory.MakeUser("admin4", role: "admin"));
+        using var client = NoRedirectClient(factory);
+
+        var html = await GetHtmlAsync(factory, client, token, "/settings/usercredential");
+        var crumb = BreadcrumbRegion(html);
+
+        // Platform / Users / Temporary password: the Users parent segment links to /settings/users, and
+        // the leaf stays the page's own title carrying aria-current.
+        Assert.Contains("href=\"/settings/users\">Users</a>", crumb, StringComparison.Ordinal);
+        Assert.Contains("aria-current=\"page\">Temporary password</a>", crumb, StringComparison.Ordinal);
+
+        var platform = crumb.IndexOf("Platform", StringComparison.Ordinal);
+        var parent = crumb.IndexOf(">Users</a>", StringComparison.Ordinal);
+        var leaf = crumb.IndexOf(">Temporary password</a>", StringComparison.Ordinal);
+        Assert.True(platform >= 0 && platform < parent && parent < leaf, "breadcrumb order is group, parent, leaf");
     }
 
     [Fact]

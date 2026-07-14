@@ -41,6 +41,29 @@ public sealed class ShellRouteReachabilityTests
         Assert.Contains("Edit custom role", editHtml, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("/compliance/evidence-collectors")]
+    [InlineData("/compliance/attestation-templates")]
+    [InlineData("/admin/users")]
+    [InlineData("/admin/usercredential")]
+    [InlineData("/admin/custom-roles")]
+    [InlineData("/admin/custom-roles/designer")]
+    [InlineData("/admin/role-assignments")]
+    public async Task RetiredPathReturnsNotFoundWithNoRedirect(string retiredPath)
+    {
+        using var factory = new AuthWebFactory { CustomPoliciesEntitled = true };
+        var token = factory.SeedSession(AuthWebFactory.MakeUser("admin1", role: "admin"));
+        using var client = NoRedirectClient(factory);
+
+        // Seed an authenticated admin so the request reaches routing: the clean-break move removed the
+        // page, so routing 404s. Without auth these could 302 to login and hide the routing outcome.
+        using var request = new HttpRequestMessage(HttpMethod.Get, retiredPath);
+        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     private static async Task<string> GetHtmlAsync(HttpClient client, string token, string path)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);

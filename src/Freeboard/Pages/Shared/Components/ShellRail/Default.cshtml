@@ -34,7 +34,7 @@
                     <span>@item.Label</span>
                     @if (item.Count is { } count)
                     {
-                        <span class="fb-navcount" aria-label="@count need action">@count</span>
+                        <span class="fb-navcount" aria-label="@count @(count == 1 ? "item needs" : "items need") action">@count</span>
                     }
                 </a>
             }

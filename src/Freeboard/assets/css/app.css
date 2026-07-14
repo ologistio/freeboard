@@ -324,7 +324,8 @@ html[data-theme="light"] {
     }
 
     .menu-item {
-        @apply block w-full px-4 py-2 text-left text-sm text-ink hover:bg-panel-dim;
+        @apply flex w-full items-center px-4 py-2 text-left text-sm text-ink hover:bg-panel-dim;
+        min-height: 44px;
     }
 
     .app-card {
@@ -1079,10 +1080,9 @@ html[data-theme="light"] {
         color: var(--color-muted);
     }
 
-    /* App shell chrome (rail + topbar + frame). Ported from stories/_marks.js with every literal
-       colour resolved through a token and every interactive hit target held at >=44px (A4): the
-       prototype's 30px icon buttons/avatar and dense nav rows are overridden here, and the visual
-       mark may sit smaller inside the 44px target. */
+    /* App shell chrome (rail + topbar + frame). Every literal colour resolves through a token; every
+       interactive hit target is at least 44px (A4), taking precedence over any smaller dimension, with
+       a smaller visual mark allowed inside the 44px target. */
     .fb-app {
         display: grid;
         grid-template-columns: 236px 1fr;
