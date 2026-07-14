@@ -55,7 +55,10 @@ public sealed class ShellTopbarViewComponent(ShellNavResolver resolver) : ViewCo
 
         if (!string.IsNullOrWhiteSpace(title))
         {
-            crumbs.Add(new ShellCrumb(title, path));
+            // The leaf crumb is a self-reference to the current page, so it links to the full current URL
+            // (path plus query). A page keyed only by query - the control detail - 404s on the bare path,
+            // so the leaf must carry the query to stay a working link (N8).
+            crumbs.Add(new ShellCrumb(title, currentUrl));
         }
 
         if (!string.IsNullOrWhiteSpace(detail))

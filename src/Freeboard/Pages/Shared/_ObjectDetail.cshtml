@@ -1,0 +1,141 @@
+@using Freeboard.TagHelpers
+@model ObjectDetailPartialModel
+@*
+    The uniform object anatomy (O3), rendered in the one fixed order: eyebrow and title, status, then
+    assertion, relations, evidence, guidance, history, closing with a context-supplied actions slot. One
+    shared partial renders the drawer content and the full-page detail, so they cannot diverge (O4).
+    Absent facets render as explicit O2 empties, never a fabricated value; the control-level status reads
+    "Not evaluated" when the projection carries no evaluated result (S6). The title carries the stable id
+    the dialog's aria-labelledby points at. The actions slot differs by context and is excluded from the
+    O3/O4 parity guarantee.
+*@
+@{
+    var view = Model.Detail;
+
+    // One divided-list row: text, then an optional status seal and an optional mono note. A degraded-on-
+    // stale check carries both - the warn seal shows it is not passing (S6) and the note names why - while
+    // an unknown check is note-only and a plain status check seal-only. Reused by every list-shaped section
+    // so the row shape stays identical everywhere.
+    Func<ObjectDetailRow, object> listRow =
+        @<li>
+            <span>@item.Text</span>
+            @if (item.Status is not null)
+            {
+                <fb-status status="@item.Status.Value" />
+            }
+            @if (!string.IsNullOrEmpty(item.Note))
+            {
+                <span class="fb-due">@item.Note</span>
+            }
+        </li>;
+}
+<div class="fb-dhead">
+    @if (!string.IsNullOrEmpty(view.Eyebrow))
+    {
+        <div class="fb-eyebrow">@view.Eyebrow</div>
+    }
+    <h2 id="fb-detail-title">@view.Title</h2>
+    @if (view.Status is not null)
+    {
+        <fb-status status="@view.Status.Value" />
+    }
+    else
+    {
+        @* S6/O2: no evaluated status, so an explicit empty - never a fabricated pass. *@
+        <span class="fb-status"><span class="fb-seal off" aria-hidden="true"></span><span class="fb-status__word">Not evaluated</span></span>
+    }
+</div>
+<div class="fb-dbody">
+    <div class="fb-dsec">
+        <div class="fb-dl">What this asserts</div>
+        @if (!string.IsNullOrEmpty(view.Assertion))
+        {
+            <p>@view.Assertion</p>
+        }
+        else
+        {
+            <p>Not recorded.</p>
+        }
+    </div>
+
+    @foreach (var group in view.Relations)
+    {
+        <div class="fb-dsec">
+            <div class="fb-dl">@group.Label</div>
+            @if (group.Rows.Count == 0)
+            {
+                <p>None recorded.</p>
+            }
+            else if (group.AsTags)
+            {
+                <div class="fb-dtags">
+                    @foreach (var relation in group.Rows)
+                    {
+                        <fb-tag tone="@(relation.Tag ?? MarkTone.Neutral)">@relation.Text</fb-tag>
+                    }
+                </div>
+            }
+            else
+            {
+                <ul class="fb-dlist">
+                    @foreach (var relation in group.Rows)
+                    {
+                        @listRow(relation)
+                    }
+                </ul>
+            }
+        </div>
+    }
+
+    <div class="fb-dsec">
+        <div class="fb-dl">Evidence</div>
+        @if (view.Evidence.Count == 0)
+        {
+            <p>None recorded.</p>
+        }
+        else
+        {
+            <ul class="fb-dlist">
+                @foreach (var evidence in view.Evidence)
+                {
+                    @listRow(evidence)
+                }
+            </ul>
+        }
+    </div>
+
+    <div class="fb-dsec">
+        <div class="fb-dl">Guidance</div>
+        @if (!string.IsNullOrEmpty(view.Guidance))
+        {
+            <div class="fb-guidance">@view.Guidance</div>
+        }
+        else
+        {
+            <p>None recorded.</p>
+        }
+    </div>
+
+    <div class="fb-dsec">
+        <div class="fb-dl">History</div>
+        @if (view.History.Count == 0)
+        {
+            <p>None recorded.</p>
+        }
+        else
+        {
+            <ul class="fb-dlist">
+                @foreach (var history in view.History)
+                {
+                    @listRow(history)
+                }
+            </ul>
+        }
+    </div>
+</div>
+<div class="fb-dfoot">
+    @if (!string.IsNullOrEmpty(Model.ActionHref) && !string.IsNullOrEmpty(Model.ActionLabel))
+    {
+        <a class="link" href="@Model.ActionHref">@Model.ActionLabel</a>
+    }
+</div>
