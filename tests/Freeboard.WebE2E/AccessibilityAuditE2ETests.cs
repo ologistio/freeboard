@@ -69,8 +69,8 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         { "/reset-password?token=a11y", Access.ResetToken },
         // Authenticated (full session).
         { "/compliance/vendors", Access.Full },
-        { "/compliance/evidence-collectors", Access.Full },
-        { "/compliance/attestation-templates", Access.Full },
+        { "/settings/evidence-collectors", Access.Full },
+        { "/settings/attestation-templates", Access.Full },
         { "/account", Access.Full },
         { "/account/mfa", Access.Full },
         { "/account/password/change", Access.Full },
@@ -82,8 +82,8 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         { "/account/mfa/totp", Access.Sudo },
         { "/account/mfa/passkey", Access.Sudo },
         // Admin role.
-        { "/admin/users", Access.Admin },
-        { "/admin/usercredential", Access.Admin },
+        { "/settings/users", Access.Admin },
+        { "/settings/usercredential", Access.Admin },
     };
 
     [RequiresEnvVarTheory(EnvVar = E2EGate.EnvVar)]

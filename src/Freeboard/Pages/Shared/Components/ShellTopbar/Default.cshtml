@@ -1,0 +1,83 @@
+@using Freeboard.Pages.Shared.Components.ShellTopbar
+@model ShellTopbarViewModel
+<header class="fb-topbar">
+    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+        @* The drawer opener lives in the topbar; it shows only below the desktop breakpoint. *@
+        <button type="button" class="fb-iconbtn fb-drawer-toggle" @@click="show($event)" aria-label="Open navigation">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                <path stroke-linecap="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+        </button>
+        <nav class="fb-crumb" aria-label="Breadcrumb">
+            @for (var i = 0; i < Model.Breadcrumb.Count; i++)
+            {
+                var crumb = Model.Breadcrumb[i];
+                var isLast = i == Model.Breadcrumb.Count - 1;
+                @if (i > 0)
+                {
+                    <span class="sep" aria-hidden="true">/</span>
+                }
+                <a href="@crumb.Href" aria-current="@(isLast ? "page" : null)">@crumb.Text</a>
+            }
+        </nav>
+    </div>
+
+    <div class="fb-topbar-right">
+        @* Audit-countdown slot: no backing audit-deadline source exists, so nothing renders. *@
+
+        <button type="button" class="fb-iconbtn" x-data="themeToggle" @@click="toggle()"
+                :aria-pressed="dark ? 'true' : 'false'"
+                :aria-label="dark ? 'Switch to light theme' : 'Switch to dark theme'">
+            <svg x-show="!dark" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M13.8 10.4A6.5 6.5 0 0 1 5.6 2.2a6.5 6.5 0 1 0 8.2 8.2z" />
+            </svg>
+            <svg x-show="dark" x-cloak width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <circle cx="8" cy="8" r="3.2" />
+                <path stroke-linecap="round" d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M13 3l-1.4 1.4M4.4 11.6L3 13" />
+            </svg>
+        </button>
+
+        @* Notifications slot: bell only. No unread-notification source exists, so no pip renders. *@
+        <button type="button" class="fb-iconbtn" aria-label="Notifications">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <path d="M4.5 6.7a3.5 3.5 0 0 1 7 0c0 2.8 1 3.8 1.5 4.3h-10c.5-.5 1.5-1.5 1.5-4.3z" />
+                <path d="M6.6 13a1.4 1.4 0 0 0 2.8 0" />
+            </svg>
+        </button>
+
+        <div class="fb-acctwrap" x-data="accountMenu" @@keydown.escape.window="close()" @@click.outside="close()">
+            <button type="button" class="fb-avatar" x-ref="opener" @@click="toggle()"
+                    :aria-expanded="open ? 'true' : 'false'"
+                    aria-haspopup="menu" aria-label="Account menu">
+                @if (string.IsNullOrEmpty(Model.Initials))
+                {
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                }
+                else
+                {
+                    @Model.Initials
+                }
+            </button>
+            <div x-show="open" x-cloak class="fb-acctmenu" role="menu">
+                <div class="fb-acctmenu__head">
+                    <div style="min-width:0">
+                        <p class="fb-acctmenu__name">@Model.DisplayName</p>
+                        @if (!string.IsNullOrWhiteSpace(Model.Email))
+                        {
+                            <p class="fb-acctmenu__email">@Model.Email</p>
+                        }
+                    </div>
+                    <span class="badge badge-brand shrink-0 capitalize">@Model.Role</span>
+                </div>
+                <a href="/account" class="menu-item" role="menuitem">Account</a>
+                <a href="/account/mfa" class="menu-item" role="menuitem">Security</a>
+                <a href="/account/sessions" class="menu-item" role="menuitem">Sessions</a>
+                <form method="post" action="/logout" asp-antiforgery="true">
+                    <button type="submit" class="menu-item" role="menuitem">Sign out</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</header>

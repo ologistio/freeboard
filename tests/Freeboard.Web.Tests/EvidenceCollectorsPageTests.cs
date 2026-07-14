@@ -16,7 +16,7 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class EvidenceCollectorsPageTests
 {
-    private const string Path = "/compliance/evidence-collectors";
+    private const string Path = "/settings/evidence-collectors";
 
     private static FakeComplianceStore PopulatedStore() => new()
     {

@@ -22,7 +22,7 @@ public sealed class TempPasswordDisplayStore(IMemoryCache cache)
     // Browser cookie paths are case-sensitive, so the redirect target, the cookie Path, and the
     // route the display page declares must all be this exact lowercase string.
     /// <summary>The display page route, also the cookie path so the nonce only rides that one page.</summary>
-    public const string DisplayPath = "/admin/usercredential";
+    public const string DisplayPath = "/settings/usercredential";
 
     /// <summary>Stashes the temp password and returns the nonce to put in the client cookie.</summary>
     public string Stash(string temporaryPassword)

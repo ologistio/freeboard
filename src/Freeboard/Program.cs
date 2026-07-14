@@ -133,6 +133,10 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<Freeboard.Web.IOrgAccess, AuthzOrgAccess>();
 builder.Services.AddScoped<Freeboard.Web.OrgSelectionResolver>();
 
+// The app-shell nav map is static declarative data; the resolver evaluates it per request (entitlement
+// and authorization gating, active-item resolution), so it is request-scoped like the org resolver.
+builder.Services.AddScoped<Freeboard.Navigation.ShellNavResolver>();
+
 builder.Services.AddSingleton<AuthRateLimiter>();
 builder.Services.AddSingleton<SessionIssuer>();
 builder.Services.TryAddEnumerable(

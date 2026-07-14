@@ -323,19 +323,6 @@ html[data-theme="light"] {
         @apply border-fail/40 text-fail-ink;
     }
 
-    .nav-link {
-        @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted;
-        @apply hover:bg-panel-dim hover:text-ink;
-    }
-
-    .nav-link-active {
-        @apply bg-panel-dim text-brand hover:bg-panel-dim hover:text-brand;
-    }
-
-    .nav-section-title {
-        @apply px-3 pt-5 pb-1 text-xs font-semibold tracking-wider text-muted uppercase;
-    }
-
     .menu-item {
         @apply block w-full px-4 py-2 text-left text-sm text-ink hover:bg-panel-dim;
     }
@@ -1090,6 +1077,361 @@ html[data-theme="light"] {
         padding: 10px 12px;
         font-size: 12.5px;
         color: var(--color-muted);
+    }
+
+    /* App shell chrome (rail + topbar + frame). Ported from stories/_marks.js with every literal
+       colour resolved through a token and every interactive hit target held at >=44px (A4): the
+       prototype's 30px icon buttons/avatar and dense nav rows are overridden here, and the visual
+       mark may sit smaller inside the 44px target. */
+    .fb-app {
+        display: grid;
+        grid-template-columns: 236px 1fr;
+        height: 100vh;
+        background: var(--color-field);
+    }
+    .fb-stage {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+    }
+    .fb-main {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 0;
+        padding: 22px;
+    }
+    .fb-rail {
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--color-line);
+        padding: 14px 10px 10px;
+        overflow-y: auto;
+        background: var(--color-field);
+    }
+    .fb-brand {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 2px 8px 12px;
+    }
+    .fb-mark {
+        font: 600 13px var(--font-mono);
+        color: var(--color-field);
+        background: var(--color-ink);
+        border-radius: var(--r);
+        padding: 3px 7px;
+        letter-spacing: 0.02em;
+    }
+    .fb-name {
+        font: 700 15px var(--font-sans);
+        letter-spacing: -0.01em;
+        color: var(--color-ink);
+    }
+    /* The command-palette entry (N7). Currently inert: keyboard-focusable and in the tab order, but it
+       opens nothing and claims no dialog (no aria-haspopup) until the palette exists. A1: its resting
+       border uses the >=3:1 control-outline token, not the low-contrast divider line. */
+    .fb-search-entry {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        min-height: 44px;
+        padding: 7px 10px;
+        margin: 0 0 10px;
+        background: var(--color-panel);
+        border: 1px solid var(--color-control-outline);
+        border-radius: var(--r);
+        color: var(--color-faint);
+        font-size: 13px;
+        text-align: left;
+        cursor: pointer;
+    }
+    .fb-search-entry:hover {
+        border-color: var(--color-ink);
+        color: var(--color-muted);
+    }
+    .fb-search-entry:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 2px;
+    }
+    .fb-kbd {
+        font: 500 10px var(--font-mono);
+        color: var(--color-muted);
+        border: 1px solid var(--color-line);
+        border-bottom-width: 2px;
+        border-radius: var(--r-sm);
+        padding: 1px 5px;
+        background: var(--color-panel-dim);
+        flex: none;
+    }
+    .fb-navwrap {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    .fb-navgroup {
+        font: 600 9.5px var(--font-mono);
+        letter-spacing: 0.14em;
+        color: var(--color-faint);
+        text-transform: uppercase;
+        padding: 14px 10px 4px;
+    }
+    .fb-navitem {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        min-height: 44px;
+        padding: 6px 10px;
+        border: none;
+        background: none;
+        border-radius: var(--r);
+        font: 400 13.5px var(--font-sans);
+        color: var(--color-muted);
+        text-align: left;
+        cursor: pointer;
+    }
+    .fb-navitem:hover {
+        background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+        color: var(--color-ink);
+    }
+    .fb-navitem.active {
+        background: var(--color-panel);
+        color: var(--color-ink);
+        font-weight: 600;
+        box-shadow: inset 3px 0 0 var(--color-brand), var(--shadow);
+    }
+    .fb-navitem:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: -2px;
+    }
+    .fb-navcount {
+        font: 500 10.5px var(--font-mono);
+        color: var(--color-fail-ink);
+        background: var(--color-fail-soft);
+        border-radius: 99px;
+        padding: 0 7px;
+        line-height: 17px;
+        flex: none;
+    }
+    .fb-navcount.calm {
+        color: var(--color-muted);
+        background: var(--color-neutral-soft);
+    }
+    .fb-rail-foot {
+        margin-top: auto;
+        padding-top: 12px;
+        border-top: 1px solid var(--color-line);
+    }
+    .fb-wspick {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        min-height: 44px;
+        padding: 7px 10px;
+        border: none;
+        background: none;
+        border-radius: var(--r);
+        font-size: 12.5px;
+        color: var(--color-muted);
+        text-align: left;
+        cursor: pointer;
+    }
+    .fb-wspick:hover {
+        background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+    }
+    .fb-wspick:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: -2px;
+    }
+    .fb-wspick.is-active {
+        color: var(--color-ink);
+        font-weight: 600;
+    }
+    .fb-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--color-brand);
+        flex: none;
+    }
+    .fb-wspick b {
+        color: var(--color-ink);
+        font-weight: 600;
+    }
+    .fb-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 52px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--color-line);
+        background: var(--color-field);
+        flex: none;
+    }
+    .fb-crumb {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 2px;
+        font-size: 13px;
+        color: var(--color-muted);
+    }
+    .fb-crumb a {
+        color: var(--color-muted);
+        border-radius: var(--r-sm);
+    }
+    .fb-crumb a:hover {
+        color: var(--color-ink);
+        text-decoration: underline;
+    }
+    .fb-crumb a:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 2px;
+    }
+    .fb-crumb a[aria-current="page"] {
+        color: var(--color-ink);
+        font-weight: 600;
+    }
+    .fb-crumb .sep {
+        color: var(--color-faint);
+        padding: 0 2px;
+    }
+    .fb-topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    /* Topbar icon buttons and the avatar are 44px hit targets (A4); the icon/monogram inside stays
+       smaller. A1: fb-iconbtn's resting border uses the >=3:1 control-outline token. */
+    .fb-iconbtn {
+        position: relative;
+        width: 44px;
+        height: 44px;
+        border-radius: var(--r);
+        border: 1px solid var(--color-control-outline);
+        background: var(--color-panel);
+        color: var(--color-muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+    .fb-iconbtn:hover {
+        border-color: var(--color-ink);
+        color: var(--color-ink);
+    }
+    .fb-iconbtn:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 2px;
+    }
+    .fb-avatar {
+        position: relative;
+        width: 44px;
+        height: 44px;
+        border-radius: 99px;
+        background: var(--color-brand-soft);
+        color: var(--color-brand-ink);
+        font: 700 12px var(--font-sans);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        cursor: pointer;
+    }
+    .fb-avatar:focus-visible {
+        outline: 2px solid var(--color-brand);
+        outline-offset: 2px;
+    }
+    /* The account popover, anchored to the avatar. Reuses the tokenized menu-item for its links. */
+    .fb-acctwrap {
+        position: relative;
+    }
+    .fb-acctmenu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 6px);
+        width: 16rem;
+        z-index: 30;
+        overflow: hidden;
+        border: 1px solid var(--color-line);
+        border-radius: var(--r-lg);
+        background: var(--color-panel);
+        padding: 4px 0;
+        box-shadow: var(--shadow-lg);
+    }
+    .fb-acctmenu__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--color-line);
+    }
+    .fb-acctmenu__name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--color-ink);
+    }
+    .fb-acctmenu__email {
+        font-size: 12px;
+        color: var(--color-muted);
+    }
+    /* The rail collapses to a slide-in drawer below the desktop breakpoint (A5 nav drawer). The slide
+       is a transform transition, so the global reduced-motion rule (A3) already neutralises it. */
+    .fb-drawer-toggle {
+        display: none;
+    }
+    .fb-scrim {
+        display: none;
+    }
+    @media (max-width: 1023px) {
+        .fb-app {
+            grid-template-columns: 1fr;
+        }
+        .fb-rail {
+            position: fixed;
+            inset: 0 auto 0 0;
+            width: 236px;
+            z-index: 50;
+            transform: translateX(-100%);
+            /* Hidden takes the off-screen drawer out of the tab order, so keyboard focus never lands on
+               an invisible rail link (A2). This lives only in the mobile query, so the desktop rail is
+               never hidden or untabbable. The is-open state restores visibility and focusability.
+               Delay visibility by the slide duration so the rail stays visible through the close
+               animation, then hides once the slide finishes and its links leave the tab order. */
+            visibility: hidden;
+            transition: transform 0.18s ease-out, visibility 0s 0.18s;
+        }
+        .fb-rail.is-open {
+            transform: none;
+            visibility: visible;
+            /* Open immediately (no delay) so the rail is visible and focusable as it slides in. */
+            transition-delay: 0s;
+            box-shadow: var(--shadow-lg);
+        }
+        /* Reduced motion (A3): the slide is instant, so drop the visibility delay and hide the closed
+           rail at once - keeping its links out of the tab order without a lingering focusable window. */
+        @media (prefers-reduced-motion: reduce) {
+            .fb-rail {
+                transition-delay: 0s;
+            }
+        }
+        .fb-drawer-toggle {
+            display: inline-flex;
+        }
+        .fb-scrim {
+            display: block;
+            position: fixed;
+            inset: 0;
+            z-index: 40;
+            background: color-mix(in srgb, var(--color-ink) 28%, transparent);
+        }
     }
 }
 

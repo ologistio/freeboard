@@ -6,7 +6,7 @@ TBD - created by archiving change add-custom-role-designer. Update Purpose after
 ### Requirement: Super-admin authoring surface for custom organisation roles
 
 The web app SHALL provide an Enterprise authoring surface, a server-rendered
-`/admin/custom-roles` page AND a JSON API under
+`/settings/custom-roles` page AND a JSON API under
 `/api/v1/freeboard/custom-roles`, that lets a super-admin create, edit, and delete
 custom organisation-scoped roles. Every authoring route and page handler SHALL
 require the `system.admin` permission, force-enforced in every rollout mode. A
@@ -16,6 +16,13 @@ SHALL be immutable after create: an edit changes only the title, description, an
 permission set. The page SHALL be rendered server-side with no client-side
 reactivity, and SHALL call the same authz store layer the JSON endpoints use
 rather than calling the JSON API over HTTP.
+
+Only the page route URL moves: the page file remains in the `Pages/Admin` Razor
+Pages folder, so the existing `/Admin` folder authorization convention still gates
+it, and the role editor route moves with it to `/settings/custom-roles/designer/{slug?}`.
+The JSON API routes under `/api/v1/freeboard/custom-roles` are unchanged. The prior
+`/admin/custom-roles` page URL is retired with no redirect (a deliberate clean break
+in pre-release software).
 
 #### Scenario: Super-admin creates a custom organisation role
 
@@ -58,7 +65,7 @@ authorization enforcement, which read the same tables regardless of edition.
 #### Scenario: Entitlement off makes authoring unavailable
 
 - **WHEN** GitOps read-only is off, `CustomPolicies` is off, and a super-admin GETs
-  `/admin/custom-roles` or calls any `/api/v1/freeboard/custom-roles` route
+  `/settings/custom-roles` or calls any `/api/v1/freeboard/custom-roles` route
 - **THEN** the response is 404
 
 #### Scenario: GitOps read-only rejects a mutation before the entitlement is read
@@ -77,7 +84,7 @@ authorization enforcement, which read the same tables regardless of edition.
 #### Scenario: Entitlement on enables authoring
 
 - **WHEN** `Enterprise:CustomPolicies` is set true and a super-admin GETs
-  `/admin/custom-roles`
+  `/settings/custom-roles`
 - **THEN** the page renders and the authoring routes are reachable
 
 ### Requirement: Only org-tree read/write permissions are authorable

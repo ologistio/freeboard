@@ -99,7 +99,7 @@ public sealed class ComponentLayerGuardTests
         string[] approved = ["control-outline", "fail", "brand", "ink"];
         var fails = new List<string>();
 
-        foreach (var cls in new[] { "btn-secondary", "btn-danger", "form-input", "fb-search", "fb-chip" })
+        foreach (var cls in new[] { "btn-secondary", "btn-danger", "form-input", "fb-search", "fb-chip", "fb-iconbtn", "fb-search-entry" })
         {
             // The base rule only (a pseudo/compound selector like .fb-chip:hover has a non-space
             // char before the brace, so it is not matched).

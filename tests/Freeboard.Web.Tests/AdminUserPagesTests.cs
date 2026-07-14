@@ -15,8 +15,8 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class AdminUserPagesTests
 {
-    private const string UsersPath = "/admin/users";
-    private const string CredentialPath = "/admin/usercredential";
+    private const string UsersPath = "/settings/users";
+    private const string CredentialPath = "/settings/usercredential";
 
     private static HttpClient NoRedirectClient(AuthWebFactory factory)
         => factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });

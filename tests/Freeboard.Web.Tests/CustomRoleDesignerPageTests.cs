@@ -6,14 +6,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace Freeboard.Web.Tests;
 
 /// <summary>
-/// The custom-role designer (/admin/custom-roles/designer/{slug?}): the create/edit wizard. Covers the
+/// The custom-role designer (/settings/custom-roles/designer/{slug?}): the create/edit wizard. Covers the
 /// entitlement (404) and super-admin (403) gates, that Save composes the reserved key from the slug and
 /// writes the create audit, that an invalid key re-renders the design step with an error (no write),
 /// that GitOps read-only 409s the POST, and that editing an existing role prefills and updates it.
 /// </summary>
 public sealed class CustomRoleDesignerPageTests
 {
-    private const string CreatePath = "/admin/custom-roles/designer";
+    private const string CreatePath = "/settings/custom-roles/designer";
 
     private static HttpClient NoRedirectClient(AuthWebFactory factory)
         => factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -93,7 +93,7 @@ public sealed class CustomRoleDesignerPageTests
 
         var followCookies = SessionCookieFor(token).ToList();
         followCookies.AddRange(AuthFormTestHelpers.ParseSetCookies(post));
-        using var getRequest = new HttpRequestMessage(HttpMethod.Get, "/admin/custom-roles");
+        using var getRequest = new HttpRequestMessage(HttpMethod.Get, "/settings/custom-roles");
         getRequest.Headers.Add("Cookie", string.Join("; ", followCookies.Select(c => $"{c.Key}={c.Value}")));
         var get = await client.SendAsync(getRequest);
 

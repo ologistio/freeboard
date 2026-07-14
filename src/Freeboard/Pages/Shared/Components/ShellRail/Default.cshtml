@@ -1,0 +1,46 @@
+@using Freeboard.Navigation
+@model ShellNavView
+@*
+    The rail lives inside the layout's x-data="railDrawer" scope, so the drawer bindings resolve here.
+    The palette entry is currently inert: keyboard-focusable and in the tab order, opening nothing and
+    claiming no dialog (no aria-haspopup), and NOT disabled so the keyboard path stays whole (A2).
+*@
+<nav class="fb-rail" aria-label="Primary" x-ref="rail" :class="{ 'is-open': open }">
+    <div class="fb-brand">
+        <span class="fb-mark" aria-hidden="true">F</span>
+        <span class="fb-name">Freeboard</span>
+        <button type="button" class="fb-iconbtn fb-drawer-toggle" style="margin-left:auto"
+                @@click="hide()" aria-label="Close navigation">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                <path stroke-linecap="round" d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+        </button>
+    </div>
+    <button type="button" class="fb-search-entry">
+        <span>Search or ask...</span>
+        <kbd class="fb-kbd">Ctrl K</kbd>
+    </button>
+    <div class="fb-navwrap">
+        @foreach (var group in Model.Groups)
+        {
+            @if (group.Label is not null)
+            {
+                <div class="fb-navgroup">@group.Label</div>
+            }
+            @foreach (var item in group.Items)
+            {
+                <a href="@item.Route" class="@(item.IsActive ? "fb-navitem active" : "fb-navitem")"
+                   aria-current="@(item.IsActive ? "page" : null)">
+                    <span>@item.Label</span>
+                    @if (item.Count is { } count)
+                    {
+                        <span class="fb-navcount" aria-label="@count need action">@count</span>
+                    }
+                </a>
+            }
+        }
+    </div>
+    <div class="fb-rail-foot">
+        <vc:org-selector />
+    </div>
+</nav>

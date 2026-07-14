@@ -21,7 +21,7 @@
         <div x-data="{ open: @(Model.OnSelectionPath ? "true" : "false") }">
             <div class="flex items-center gap-1">
                 <button type="button" @@click="open = !open" :aria-expanded="open ? 'true' : 'false'"
-                        class="shrink-0 rounded p-1 text-neutral-600 hover:bg-neutral-100">
+                        class="fb-iconbtn shrink-0">
                     <span class="sr-only">Toggle @Model.Title</span>
                     <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-90' : ''"
                          fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
@@ -29,20 +29,20 @@
                     </svg>
                 </button>
                 <a href="@href" data-kind="@Model.Kind"
-                   class="@(selected ? "nav-link nav-link-active flex-1" : "nav-link flex-1")"
+                   class="@(selected ? "fb-wspick is-active flex-1" : "fb-wspick flex-1")"
                    aria-current="@(selected ? "true" : null)">
-                    <svg class="h-4 w-4 shrink-0 text-neutral-500" fill="none" viewBox="0 0 24 24"
+                    <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24"
                          stroke-width="1.5" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="@iconPath" />
                     </svg>
-                    @Model.Title
+                    <span>@Model.Title</span>
                     @if (selected)
                     {
                         <span class="sr-only">(current selection)</span>
                     }
                 </a>
             </div>
-            <ul x-show="open" x-cloak class="ml-4 mt-0.5 space-y-0.5 border-l border-neutral-200 pl-2">
+            <ul x-show="open" x-cloak class="ml-4 mt-0.5 space-y-0.5 border-l border-line pl-2">
                 @foreach (var child in Model.Children)
                 {
                     <partial name="~/Pages/Shared/Components/OrgSelector/_Node.cshtml" model="child" />
@@ -53,13 +53,13 @@
     else
     {
         <a href="@href" data-kind="@Model.Kind"
-           class="@(selected ? "nav-link nav-link-active" : "nav-link")"
+           class="@(selected ? "fb-wspick is-active" : "fb-wspick")"
            aria-current="@(selected ? "true" : null)">
-            <svg class="h-4 w-4 shrink-0 text-neutral-500" fill="none" viewBox="0 0 24 24"
+            <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24"
                  stroke-width="1.5" stroke="currentColor" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="@iconPath" />
             </svg>
-            @Model.Title
+            <span>@Model.Title</span>
             @if (selected)
             {
                 <span class="sr-only">(current selection)</span>

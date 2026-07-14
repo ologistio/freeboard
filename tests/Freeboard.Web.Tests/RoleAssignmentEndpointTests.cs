@@ -127,7 +127,7 @@ public sealed class RoleAssignmentEndpointTests
         using var factory = new AuthWebFactory { Authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a") };
         var token = factory.SeedSession(AuthWebFactory.MakeUser("u1"));
         using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/admin/role-assignments?orgId=org-a");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/settings/role-assignments?orgId=org-a");
         request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
 
         var response = await client.SendAsync(request);

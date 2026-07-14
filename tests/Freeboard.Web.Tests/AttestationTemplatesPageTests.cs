@@ -18,7 +18,7 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class AttestationTemplatesPageTests
 {
-    private const string Path = "/compliance/attestation-templates";
+    private const string Path = "/settings/attestation-templates";
 
     private static FakeComplianceStore PopulatedStore() => new()
     {

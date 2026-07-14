@@ -1,14 +1,16 @@
-@page "/admin/custom-roles/designer/{slug?}"
+@page "/settings/custom-roles/designer/{slug?}"
 @using System.Linq
 @model Freeboard.Pages.Admin.CustomRoleDesignerModel
 @{
     ViewData["Title"] = Model.IsEdit ? "Edit custom role" : "Create custom role";
+    ViewData["NavGroup"] = "Platform";
+    ViewData["NavItem"] = "custom-roles";
     var selected = Model.SelectedPermissions.ToHashSet(StringComparer.Ordinal);
     var groups = Model.PermissionOptions.GroupBy(o => o.Group).ToList();
 }
 
 <div class="mb-6 max-w-2xl">
-    <a href="/admin/custom-roles" class="link text-sm">&larr; Back to all roles</a>
+    <a href="/settings/custom-roles" class="link text-sm">&larr; Back to all roles</a>
     <h1 class="mt-2 text-2xl font-bold">@(Model.IsEdit ? "Edit custom role" : "Create custom role")</h1>
     <p class="mt-1 text-sm text-neutral-600">
         @(Model.Step == 1
@@ -94,7 +96,7 @@
         </fieldset>
 
         <div class="flex items-center gap-2 border-t border-neutral-200 pt-4">
-            <a href="/admin/custom-roles" class="btn-secondary">Cancel</a>
+            <a href="/settings/custom-roles" class="btn-secondary">Cancel</a>
             <button class="btn-primary" type="submit" asp-page-handler="Continue">Continue to verify</button>
         </div>
     </form>
