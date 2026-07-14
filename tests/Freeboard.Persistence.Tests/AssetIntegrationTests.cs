@@ -42,6 +42,7 @@ public sealed class AssetIntegrationTests
         Assert.Equal(before.RetiredAt, after.RetiredAt);
         Assert.Equal(before.Hostname, after.Hostname);
         Assert.Equal(before.IdentityValue, after.IdentityValue);
+        Assert.Equal(before.LastSeenAt, after.LastSeenAt);
     }
 
     private static Task<int> SourceCountAsync(MySqlTestDatabase db, string assetId) =>

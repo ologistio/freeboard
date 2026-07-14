@@ -14,7 +14,7 @@ namespace Freeboard.Persistence;
 /// transaction opens at <see cref="IsolationLevel.ReadCommitted"/> so a <c>SELECT ... FOR UPDATE</c> on a
 /// not-yet-existing identity or source row takes no gap lock; two concurrent first-observations then both
 /// reach the insert and the loser fails with a plain duplicate-key error (1062), which the single retry
-/// resolves by taking the update path (same pattern as <see cref="MySqlAuthRateLimitStore"/>).
+/// resolves by taking the update path.
 /// </summary>
 public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory, IUlidFactory ulidFactory)
     : IAssetWriteStore
