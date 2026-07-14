@@ -19,6 +19,7 @@ jobs:
   labeler:
     runs-on: ubuntu-latest
     permissions:
+      contents: read       # checkout + read labels.yml (job map replaces the top-level one)
       issues: write        # create/update/delete labels
     steps:
       - uses: actions/checkout@v6
@@ -27,4 +28,6 @@ jobs:
         with:
           yaml-file: .github/labels.yml
           skip-delete: false   # labels.yml is authoritative; prune the rest
-          dry-run: ${{ github.event_name == 'pull_request' }}
+          # Apply only on main (push or manual dispatch); dry-run everywhere else
+          # so a branch's labels.yml can never prune live labels before merge.
+          dry-run: ${{ !((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main') }}

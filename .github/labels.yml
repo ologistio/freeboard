@@ -3,9 +3,12 @@
 # labels here are created or updated, labels not here are deleted.
 # Edit here, not in the GitHub UI. Colors are 6-digit hex, no leading '#'.
 
-# --- Issue type (drives release-drafter categories and SemVer bump) ---
-# One label per Conventional Commit type. Applied to bug/feature issues by the
-# issue templates and to PRs by release-drafter's autolabeler.
+# --- Issue type ---
+# Type labels that drive release-drafter's categories and the SemVer bump.
+# Release-drafter derives them from a PR's Conventional Commit title: feat ->
+# feature, fix -> fix, build/ci/docs/perf/refactor/style/test -> chore, and a
+# breaking marker (feat!:, fix!:) -> breaking. The issue templates apply feature
+# and fix directly to new issues.
 - name: feature
   color: a2eeef
   description: Feature request, or a feat change (minor bump)
@@ -46,9 +49,8 @@
   description: Out of the October V1 cut; roadmap
 
 # --- Domain ---
-# Durable code area a change touches. Orthogonal to epic:* (roadmap
-# initiatives): an issue can carry a domain and an epic. Apply the domains that
-# fit; leave others off.
+# Durable code area a change touches. Roadmap grouping lives on milestones, not
+# labels. Apply the domains that fit; leave others off.
 - name: authn
   color: 0052cc
   description: Authentication (sign-in, sessions, MFA)
