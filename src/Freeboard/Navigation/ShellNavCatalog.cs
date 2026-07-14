@@ -16,6 +16,9 @@ public enum ShellNavAccess
 
     /// <summary>Requires <c>system.admin</c>, the permission the custom-role surface enforces.</summary>
     CanAdministerSystem,
+
+    /// <summary>Requires <c>authz.assignment.write</c> in any org, or <c>system.admin</c> - the role-assignments page's per-org write permission.</summary>
+    CanReachRoleAssignments,
 }
 
 /// <summary>
@@ -39,8 +42,8 @@ public sealed record ShellNavGroup(string? Label, IReadOnlyList<ShellNavItem> It
 /// The single declarative source for the rail, the breadcrumb group links, and the future command-
 /// palette index (so they cannot disagree - N2). Every destination sits under exactly one group and
 /// appears once. Configuration and administration pages live under <c>/settings</c> (N4 at the route
-/// level). Role Assignments is intentionally absent as a live rail item until its per-org access model
-/// is settled.
+/// level). Role Assignments is gated on <c>authz.assignment.write</c> in any org (or <c>system.admin</c>),
+/// mirroring the per-org write permission the page force-enforces.
 /// </summary>
 public static class ShellNavCatalog
 {
@@ -66,6 +69,9 @@ public static class ShellNavCatalog
             new ShellNavItem(
                 "custom-roles", "Custom roles", "/settings/custom-roles", "Platform",
                 ShellNavAccess.CanAdministerSystem, EnterpriseEntitlement.CustomPolicies),
+            new ShellNavItem(
+                "role-assignments", "Role assignments", "/settings/role-assignments", "Platform",
+                ShellNavAccess.CanReachRoleAssignments),
         ]),
     ];
 

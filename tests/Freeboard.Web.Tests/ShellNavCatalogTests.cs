@@ -8,9 +8,9 @@ namespace Freeboard.Web.Tests;
 
 /// <summary>
 /// The app-shell nav catalog and its request-scoped resolver: the catalog is well-formed (N2 - each
-/// destination under exactly one group, no duplicate key or route, Role Assignments absent from the
-/// rail), and the resolver gates the EE/admin items, resolves exactly one active item (explicit key
-/// first, else longest route match), and never badges (no count source yet, N6).
+/// destination under exactly one group, no duplicate key or route), and the resolver gates the EE/admin
+/// items (including Role Assignments on assignment.write-in-any-org), resolves exactly one active item
+/// (explicit key first, else longest route match), and never badges (no count source yet, N6).
 /// </summary>
 public sealed class ShellNavCatalogTests
 {
@@ -46,10 +46,13 @@ public sealed class ShellNavCatalogTests
     }
 
     [Fact]
-    public void RoleAssignmentsIsAbsentFromTheRail()
+    public void RoleAssignmentsIsAPlatformRailItem()
     {
-        Assert.DoesNotContain(ShellNavCatalog.Items, i => i.Route.Contains("role-assignments", StringComparison.Ordinal));
-        Assert.DoesNotContain(ShellNavCatalog.Items, i => string.Equals(i.Key, "role-assignments", StringComparison.Ordinal));
+        var item = Assert.Single(
+            ShellNavCatalog.Items, i => string.Equals(i.Key, "role-assignments", StringComparison.Ordinal));
+        Assert.Equal("/settings/role-assignments", item.Route);
+        Assert.Equal("Platform", item.Group);
+        Assert.Equal(ShellNavAccess.CanReachRoleAssignments, item.Access);
     }
 
     [Fact]
@@ -79,9 +82,36 @@ public sealed class ShellNavCatalogTests
 
         Assert.DoesNotContain("users", keys);
         Assert.DoesNotContain("custom-roles", keys);
+        Assert.DoesNotContain("role-assignments", keys);
         // The authenticated items still show.
         Assert.Contains("home", keys);
         Assert.Contains("soa", keys);
+    }
+
+    [Fact]
+    public async Task ResolverShowsRoleAssignmentsToAUserWithAssignmentWriteOnSomeOrg()
+    {
+        // An org-scoped authz.assignment.write grant (no system permission) surfaces the item, since the
+        // page's per-org write permission is satisfiable in at least one org.
+        var resolver = new ShellNavResolver(AssignmentWriteOnOrgFacts(), Entitlements(customPolicies: true));
+
+        var nav = await resolver.ResolveAsync(User("member"), "/home", activeKey: null);
+        var keys = AllItems(nav).Select(i => i.Key).ToHashSet(StringComparer.Ordinal);
+
+        Assert.Contains("role-assignments", keys);
+        // The org grant does not unlock the system-admin-gated custom-roles item.
+        Assert.DoesNotContain("custom-roles", keys);
+    }
+
+    [Fact]
+    public async Task ResolverShowsRoleAssignmentsToASystemAdmin()
+    {
+        var resolver = new ShellNavResolver(SuperAdminFacts(), Entitlements(customPolicies: true));
+
+        var nav = await resolver.ResolveAsync(User("admin"), "/home", activeKey: null);
+        var keys = AllItems(nav).Select(i => i.Key).ToHashSet(StringComparer.Ordinal);
+
+        Assert.Contains("role-assignments", keys);
     }
 
     [Fact]
@@ -133,15 +163,22 @@ public sealed class ShellNavCatalogTests
     private static IAuthzFactProvider NoPermissionsFacts()
         => new FakeFacts(new HashSet<string>(StringComparer.Ordinal));
 
+    private static IAuthzFactProvider AssignmentWriteOnOrgFacts()
+        => new FakeFacts(
+            new HashSet<string>(StringComparer.Ordinal),
+            [new AuthzOrgGrant(AuthzActions.AuthzAssignmentWrite, "org-1")]);
+
     private sealed class FakeEntitlements(bool customPolicies) : IEnterpriseEntitlements
     {
         public bool IsEntitled(EnterpriseEntitlement entitlement)
             => entitlement == EnterpriseEntitlement.CustomPolicies && customPolicies;
     }
 
-    private sealed class FakeFacts(IReadOnlySet<string> systemPermissions) : IAuthzFactProvider
+    private sealed class FakeFacts(
+        IReadOnlySet<string> systemPermissions, IReadOnlyCollection<AuthzOrgGrant>? orgGrants = null)
+        : IAuthzFactProvider
     {
         public ValueTask<AuthzPrincipalFacts> LoadFactsAsync(string userId, CancellationToken cancellationToken = default)
-            => ValueTask.FromResult(new AuthzPrincipalFacts(systemPermissions, []));
+            => ValueTask.FromResult(new AuthzPrincipalFacts(systemPermissions, orgGrants ?? []));
     }
 }

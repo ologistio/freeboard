@@ -71,6 +71,8 @@ public sealed class ShellNavResolver(IAuthzFactProvider facts, IEnterpriseEntitl
                 await AuthzViewHelpers.CanReachAdminAsync(facts, user, cancellationToken).ConfigureAwait(false),
             ShellNavAccess.CanAdministerSystem =>
                 await AuthzViewHelpers.CanAdministerSystemAsync(facts, user, cancellationToken).ConfigureAwait(false),
+            ShellNavAccess.CanReachRoleAssignments =>
+                await AuthzViewHelpers.CanReachRoleAssignmentsAsync(facts, user, cancellationToken).ConfigureAwait(false),
             _ => true,
         };
     }

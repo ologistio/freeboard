@@ -64,4 +64,33 @@ public static class AuthzViewHelpers
             return false;
         }
     }
+
+    /// <summary>
+    /// True when the principal can write role assignments somewhere: holds <c>authz.assignment.write</c>
+    /// in any organisation, or the system-wide <c>authz.assignment.write</c>, or break-glass
+    /// <c>system.admin</c>. The role-assignments page force-enforces the write permission per organisation,
+    /// so this shows the rail link only to a user who can use it in at least one org. Cosmetic and
+    /// fail-safe (hidden on any error), reading the request-cached facts.
+    /// </summary>
+    public static async ValueTask<bool> CanReachRoleAssignmentsAsync(
+        IAuthzFactProvider facts, ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    {
+        var userId = user.FindFirst(AuthClaims.UserId)?.Value;
+        if (userId is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var loaded = await facts.LoadFactsAsync(userId, cancellationToken).ConfigureAwait(false);
+            return loaded.SystemPermissions.Contains(AuthzActions.SystemAdmin)
+                || loaded.SystemPermissions.Contains(AuthzActions.AuthzAssignmentWrite)
+                || loaded.OrgGrants.Any(g => string.Equals(g.PermissionKey, AuthzActions.AuthzAssignmentWrite, StringComparison.Ordinal));
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }
