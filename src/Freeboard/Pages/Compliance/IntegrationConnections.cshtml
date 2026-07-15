@@ -16,7 +16,14 @@
 }
 else if (Model.Connections.Count == 0)
 {
-    <p class="text-sm text-muted" data-empty>No integration connections are registered.</p>
+    <div class="text-sm text-muted max-w-2xl" data-empty>
+        <p>No integration connections are registered yet.</p>
+        <p class="mt-2">
+            Connections come from GitOps config: author an <code>IntegrationConnection</code> in your
+            Freeboard config and run a sync to register the first one. Each connection then lists its
+            provider, base URL, discovery cadence, and token health here.
+        </p>
+    </div>
 }
 else
 {

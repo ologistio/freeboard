@@ -250,7 +250,7 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json.GetProperty("base_url").GetString()!,
             json.GetProperty("discovery_cadence").GetString()!,
             OptionalString(json, "vendor"),
-            json.TryGetProperty("token_resolvable", out var resolvable) && resolvable.GetBoolean());
+            json.GetProperty("token_resolvable").GetBoolean());
 
     private static ApiAttestationField ReadAttestationField(JsonElement json) =>
         new(

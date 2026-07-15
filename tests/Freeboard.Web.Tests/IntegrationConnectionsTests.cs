@@ -206,7 +206,7 @@ public sealed class IntegrationConnectionsTests
         // server starts, off the boot path, so poll the captured logs with a short bounded wait.
         using var client = factory.CreateClient();
 
-        List<string> warnings = [];
+        List<string> warnings;
         var deadline = DateTime.UtcNow.AddSeconds(5);
         do
         {

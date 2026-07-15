@@ -1,7 +1,16 @@
 # integration-connection Specification
 
 ## Purpose
-TBD - created by archiving change add-integration-connection. Update Purpose after archive.
+
+Model a provider integration as a first-class GitOps kind - an `IntegrationConnection` that an
+`EvidenceCollector` of `type: integration` references - so discovery and integration collection
+share one persisted, referentially-consistent connection record. The connection's API token is
+resolved out-of-band from configuration (never git-tracked, persisted, or logged) and surfaced
+only as a `tokenResolvable` health flag; an unresolvable token warns once at startup and fails
+its scheduled collection as a scheduler error rather than a masked evidence result. Web, HTTP
+API, and CLI read surfaces expose the connection subset and its token health without ever
+returning the token value.
+
 ## Requirements
 ### Requirement: IntegrationConnection persistence and read model
 
