@@ -338,9 +338,9 @@ app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
         foreach (var connectionId in referencedConnections.Where(id => !tokenResolver.IsResolvable(id)))
         {
             integrationLogger.LogWarning(
-                "Integration connection '{ConnectionId}' has no resolvable API token; collectors that reference it will "
-                + "fail at collection time until one is configured.",
-                connectionId);
+                "Integration connection '{ConnectionId}' has no resolvable API token; collectors that reference it "
+                + "cannot authenticate until one is configured at Freeboard:Integrations:{ConnectionId}:ApiToken.",
+                connectionId, connectionId);
         }
     }
     catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))

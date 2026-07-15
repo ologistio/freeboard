@@ -211,13 +211,15 @@ public static class ConfigLoader
                 case GitOpsSchema.KindEvidenceCollector:
                     var collector = Deserialize<EvidenceCollector>(mapping);
                     // An explicit-null `config:`/`checks:` deserializes the collection to null (overwriting
-                    // the record default), and an explicit-null `checks:` item (`checks:\n  -`) deserializes
-                    // to a null element; normalize to empty and drop null items so ImportPlan, the page, and
-                    // the CLI never NRE.
+                    // the record default); normalize to empty. An explicit-null `checks:` item
+                    // (`checks:\n  -`) deserializes to a null element; keep it as an empty Check (not drop it)
+                    // so the validator reports its missing source_key/name/severity rather than silently
+                    // accepting a malformed check. Every kept Check is non-null, so ImportPlan and the reads
+                    // never NRE.
                     config.EvidenceCollectors.Add(collector with
                     {
                         Config = collector.Config ?? [],
-                        Checks = (collector.Checks ?? []).Where(c => c is not null).ToList(),
+                        Checks = (collector.Checks ?? []).Select(c => c ?? new Check()).ToList(),
                     });
                     break;
                 case GitOpsSchema.KindAttestationTemplate:

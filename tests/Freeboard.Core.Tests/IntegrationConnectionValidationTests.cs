@@ -410,6 +410,35 @@ public sealed class IntegrationConnectionValidationTests
     }
 
     [Fact]
+    public void IntegrationCollectorNullChecksItemReportsMissingFields()
+    {
+        // A blank list item ("checks:\n  -") deserializes to a null check. It is kept as an empty Check,
+        // not silently dropped, so the validator reports its missing fields rather than accepting one valid
+        // check plus a malformed blank one.
+        var collector = """
+            apiVersion: freeboard.dev/v1alpha1
+            kind: EvidenceCollector
+            id: collector-a
+            title: T
+            control: ctrl-a
+            type: integration
+            frequency: daily
+            connection: fleet-prod
+            checks:
+              - source_key: "12"
+                name: mfa-enforced
+                severity: Hard
+              -
+            """;
+        using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("collector-a") && d.Message.Contains("check source_key"));
+    }
+
+    [Fact]
     public void ConnectionOnNonIntegrationCollectorFails()
     {
         var collector = """

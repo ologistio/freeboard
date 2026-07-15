@@ -99,6 +99,32 @@ public sealed class IntegrationConnectionsTests
     }
 
     [Fact]
+    public async Task ListSortsUnresolvableConnectionsFirst()
+    {
+        // L1 exceptions-first: a failing (unresolvable) connection sorts above a resolvable one even when
+        // its id sorts later. aaa-ready has a token; zzz-failing has none.
+        var store = new FakeComplianceStore
+        {
+            Connections =
+            [
+                new IntegrationConnectionRow("aaa-ready", "fleet", "https://a.example.com", "daily", null),
+                new IntegrationConnectionRow("zzz-failing", "fleet", "https://z.example.com", "daily", null),
+            ],
+        };
+        using var factory = new AuthWebFactory
+        {
+            Compliance = store,
+            Settings = new Dictionary<string, string?> { ["Freeboard:Integrations:aaa-ready:ApiToken"] = SecretToken },
+        };
+        using var client = NoRedirectClient(factory);
+
+        var html = await (await GetAuthenticatedAsync(factory, client, Path)).Content.ReadAsStringAsync();
+        var failing = html.IndexOf("data-connection-id=\"zzz-failing\"", StringComparison.Ordinal);
+        var ready = html.IndexOf("data-connection-id=\"aaa-ready\"", StringComparison.Ordinal);
+        Assert.True(failing >= 0 && ready >= 0 && failing < ready, "unresolvable connection should sort first (L1)");
+    }
+
+    [Fact]
     public async Task ServedInReadOnlyModeToAuthenticatedUser()
     {
         using var factory = Factory(PopulatedStore(), readOnly: true);
