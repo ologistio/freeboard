@@ -312,10 +312,17 @@ Alpine.data("objectDrawer", () => ({
         // inert markup already in the page GET, so this is a DOM copy, never a fetch or JSON->HTML build.
         const templateId = opener && opener.dataset ? opener.dataset.detailTemplate : null;
         const template = templateId ? document.getElementById(templateId) : null;
-        this.$refs.content.replaceChildren();
-        if (template && "content" in template) {
-            this.$refs.content.appendChild(template.content.cloneNode(true));
+        if (!template || !("content" in template)) {
+            // No anatomy to clone: never open an empty inert dialog. Fall back to the opener's full-page
+            // href (the same target the no-JavaScript path uses); if there is none, abort without inerting.
+            if (opener && opener.href) {
+                window.location.assign(opener.href);
+            }
+            return;
         }
+
+        this.$refs.content.replaceChildren();
+        this.$refs.content.appendChild(template.content.cloneNode(true));
 
         this.$store.drawer.open = true;
         this.enterOverlay(opener);
@@ -373,16 +380,16 @@ Alpine.store("palette", {
 
 // Couples each list's row openers (in the page scope) to the single shell-mounted object drawer without
 // a shared x-data spanning both regions: a row calls request(opener) with its anchor, and the drawer
-// registers its open handler here on init. Mirrors the "palette" store.
+// registers its open handler here on init. Same coupling pattern as the "palette" store.
 Alpine.store("drawer", {
     open: false,
-    opener: null,
+    openHandler: null,
     onOpen(handler) {
-        this.opener = handler;
+        this.openHandler = handler;
     },
     request(opener) {
-        if (this.opener) {
-            this.opener(opener);
+        if (this.openHandler) {
+            this.openHandler(opener);
         }
     },
 });

@@ -128,6 +128,9 @@ public sealed class ControlDetailPageTests
         Assert.Contains("Control A", html, StringComparison.Ordinal);
         // The full page's action is a back-link, never a self-link or a fabricated mutating action.
         Assert.Contains("Back to Statement of Applicability", html, StringComparison.Ordinal);
+        // N9: the back-link carries the originating standard so returning restores the same control tree,
+        // not the empty no-standard list.
+        Assert.Contains($"href=\"{SoaPath}?standard=std-a\"", html, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Deque.AxeCore.Playwright;
 using Freeboard.Persistence;
 using Freeboard.TestInfrastructure;
@@ -58,11 +59,13 @@ public sealed class DrawerE2ETests : E2ETestBase
         return page;
     }
 
+    // Null-safe: a missing element returns false cleanly rather than throwing an opaque JS TypeError that
+    // masks the real failure (the element is absent, not merely un-opened).
     private static Task<bool> IsOpenAsync(IPage page)
-        => page.EvaluateAsync<bool>("() => document.querySelector('.fb-ddialog').classList.contains('is-open')");
+        => page.EvaluateAsync<bool>("() => { const el = document.querySelector('.fb-ddialog'); return !!el && el.classList.contains('is-open'); }");
 
     private static Task<bool> PaletteOpenAsync(IPage page)
-        => page.EvaluateAsync<bool>("() => document.querySelector('.fb-pal').classList.contains('is-open')");
+        => page.EvaluateAsync<bool>("() => { const el = document.querySelector('.fb-pal'); return !!el && el.classList.contains('is-open'); }");
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task OpensFromControl_MovesFocusIn_BackgroundInert_TabStaysInside()
@@ -147,10 +150,29 @@ public sealed class DrawerE2ETests : E2ETestBase
         });
         var page = await OpenDrawerAsync(context, "drawer-reduced");
 
-        // The global reduced-motion rule zeroes the panel's transition, so the slide is instant.
+        // The global reduced-motion rule zeroes the panel's transition, so the slide is instant. Parse
+        // each duration rather than matching an exact string: Chromium can normalise the unit ("0s" vs
+        // "0.01ms") and comma-separate multiple transitions, so assert every component is effectively zero.
         var duration = await page.EvaluateAsync<string>(
             "() => getComputedStyle(document.querySelector('.fb-drawer')).transitionDuration");
-        Assert.Contains("0.01ms", duration, StringComparison.Ordinal);
+        var components = duration.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.NotEmpty(components);
+        Assert.All(components, c => Assert.True(
+            ParseDurationMs(c) <= 1.0, $"reduced motion should zero the slide, got transitionDuration '{duration}'"));
+    }
+
+    private static double ParseDurationMs(string value)
+    {
+        value = value.Trim();
+        if (value.EndsWith("ms", StringComparison.Ordinal))
+        {
+            return double.Parse(value[..^2], CultureInfo.InvariantCulture);
+        }
+        if (value.EndsWith("s", StringComparison.Ordinal))
+        {
+            return double.Parse(value[..^1], CultureInfo.InvariantCulture) * 1000.0;
+        }
+        return double.Parse(value, CultureInfo.InvariantCulture);
     }
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]

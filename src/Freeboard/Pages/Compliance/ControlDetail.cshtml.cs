@@ -89,8 +89,12 @@ public sealed class ControlDetailModel(
                     ? found
                     : UnknownStatus;
 
+            // N9: return to the list with the same standard selected, so the control tree the user came
+            // from is restored rather than the empty no-standard list.
+            var soaHref = $"{SoaHref}?standard={Uri.EscapeDataString(standard)}";
+
             var view = ControlDetailProjection.Map(org, requirementNode, controlNode, Resolver);
-            Detail = new ObjectDetailPartialModel(view, SoaHref, "Back to Statement of Applicability");
+            Detail = new ObjectDetailPartialModel(view, soaHref, "Back to Statement of Applicability");
 
             // N8 breadcrumb "Comply / Statement of Applicability / <control>". Title supplies the leaf, so
             // BreadcrumbDetail is deliberately unset (setting it would duplicate the control crumb).
@@ -98,7 +102,7 @@ public sealed class ControlDetailModel(
             ViewData["NavGroup"] = "Comply";
             ViewData["NavItem"] = "soa";
             ViewData["BreadcrumbParent"] = "Statement of Applicability";
-            ViewData["BreadcrumbParentHref"] = SoaHref;
+            ViewData["BreadcrumbParentHref"] = soaHref;
 
             return Page();
         }
@@ -109,7 +113,7 @@ public sealed class ControlDetailModel(
             ViewData["NavGroup"] = "Comply";
             ViewData["NavItem"] = "soa";
             ViewData["BreadcrumbParent"] = "Statement of Applicability";
-            ViewData["BreadcrumbParentHref"] = SoaHref;
+            ViewData["BreadcrumbParentHref"] = $"{SoaHref}?standard={Uri.EscapeDataString(standard)}";
             return Page();
         }
     }

@@ -1,7 +1,14 @@
 # web-object-drawer Specification
 
 ## Purpose
-TBD - created by archiving change add-object-detail-drawer. Update Purpose after archive.
+
+Open a list object's full detail in a right-anchored ARIA dialog layered over the list, so the
+viewer inspects a record without losing the list scroll position or filter state behind it. The
+drawer renders the same server-authored anatomy as the full-page detail view and degrades to a
+direct navigation to that page when JavaScript is unavailable, giving one accessible, keyboard-
+and screen-reader-safe detail surface across both paths. This delivers `web-ux-conventions` O4
+and A5.
+
 ## Requirements
 ### Requirement: The object-detail drawer is a right-anchored ARIA dialog
 
