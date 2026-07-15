@@ -1,0 +1,19 @@
+@page "/compliance/control-detail"
+@model Freeboard.Pages.Compliance.ControlDetailModel
+@*
+    The full-page control detail (O4). Renders the same shared _ObjectDetail anatomy the drawer shows, so
+    the two cannot diverge. It is the no-JavaScript navigation target for a Statement of Applicability
+    control row and the direct-link record page.
+*@
+@if (Model.StoreUnreachable)
+{
+    <p class="notice-error max-w-2xl">The compliance store could not be reached. Check the database connection.</p>
+}
+else if (Model.Detail is not null)
+{
+    <div class="fb-report">
+        <div class="fb-sheet" data-control-detail>
+            <partial name="_ObjectDetail" model="Model.Detail" />
+        </div>
+    </div>
+}

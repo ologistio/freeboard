@@ -21,6 +21,10 @@
     @* Third sibling of the rail and stage: the palette holds those two inert while open and is itself
        outside that list, so it stays reachable. Coupled to the rail opener through the "palette" store. *@
     <vc:shell-palette />
+    @* Fourth sibling of the rail and stage: the object-detail drawer. Like the palette it holds rail and
+       stage inert while open and sits outside that list, so inerting the shell never inerts the dialog.
+       A list wires its rows to it through the "drawer" store. *@
+    <vc:object-drawer />
 </div>
 </body>
 </html>

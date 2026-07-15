@@ -1,0 +1,19 @@
+@*
+    The object-detail drawer (O4/A5). objectDrawer (app.js) composes overlayFocus: it holds .fb-rail and
+    .fb-stage inert while open, moves focus to the dialog panel, and restores it on close. The root sits
+    outside its own inert list (it is a fourth .fb-app sibling), so the dialog stays reachable while the
+    rest of the shell is inert. Escape closes only this overlay (overlayEscape stops the event) and the
+    scrim click closes it. The panel is inert while closed, so its cloned controls are out of the tab
+    order until it opens. The content slot is filled by cloning the opener row's server-rendered anatomy
+    template - no fetch, no client-built markup.
+*@
+<div class="fb-ddialog" x-data="objectDrawer" x-cloak
+     :class="{ 'is-open': $store.drawer.open }"
+     @@keydown.escape="overlayEscape($event)">
+    <div class="fb-dscrim" @@click="close()"></div>
+    <div class="fb-drawer" role="dialog" aria-modal="true" aria-labelledby="fb-detail-title"
+         tabindex="-1" :inert="!$store.drawer.open || null">
+        <button type="button" class="fb-xbtn" aria-label="Close" @@click="close()">Close</button>
+        <div class="fb-dcontent" x-ref="content"></div>
+    </div>
+</div>

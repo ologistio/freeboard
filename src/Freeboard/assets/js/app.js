@@ -212,7 +212,11 @@ Alpine.data("commandPalette", () => ({
         }
     },
     open() {
-        if (this.$store.palette.open) {
+        // One top-level overlay at a time: never open the palette over an open object drawer. The
+        // palette inerts only .fb-rail and .fb-stage, not the drawer (the fourth .fb-app sibling), so
+        // stacking would leave the drawer focusable behind the palette. This is the single choke point
+        // both the document Ctrl-K / "/" listener and the store request() funnel through.
+        if (this.$store.palette.open || this.$store.drawer.open) {
             return;
         }
 
@@ -282,6 +286,57 @@ Alpine.data("commandPalette", () => ({
     },
 }));
 
+// The object-detail drawer (O4/A5): the single right-anchored ARIA dialog every list opens its records
+// into. It composes overlayFocus for the open/close focus mechanics (capture opener, move focus in, hold
+// .fb-rail and .fb-stage inert while open, Escape-to-close with focus restore) and layers only the
+// clone-on-open behaviour on top - it re-authors no focus-trap, Escape, or inert code. The record markup
+// is server-rendered into a <template> next to each list row; on open the drawer clones the row's template
+// into its content slot, so no fetch and no client-built HTML is needed. The list openers live in the
+// page's own Alpine scope, so they reach this shell-mounted drawer through the "drawer" store.
+Alpine.data("objectDrawer", () => ({
+    ...overlayFocus({
+        inert: [".fb-rail", ".fb-stage"],
+        focus: ".fb-drawer",
+        fallback: "main.fb-main",
+    }),
+    init() {
+        // The list opener (a different scope) asks the store to open us; register how.
+        this.$store.drawer.onOpen((opener) => this.open(opener));
+    },
+    open(opener) {
+        if (this.$store.drawer.open) {
+            return;
+        }
+
+        // Clone the opener's server-rendered anatomy template into the content slot. The template is
+        // inert markup already in the page GET, so this is a DOM copy, never a fetch or JSON->HTML build.
+        const templateId = opener && opener.dataset ? opener.dataset.detailTemplate : null;
+        const template = templateId ? document.getElementById(templateId) : null;
+        if (!template || !("content" in template)) {
+            // No anatomy to clone: never open an empty inert dialog. Fall back to the opener's full-page
+            // href (the same target the no-JavaScript path uses); if there is none, abort without inerting.
+            if (opener && opener.href) {
+                window.location.assign(opener.href);
+            }
+            return;
+        }
+
+        this.$refs.content.replaceChildren();
+        this.$refs.content.appendChild(template.content.cloneNode(true));
+
+        this.$store.drawer.open = true;
+        this.enterOverlay(opener);
+    },
+    close() {
+        if (!this.$store.drawer.open) {
+            return;
+        }
+
+        this.$store.drawer.open = false;
+        this.exitOverlay();
+    },
+}));
+
 // Input types that take typed text, where a bare "/" is a character the user means literally.
 // Checkboxes, radios, buttons, and selects are not text entry, so the shortcut still opens there.
 const TEXT_INPUT_TYPES = new Set([
@@ -319,6 +374,22 @@ Alpine.store("palette", {
     request() {
         if (this.opener) {
             this.opener();
+        }
+    },
+});
+
+// Couples each list's row openers (in the page scope) to the single shell-mounted object drawer without
+// a shared x-data spanning both regions: a row calls request(opener) with its anchor, and the drawer
+// registers its open handler here on init. Same coupling pattern as the "palette" store.
+Alpine.store("drawer", {
+    open: false,
+    openHandler: null,
+    onOpen(handler) {
+        this.openHandler = handler;
+    },
+    request(opener) {
+        if (this.openHandler) {
+            this.openHandler(opener);
         }
     },
 });

@@ -47,8 +47,11 @@ else
         <p class="mb-3 text-sm text-muted">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
         @* No-JS reveal: the whole tree renders server-side, so neutralize x-cloak when Alpine cannot run.
            Scoped to the SoA tree so it never reveals layout chrome (mobile-nav overlay, account menu)
-           that also uses x-cloak. *@
-        <noscript><style>.soa-nodes [x-cloak]{display:revert !important}</style></noscript>
+           that also uses x-cloak. Declared into the same @@layer base as the global
+           [x-cloak]{display:none !important} rule: for !important declarations cascade-layer order is
+           reversed, so a layered rule beats an unlayered one regardless of specificity - the override must
+           sit in that layer, where its higher specificity then wins the tie. *@
+        <noscript><style>@@layer base { .soa-nodes [x-cloak]{display:revert !important} }</style></noscript>
         <div class="card overflow-x-auto p-0">
             <table class="soa-nodes w-full text-sm" data-standard="@Model.StandardId">
                 <thead class="border-b border-neutral-200 text-left text-muted">
@@ -59,6 +62,7 @@ else
                         <th class="px-4 py-3 font-medium">Resolution</th>
                     </tr>
                 </thead>
+                @{ var detailTemplateIndex = 0; }
                 @foreach (var node in Model.Nodes)
                 {
                     var disposition = Freeboard.Pages.Compliance.StatementOfApplicabilityModel.DispositionLabel(node);
@@ -135,6 +139,10 @@ else
                                                         @foreach (var control in requirement.Controls)
                                                         {
                                                             var hasChecks = control.Checks.Count > 0;
+                                                            var detailTemplateId = $"fb-detail-tmpl-{detailTemplateIndex++}";
+                                                            var detailUrl = $"/compliance/control-detail?standard={Uri.EscapeDataString(Model.StandardId!)}&org={Uri.EscapeDataString(node.Id)}&requirement={Uri.EscapeDataString(requirement.Id)}&control={Uri.EscapeDataString(control.Id)}";
+                                                            var detailView = Freeboard.Pages.Compliance.ControlDetailProjection.Map(node.Id, requirement, control, Model.CollectorStatus);
+                                                            var detailModel = new Freeboard.Pages.Shared.ObjectDetailPartialModel(detailView, detailUrl, "Open full page");
                                                             <li data-control-id="@control.Id" x-data="{ open: false }">
                                                                 <div class="flex items-center gap-2">
                                                                     @if (hasChecks)
@@ -149,12 +157,21 @@ else
                                                                         </button>
                                                                     }
                                                                     <span class="font-mono text-xs text-muted">@control.Id</span>
-                                                                    <span class="text-xs">@control.Title</span>
+                                                                    @* The control object opens the detail drawer with JS (@@click.prevent through the
+                                                                       drawer store, cloning the adjacent template); without JS the anchor navigates to
+                                                                       the full-page detail (O4). *@
+                                                                    @* A4: 32px minimum hit target in a dense table. *@
+                                                                    <a class="inline-flex min-h-8 items-center text-xs link" href="@detailUrl" aria-haspopup="dialog"
+                                                                       data-detail-template="@detailTemplateId"
+                                                                       @@click.prevent="$store.drawer.request($el)">@control.Title</a>
                                                                     @if (!string.IsNullOrEmpty(control.Evaluation))
                                                                     {
                                                                         <span class="badge badge-neutral">@control.Evaluation</span>
                                                                     }
                                                                 </div>
+                                                                <template id="@detailTemplateId">
+                                                                    <partial name="_ObjectDetail" model="detailModel" />
+                                                                </template>
                                                                 @if (hasChecks)
                                                                 {
                                                                     <ul x-show="open" x-cloak class="ml-5 mt-1 space-y-1 border-l border-neutral-200 pl-3">
