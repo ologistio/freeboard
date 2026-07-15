@@ -34,8 +34,14 @@ public sealed class IntegrationConnectionIntegrationTests
     private static Requirement Req(string id, string standard) =>
         new()
         {
-            Id = id, Title = "T", ApiVersion = "v1", Standard = standard, Theme = "Theme",
-            Statement = "Do the thing.", CitationLabel = "Source", CitationUrl = "https://example.com/" + id,
+            Id = id,
+            Title = "T",
+            ApiVersion = "v1",
+            Standard = standard,
+            Theme = "Theme",
+            Statement = "Do the thing.",
+            CitationLabel = "Source",
+            CitationUrl = "https://example.com/" + id,
         };
 
     private static Control Ctrl(string id, string[] mapsTo, string evaluation) =>
@@ -46,15 +52,26 @@ public sealed class IntegrationConnectionIntegrationTests
     private static IntegrationConnection Conn(string id, string vendor = "vendor-a") =>
         new()
         {
-            Id = id, Title = "Fleet Production", ApiVersion = "v1", Provider = "fleet",
-            BaseUrl = "https://fleet.example.com", DiscoveryCadence = "daily", Vendor = vendor,
+            Id = id,
+            Title = "Fleet Production",
+            ApiVersion = "v1",
+            Provider = "fleet",
+            BaseUrl = "https://fleet.example.com",
+            DiscoveryCadence = "daily",
+            Vendor = vendor,
         };
 
     private static EvidenceCollector IntegrationEc(string id, string connection, List<Check> checks) =>
         new()
         {
-            Id = id, Title = "T", ApiVersion = "v1", Control = "ctrl-a", Type = "integration",
-            Frequency = "daily", Connection = connection, Checks = checks,
+            Id = id,
+            Title = "T",
+            ApiVersion = "v1",
+            Control = "ctrl-a",
+            Type = "integration",
+            Frequency = "daily",
+            Connection = connection,
+            Checks = checks,
         };
 
     private static GitOpsConfig Config(
