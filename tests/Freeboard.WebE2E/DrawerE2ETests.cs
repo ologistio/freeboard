@@ -124,6 +124,12 @@ public sealed class DrawerE2ETests : E2ETestBase
         await page.Locator(".fb-dscrim").ClickAsync(new() { Position = new() { X = 10, Y = 10 } });
         await page.Locator(".fb-drawer").WaitForAsync(new() { State = WaitForSelectorState.Hidden });
         Assert.False(await IsOpenAsync(page));
+        // Scrim close restores focus to the opener, the same as Escape (A5); a scrim-specific regression
+        // would leave focus stranded on the dismissed dialog.
+        Assert.True(
+            await page.EvaluateAsync<bool>(
+                "() => !!document.activeElement && document.activeElement.matches('a[data-detail-template]')"),
+            "scrim close should restore focus to the control opener");
     }
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
@@ -159,6 +165,18 @@ public sealed class DrawerE2ETests : E2ETestBase
         Assert.NotEmpty(components);
         Assert.All(components, c => Assert.True(
             ParseDurationMs(c) <= 1.0, $"reduced motion should zero the slide, got transitionDuration '{duration}'"));
+
+        // Close path: the panel's close visibility delay - which normally keeps it on screen through the
+        // slide-out - is dropped under reduced motion so it hides at once. Assert every transitionDelay
+        // component on the now-closed panel is effectively zero.
+        await page.Locator(".fb-dscrim").ClickAsync(new() { Position = new() { X = 10, Y = 10 } });
+        await page.Locator(".fb-drawer").WaitForAsync(new() { State = WaitForSelectorState.Hidden });
+        var delay = await page.EvaluateAsync<string>(
+            "() => getComputedStyle(document.querySelector('.fb-drawer')).transitionDelay");
+        var delays = delay.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.NotEmpty(delays);
+        Assert.All(delays, c => Assert.True(
+            ParseDurationMs(c) <= 1.0, $"reduced motion should drop the close visibility delay, got transitionDelay '{delay}'"));
     }
 
     private static double ParseDurationMs(string value)

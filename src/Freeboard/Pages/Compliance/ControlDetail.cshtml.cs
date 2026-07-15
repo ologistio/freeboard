@@ -9,17 +9,11 @@ namespace Freeboard.Pages.Compliance;
 
 /// <summary>
 /// The full-page control detail: the O4 direct-link and no-JavaScript target for a Statement of
-/// Applicability control. It re-runs the existing drill-down reads (in the same store-unreachable
-/// try/catch as the list page) plus the same per-collector evidence-status sidecar read, selects the one
-/// control identified by its (standard, organisation, requirement, control) tuple, and projects it into
-/// the shared <see cref="ObjectDetailView"/> through <see cref="ControlDetailProjection"/> - the one
-/// mapping the list page's drawer templates also use, so the drawer and this page cannot diverge. GET-only
-/// (read-only-middleware safe) and authenticated by the folder-level policy on <c>/Compliance</c>.
+/// Applicability control, rendering the same shared <see cref="ObjectDetailView"/> anatomy as the drawer.
 ///
-/// Authorization binds to the caller's FULL accessible organisation set, not the active list scope: a
-/// direct URL for any accessible org renders regardless of which org the active-scope cookie selects. A
-/// missing control, or one whose org lies outside the accessible set, returns not-found and discloses no
-/// record name or facet, so a direct URL cannot probe for records the caller may not see.
+/// Authorization binds to the caller's full accessible organisation set, not the active list scope, so a
+/// direct URL for any accessible org renders. A missing control, or one whose org lies outside that set,
+/// returns not-found and discloses no record name or facet, so a direct URL cannot probe for hidden records.
 /// </summary>
 public sealed class ControlDetailModel(
     IComplianceStore store, IOrgAccess orgAccess, IEvidenceStore evidenceStore) : PageModel
@@ -98,8 +92,10 @@ public sealed class ControlDetailModel(
                 view, soaHref, "Back to Statement of Applicability", TitleAsPageHeading: true);
 
             // N8 breadcrumb "Comply / Statement of Applicability / <control>". Title supplies the leaf, so
-            // BreadcrumbDetail is deliberately unset (setting it would duplicate the control crumb).
+            // BreadcrumbDetail is deliberately unset (setting it would duplicate the control crumb). This
+            // page 404s on its bare path, so the leaf declares its full self-URL to stay a working link.
             ViewData["Title"] = controlNode.Title;
+            ViewData["BreadcrumbTitleHref"] = Request.Path + Request.QueryString;
             ViewData["NavGroup"] = "Comply";
             ViewData["NavItem"] = "soa";
             ViewData["BreadcrumbParent"] = "Statement of Applicability";
@@ -111,6 +107,7 @@ public sealed class ControlDetailModel(
         {
             StoreUnreachable = true;
             ViewData["Title"] = "Control";
+            ViewData["BreadcrumbTitleHref"] = Request.Path + Request.QueryString;
             ViewData["NavGroup"] = "Comply";
             ViewData["NavItem"] = "soa";
             ViewData["BreadcrumbParent"] = "Statement of Applicability";

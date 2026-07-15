@@ -86,9 +86,11 @@ highlight SHALL update `aria-activedescendant` and `aria-selected`, not DOM focu
 The palette SHALL open from a document-level shortcut - `Ctrl-K`, `Cmd-K`, or `/` - from
 anywhere in the app. The `/` shortcut SHALL be ignored while focus is in a text input,
 textarea, or contenteditable element, so it stays typeable there; `Ctrl-K` and `Cmd-K` SHALL
-open regardless. While open, typing SHALL filter the results by a case-insensitive substring
-match and the first match SHALL become the highlighted option; ArrowDown and ArrowUp SHALL
-move the highlight; Enter SHALL run the highlighted result; Escape SHALL close the palette.
+open regardless. The one exception is another top-level overlay: while the object-detail drawer
+is open the shortcut SHALL be suppressed so the drawer stays the single active top-level overlay
+(see `web-object-drawer`). While open, typing SHALL filter the results by a case-insensitive
+substring match and the first match SHALL become the highlighted option; ArrowDown and ArrowUp
+SHALL move the highlight; Enter SHALL run the highlighted result; Escape SHALL close the palette.
 
 #### Scenario: Shortcut opens the palette
 
@@ -100,6 +102,11 @@ move the highlight; Enter SHALL run the highlighted result; Escape SHALL close t
 
 - **WHEN** focus is in a text input, textarea, or contenteditable and the viewer presses /
 - **THEN** the palette does not open and the / is entered as text
+
+#### Scenario: The open drawer suppresses the shortcut
+
+- **WHEN** the object-detail drawer is open and the viewer presses Ctrl-K, Cmd-K, or /
+- **THEN** the palette does not open; the drawer remains the single active top-level overlay
 
 #### Scenario: Type, arrow, and run
 

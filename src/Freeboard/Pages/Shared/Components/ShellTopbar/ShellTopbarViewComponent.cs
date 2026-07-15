@@ -24,9 +24,10 @@ public sealed record ShellTopbarViewModel(
 /// Breadcrumb ViewData: <c>NavGroup</c> (group segment), an optional <c>BreadcrumbParent</c> /
 /// <c>BreadcrumbParentHref</c> segment between group and page (Account subpages set it to Account so
 /// they read "group / Account / leaf" while <c>Title</c> stays the leaf and the page's own title tag),
-/// <c>Title</c> (page segment), and an optional <c>BreadcrumbDetail</c> / <c>BreadcrumbDetailHref</c>.
-/// The group link resolves against the request's visible items, so it never points a non-entitled
-/// viewer at a gated destination.
+/// <c>Title</c> (page segment, linking to its bare path unless the page declares
+/// <c>BreadcrumbTitleHref</c> for a query-keyed self-link), and an optional <c>BreadcrumbDetail</c> /
+/// <c>BreadcrumbDetailHref</c>. The group link resolves against the request's visible items, so it never
+/// points a non-entitled viewer at a gated destination.
 /// </summary>
 public sealed class ShellTopbarViewComponent(ShellNavResolver resolver) : ViewComponent
 {
@@ -39,6 +40,7 @@ public sealed class ShellTopbarViewComponent(ShellNavResolver resolver) : ViewCo
         var parent = ViewData["BreadcrumbParent"] as string;
         var parentHref = ViewData["BreadcrumbParentHref"] as string;
         var title = ViewData["Title"] as string;
+        var titleHref = ViewData["BreadcrumbTitleHref"] as string;
         var detail = ViewData["BreadcrumbDetail"] as string;
         var detailHref = ViewData["BreadcrumbDetailHref"] as string;
 
@@ -55,10 +57,11 @@ public sealed class ShellTopbarViewComponent(ShellNavResolver resolver) : ViewCo
 
         if (!string.IsNullOrWhiteSpace(title))
         {
-            // The leaf crumb is a self-reference to the current page, so it links to the full current URL
-            // (path plus query). A page keyed only by query - the control detail - 404s on the bare path,
-            // so the leaf must carry the query to stay a working link (N8).
-            crumbs.Add(new ShellCrumb(title, currentUrl));
+            // The page (leaf) crumb links to the page's own route. Most pages resolve on their bare path,
+            // so that is the default. A page keyed only by query - the control detail - 404s on the bare
+            // path, so it declares BreadcrumbTitleHref with its full self-URL (path plus query) to stay a
+            // working self-link (N8); it does not change the leaf href of any other page.
+            crumbs.Add(new ShellCrumb(title, string.IsNullOrWhiteSpace(titleHref) ? path : titleHref));
         }
 
         if (!string.IsNullOrWhiteSpace(detail))
