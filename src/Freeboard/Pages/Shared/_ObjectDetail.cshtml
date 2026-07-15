@@ -34,7 +34,14 @@
     {
         <div class="fb-eyebrow">@view.Eyebrow</div>
     }
-    <h2 id="fb-detail-title">@view.Title</h2>
+    @if (Model.TitleAsPageHeading)
+    {
+        <h1 id="fb-detail-title">@view.Title</h1>
+    }
+    else
+    {
+        <h2 id="fb-detail-title">@view.Title</h2>
+    }
     @if (view.Status is not null)
     {
         <fb-status status="@view.Status.Value" />

@@ -47,8 +47,11 @@ else
         <p class="mb-3 text-sm text-muted">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
         @* No-JS reveal: the whole tree renders server-side, so neutralize x-cloak when Alpine cannot run.
            Scoped to the SoA tree so it never reveals layout chrome (mobile-nav overlay, account menu)
-           that also uses x-cloak. *@
-        <noscript><style>.soa-nodes [x-cloak]{display:revert !important}</style></noscript>
+           that also uses x-cloak. Declared into the same @@layer base as the global
+           [x-cloak]{display:none !important} rule: for !important declarations cascade-layer order is
+           reversed, so a layered rule beats an unlayered one regardless of specificity - the override must
+           sit in that layer, where its higher specificity then wins the tie. *@
+        <noscript><style>@@layer base { .soa-nodes [x-cloak]{display:revert !important} }</style></noscript>
         <div class="card overflow-x-auto p-0">
             <table class="soa-nodes w-full text-sm" data-standard="@Model.StandardId">
                 <thead class="border-b border-neutral-200 text-left text-muted">
@@ -157,7 +160,8 @@ else
                                                                     @* The control object opens the detail drawer with JS (@@click.prevent through the
                                                                        drawer store, cloning the adjacent template); without JS the anchor navigates to
                                                                        the full-page detail (O4). *@
-                                                                    <a class="text-xs link" href="@detailUrl" aria-haspopup="dialog"
+                                                                    @* A4: 32px minimum hit target in a dense table. *@
+                                                                    <a class="inline-flex min-h-8 items-center text-xs link" href="@detailUrl" aria-haspopup="dialog"
                                                                        data-detail-template="@detailTemplateId"
                                                                        @@click.prevent="$store.drawer.request($el)">@control.Title</a>
                                                                     @if (!string.IsNullOrEmpty(control.Evaluation))

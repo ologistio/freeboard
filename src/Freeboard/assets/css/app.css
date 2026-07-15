@@ -1613,7 +1613,7 @@ html[data-theme="light"] {
         position: relative;
         padding: 16px 56px 0 18px;
     }
-    .fb-dhead h2 {
+    .fb-dhead :is(h1, h2) {
         font: 700 16px var(--font-sans);
         color: var(--color-ink);
         margin: 4px 0 8px;
@@ -1629,6 +1629,12 @@ html[data-theme="light"] {
         gap: 12px;
         padding: 12px 18px;
         border-top: 1px solid var(--color-line);
+    }
+    /* A4: 44px minimum hit target outside dense tables. */
+    .fb-dfoot .link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
     }
     .fb-dsec {
         margin-top: 16px;

@@ -50,8 +50,13 @@ public sealed record ObjectDetailView(
 /// facet that legitimately differs between the drawer and the full page (the drawer offers an "Open full
 /// page" link; the full page offers no self-link), so it is excluded from the O3/O4 parity guarantee. It
 /// is a link only - this surface is read-only and carries no mutating affordance.
+///
+/// <see cref="TitleAsPageHeading"/> sets the title's heading level: the full page is a document whose
+/// title is its sole <c>h1</c>, while the drawer is a dialog whose title is an <c>h2</c> the
+/// <c>aria-labelledby</c> points at. The rendered anatomy is otherwise identical, so O3/O4 parity holds.
 /// </summary>
 public sealed record ObjectDetailPartialModel(
     ObjectDetailView Detail,
     string? ActionHref = null,
-    string? ActionLabel = null);
+    string? ActionLabel = null,
+    bool TitleAsPageHeading = false);

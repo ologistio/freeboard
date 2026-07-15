@@ -87,6 +87,14 @@ public sealed class ControlDetailPageTests
         return html[start..end];
     }
 
+    // Collapse the title's context-dependent heading level (h1 on the full page, h2 in the dialog) so a
+    // parity assertion compares the shared record content, not the deliberately different heading tag.
+    private static string NormalizeTitleHeading(string html) =>
+        html.Replace("<h1 id=\"fb-detail-title\">", "<htitle>", StringComparison.Ordinal)
+            .Replace("<h2 id=\"fb-detail-title\">", "<htitle>", StringComparison.Ordinal)
+            .Replace("</h1>", "</htitle>", StringComparison.Ordinal)
+            .Replace("</h2>", "</htitle>", StringComparison.Ordinal);
+
     [Fact]
     public async Task DrawerTemplateAndFullPageRenderIdenticalFacetAnatomy()
     {
@@ -101,8 +109,11 @@ public sealed class ControlDetailPageTests
         var soaFacets = FacetRegion(soa);
         var fullFacets = FacetRegion(full);
 
-        // Same partial, same projected model, so the eyebrow-through-history content is byte-identical.
-        Assert.Equal(soaFacets, fullFacets);
+        // Same partial, same projected model, so the eyebrow-through-history content is byte-identical -
+        // except the title's heading level, a deliberate context difference (h1 on the full-page document,
+        // h2 on the dialog whose aria-labelledby points at it). The record content is identical, so
+        // normalize the title tag before asserting facet parity.
+        Assert.Equal(NormalizeTitleHeading(soaFacets), NormalizeTitleHeading(fullFacets));
 
         // And it carries the sidecar-fed per-check status (Passing), not just the projection facets - the
         // control-level status stays an honest empty (S6), never a fabricated pass.
@@ -124,7 +135,10 @@ public sealed class ControlDetailPageTests
 
         var html = await response.Content.ReadAsStringAsync();
         Assert.Contains("data-control-detail", html, StringComparison.Ordinal);
-        Assert.Contains("id=\"fb-detail-title\"", html, StringComparison.Ordinal);
+        // The full page is a document, so its title is the sole h1 (matching every other Compliance page),
+        // not the dialog's h2.
+        Assert.Contains("<h1 id=\"fb-detail-title\">Control A</h1>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<h2 id=\"fb-detail-title\">", html, StringComparison.Ordinal);
         Assert.Contains("Control A", html, StringComparison.Ordinal);
         // The full page's action is a back-link, never a self-link or a fabricated mutating action.
         Assert.Contains("Back to Statement of Applicability", html, StringComparison.Ordinal);

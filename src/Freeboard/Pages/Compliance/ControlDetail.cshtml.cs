@@ -94,7 +94,8 @@ public sealed class ControlDetailModel(
             var soaHref = $"{SoaHref}?standard={Uri.EscapeDataString(standard)}";
 
             var view = ControlDetailProjection.Map(org, requirementNode, controlNode, Resolver);
-            Detail = new ObjectDetailPartialModel(view, soaHref, "Back to Statement of Applicability");
+            Detail = new ObjectDetailPartialModel(
+                view, soaHref, "Back to Statement of Applicability", TitleAsPageHeading: true);
 
             // N8 breadcrumb "Comply / Statement of Applicability / <control>". Title supplies the leaf, so
             // BreadcrumbDetail is deliberately unset (setting it would duplicate the control crumb).
