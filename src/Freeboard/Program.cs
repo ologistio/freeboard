@@ -31,6 +31,10 @@ var freeboardConnectionString = builder.Configuration.GetConnectionString("Freeb
 // request time, not a startup crash.
 builder.Services.AddComplianceStore(freeboardConnectionString);
 
+// Resolves an integration connection's API token out-of-band by connection id (from IConfiguration).
+// Singleton; owns the key shape and exposes only a presence bool, never the token value.
+builder.Services.AddSingleton<Freeboard.Compliance.IIntegrationTokenResolver, Freeboard.Compliance.IntegrationTokenResolver>();
+
 // App-managed write store. The write endpoints are always mapped so the read-only middleware
 // can 409 them in GitOps mode (they are not auth-exempt); off read-only mode they persist.
 // Registering the store is harmless in read-only mode - the middleware rejects the requests
@@ -311,6 +315,39 @@ if (emailOptions.Transport == Freeboard.Email.EmailTransport.Log)
     app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Freeboard.Email").LogWarning(
         "The 'log' email transport is a non-delivering development sink and must not be used in production.");
 }
+
+// Warn once per referenced connection whose out-of-band token is unresolvable, naming the id (never the
+// value). Registered on ApplicationStarted and run as a guarded fire-and-forget so it executes just after
+// the server starts, off the boot path: an unreachable store (a hung TCP connect) can never delay or gate
+// startup. Guarded so a store outage is a silent non-fatal skip; the read surfaces (page and API) show the
+// same token-health condition.
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    try
+    {
+        var complianceStore = app.Services.GetRequiredService<IComplianceStore>();
+        var tokenResolver = app.Services.GetRequiredService<Freeboard.Compliance.IIntegrationTokenResolver>();
+        var connectionIds = (await complianceStore.GetIntegrationConnectionsAsync())
+            .Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+        var referencedConnections = (await complianceStore.GetEvidenceCollectorsAsync())
+            .Where(c => string.Equals(c.Type, "integration", StringComparison.Ordinal) && !string.IsNullOrEmpty(c.Connection))
+            .Select(c => c.Connection!)
+            .Where(connectionIds.Contains)
+            .Distinct(StringComparer.Ordinal);
+        var integrationLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Freeboard.Compliance");
+        foreach (var connectionId in referencedConnections.Where(id => !tokenResolver.IsResolvable(id)))
+        {
+            integrationLogger.LogWarning(
+                "Integration connection '{ConnectionId}' has no resolvable API token; collectors that reference it "
+                + "cannot authenticate until one is configured at Freeboard:Integrations:{ConnectionId}:ApiToken.",
+                connectionId, connectionId);
+        }
+    }
+    catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
+    {
+        // Store unreachable: skip silently. This is a best-effort warning, never a boot dependency.
+    }
+}));
 
 // Only honor forwarded headers when trusted proxies/networks are configured. With none
 // configured, the socket RemoteIpAddress is used and X-Forwarded-For is ignored.

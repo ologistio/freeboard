@@ -37,6 +37,8 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public IReadOnlyList<AttestationTemplateRow> Templates { get; set; } = [];
 
+    public IReadOnlyList<IntegrationConnectionRow> Connections { get; set; } = [];
+
     public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Standards);
 
@@ -73,6 +75,9 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Templates);
+
+    public Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default) =>
+        Guard(() => Connections);
 
     public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
     {

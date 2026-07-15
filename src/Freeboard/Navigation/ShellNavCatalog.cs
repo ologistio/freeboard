@@ -64,6 +64,7 @@ public static class ShellNavCatalog
         new ShellNavGroup("Platform",
         [
             new ShellNavItem("evidence-collectors", "Evidence collectors", "/settings/evidence-collectors", "Platform"),
+            new ShellNavItem("integration-connections", "Integration connections", "/settings/integration-connections", "Platform"),
             new ShellNavItem("attestation-templates", "Attestation templates", "/settings/attestation-templates", "Platform"),
             new ShellNavItem("users", "Users", "/settings/users", "Platform", ShellNavAccess.CanReachAdmin),
             new ShellNavItem(

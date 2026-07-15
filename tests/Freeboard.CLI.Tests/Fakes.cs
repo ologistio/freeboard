@@ -102,6 +102,8 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public int TemplateListCalls { get; private set; }
 
+    public int ConnectionListCalls { get; private set; }
+
     public int CredentialIssueCalls { get; private set; }
 
     public int CredentialRevokeCalls { get; private set; }
@@ -148,6 +150,9 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public ApiResult<IReadOnlyList<ApiAttestationTemplate>> TemplateListResult { get; init; } =
         ApiResult<IReadOnlyList<ApiAttestationTemplate>>.Success([SampleManualTemplate, SampleTrainingTemplate]);
 
+    public ApiResult<IReadOnlyList<ApiIntegrationConnection>> ConnectionListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiIntegrationConnection>>.Success([SampleConnection]);
+
     public static ApiUser SampleUser { get; } =
         new("01HZZ0000000000000000000AA", "user@example.test", "User", "member", true);
 
@@ -157,6 +162,9 @@ internal sealed class FakeApiClient : IFreeboardApiClient
         new("vs-a", "Except req-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO.");
 
     public static ApiControl SampleControl { get; } = new("ctrl-a", "Control A", ["req-a"], "all");
+
+    public static ApiIntegrationConnection SampleConnection { get; } =
+        new("fleet-prod", "fleet", "https://fleet.example.com", "daily", "vendor-a", true);
 
     public static ApiEvidenceCollector SampleCollector { get; } =
         new("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "daily", 100,
@@ -238,6 +246,12 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     {
         TemplateListCalls++;
         return Task.FromResult(TemplateListResult);
+    }
+
+    public Task<ApiResult<IReadOnlyList<ApiIntegrationConnection>>> ListIntegrationConnectionsAsync(CancellationToken ct)
+    {
+        ConnectionListCalls++;
+        return Task.FromResult(ConnectionListResult);
     }
 
     public Task<ApiResult<IssuedCredential>> IssueCollectorCredentialAsync(

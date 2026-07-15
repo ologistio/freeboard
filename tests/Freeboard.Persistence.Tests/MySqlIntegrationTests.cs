@@ -234,11 +234,12 @@ public sealed class MySqlIntegrationTests
             + "AND referenced_table_name IN ('controls', 'vendors');");
         Assert.Equal(2, collectorFks);
 
+        // evidence_collectors carries three RESTRICT FKs: controls, vendors, and integration_connections.
         var collectorDeleteRules = (await conn.QueryAsync<string>(
             "SELECT delete_rule FROM information_schema.referential_constraints "
             + "WHERE constraint_schema = DATABASE() AND table_name = 'evidence_collectors';"))
             .ToArray();
-        Assert.Equal(2, collectorDeleteRules.Length);
+        Assert.Equal(3, collectorDeleteRules.Length);
         Assert.All(collectorDeleteRules, rule => Assert.Equal("RESTRICT", rule));
 
         // attestation_templates: present, binary-collated ids, a control_id RESTRICT FK, JSON columns.

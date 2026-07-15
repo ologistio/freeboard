@@ -11,10 +11,13 @@ namespace Freeboard.Core.GitOps;
 /// (resolvable references, disposition enum, unique organisation/requirement pair), and the
 /// vendor-scope mapping (exactly-one target, resolvable references, disposition enum, unique
 /// vendor/target pair, justification required when Out), and the evidence-collectors (resolvable
-/// control/vendor references, type/frequency/threshold checks, and the control evaluation rule
-/// required once a control has an attached collector), and the attestation-templates (resolvable
-/// control reference, type token, field/quiz shape, pass_mark range, and the training-vs-manual
-/// conditional rules). Does NOT re-check kind (the loader owns kind-routing).
+/// control/vendor references, type/frequency/threshold checks, the control evaluation rule required once
+/// a control has an attached collector, the type-conditional connection/checks rules, and each tracked
+/// check's shape and severity token), the integration-connections (required fields, closed provider
+/// token, absolute base_url, discovery_cadence token, optional vendor reference, and a
+/// configuration-key-safe id: no ':' or '__', no case-insensitive collision), and the
+/// attestation-templates (resolvable control reference, type token, field/quiz shape, pass_mark range,
+/// and the training-vs-manual conditional rules). Does NOT re-check kind (the loader owns kind-routing).
 /// </summary>
 public static class ConfigValidator
 {
@@ -35,6 +38,9 @@ public static class ConfigValidator
     {
         "boolean", "single-choice", "short-text",
     };
+
+    /// <summary>Closed token set for a tracked check's severity (case-sensitive), matching evidence_checks.severity.</summary>
+    private static readonly HashSet<string> CheckSeverityTokens = new(StringComparer.Ordinal) { "Hard", "Soft" };
 
     /// <summary>
     /// Loads <paramref name="directory"/> then validates it, returning the model and
@@ -66,7 +72,10 @@ public static class ConfigValidator
         ValidateRequirementScopes(config, organisationIds, requirementIds, diagnostics);
         var vendorIds = ValidateVendors(config, diagnostics);
         ValidateVendorScopes(config, vendorIds, requirementIds, controlIds, diagnostics);
-        ValidateEvidenceCollectors(config, controlIds, vendorIds, diagnostics);
+        // Integration-connections consume vendor ids (for the optional vendor reference) and produce the
+        // connection id set the evidence-collectors then resolve their connection reference against.
+        var connectionIds = ValidateIntegrationConnections(config, vendorIds, diagnostics);
+        ValidateEvidenceCollectors(config, controlIds, vendorIds, connectionIds, diagnostics);
         ValidateAttestationTemplates(config, controlIds, diagnostics);
 
         return diagnostics;
@@ -576,10 +585,103 @@ public static class ConfigValidator
         }
     }
 
+    private static HashSet<string> ValidateIntegrationConnections(
+        GitOpsConfig config,
+        HashSet<string> vendorIds,
+        List<Diagnostic> diagnostics)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        // The id resolves a configuration key (Freeboard:Integrations:<id>:ApiToken) and .NET config keys
+        // are case-insensitive, so two ids differing only in case would resolve the same token slot. This
+        // set catches that collision before it reaches the store.
+        var seenCaseInsensitive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var connection in config.IntegrationConnections)
+        {
+            CheckApiVersion(connection.ApiVersion, GitOpsSchema.KindIntegrationConnection, connection.Id, diagnostics);
+            CheckRequired(connection.Id, GitOpsSchema.KindIntegrationConnection, "id", connection.Title, diagnostics);
+            CheckRequired(connection.Title, GitOpsSchema.KindIntegrationConnection, "title", connection.Id, diagnostics);
+            CheckRequired(connection.Provider, GitOpsSchema.KindIntegrationConnection, "provider", connection.Id, diagnostics);
+            CheckRequired(connection.BaseUrl, GitOpsSchema.KindIntegrationConnection, "base_url", connection.Id, diagnostics);
+            CheckRequired(connection.DiscoveryCadence, GitOpsSchema.KindIntegrationConnection, "discovery_cadence", connection.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(connection.Provider) && !IntegrationProvider.Tokens.Contains(connection.Provider))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindIntegrationConnection} '{Describe(connection.Id)}' has unknown provider "
+                        + $"'{connection.Provider}'. Expected one of: fleet.",
+                });
+            }
+
+            if (!string.IsNullOrWhiteSpace(connection.BaseUrl) && !IsAbsoluteHttpUri(connection.BaseUrl))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindIntegrationConnection} '{Describe(connection.Id)}' has malformed base_url "
+                        + $"'{connection.BaseUrl}'. Expected an absolute http or https URL.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(connection.DiscoveryCadence)
+                && !EvidenceCollectorFrequency.Tokens.Contains(connection.DiscoveryCadence))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindIntegrationConnection} '{Describe(connection.Id)}' has unknown discovery_cadence "
+                        + $"'{connection.DiscoveryCadence}'. Expected one of: continuous, daily, weekly, monthly, quarterly, annual.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(connection.Vendor) && !vendorIds.Contains(connection.Vendor))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindIntegrationConnection} '{Describe(connection.Id)}' references unknown Vendor id "
+                        + $"'{connection.Vendor}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(connection.Id))
+            {
+                // The id is interpolated into the token config key Freeboard:Integrations:<id>:ApiToken. .NET
+                // config keys are ':'-delimited and the environment-variable provider maps '__' to ':', so an
+                // id containing either would address the wrong or an ambiguous token slot.
+                if (connection.Id.Contains(':') || connection.Id.Contains("__", StringComparison.Ordinal))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindIntegrationConnection} '{Describe(connection.Id)}' has an id containing "
+                            + "':' or '__', which is not a safe configuration-key segment for out-of-band token resolution.",
+                    });
+                }
+
+                if (!seen.Add(connection.Id))
+                {
+                    diagnostics.Add(Dup(GitOpsSchema.KindIntegrationConnection, connection.Id));
+                }
+                else if (!seenCaseInsensitive.Add(connection.Id))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindIntegrationConnection} '{Describe(connection.Id)}' collides case-insensitively "
+                            + "with another connection id; the token resolves from a case-insensitive configuration key.",
+                    });
+                }
+
+                ids.Add(connection.Id);
+            }
+        }
+
+        return ids;
+    }
+
     private static void ValidateEvidenceCollectors(
         GitOpsConfig config,
         HashSet<string> controlIds,
         HashSet<string> vendorIds,
+        HashSet<string> connectionIds,
         List<Diagnostic> diagnostics)
     {
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
@@ -654,6 +756,59 @@ public static class ConfigValidator
                 });
             }
 
+            // connection and checks are conditional on type: an integration collector requires both; any
+            // other type must declare neither (a connection or checks off the integration path is dead).
+            if (string.Equals(collector.Type, "integration", StringComparison.Ordinal))
+            {
+                if (string.IsNullOrWhiteSpace(collector.Connection))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has type 'integration' but is "
+                            + "missing required field 'connection'.",
+                    });
+                }
+                else if (!connectionIds.Contains(collector.Connection))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' references unknown "
+                            + $"IntegrationConnection id '{collector.Connection}'.",
+                    });
+                }
+
+                if (collector.Checks.Count == 0)
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has type 'integration' but is "
+                            + "missing a non-empty 'checks'.",
+                    });
+                }
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(collector.Connection))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' declares 'connection', which is "
+                            + "only valid for a type 'integration' collector.",
+                    });
+                }
+
+                if (collector.Checks.Count > 0)
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' declares 'checks', which are "
+                            + "only valid for a type 'integration' collector.",
+                    });
+                }
+            }
+
+            ValidateCollectorChecks(collector, diagnostics);
+
             if (!string.IsNullOrEmpty(collector.Id) && !seenIds.Add(collector.Id))
             {
                 diagnostics.Add(Dup(GitOpsSchema.KindEvidenceCollector, collector.Id));
@@ -671,6 +826,46 @@ public static class ConfigValidator
                 Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' has attached evidence-collectors but is "
                     + "missing required field 'evaluation'.",
             });
+        }
+    }
+
+    private static void ValidateCollectorChecks(EvidenceCollector collector, List<Diagnostic> diagnostics)
+    {
+        var seenNames = new HashSet<string>(StringComparer.Ordinal);
+        var seenSourceKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var check in collector.Checks)
+        {
+            CheckRequired(check.SourceKey, GitOpsSchema.KindEvidenceCollector, "check source_key", collector.Id, diagnostics);
+            CheckRequired(check.Name, GitOpsSchema.KindEvidenceCollector, "check name", collector.Id, diagnostics);
+            CheckRequired(check.Severity, GitOpsSchema.KindEvidenceCollector, "check severity", collector.Id, diagnostics);
+
+            if (!string.IsNullOrEmpty(check.Severity) && !CheckSeverityTokens.Contains(check.Severity))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' check '{Describe(check.Name)}' has "
+                        + $"unknown severity '{check.Severity}'. Expected 'Hard' or 'Soft'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(check.Name) && !seenNames.Add(check.Name))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has duplicate check name "
+                        + $"'{check.Name}'.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(check.SourceKey) && !seenSourceKeys.Add(check.SourceKey))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has duplicate check source_key "
+                        + $"'{check.SourceKey}'.",
+                });
+            }
         }
     }
 

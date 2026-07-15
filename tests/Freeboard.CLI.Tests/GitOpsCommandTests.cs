@@ -182,6 +182,61 @@ public sealed class GitOpsCommandTests
     }
 
     [Fact]
+    public void ValidateIntegrationCollectorWithUnknownConnectionExitsOneNamingTheConnection()
+    {
+        var dir = WriteTempConfig("""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Standard
+            id: std-a
+            title: Standard A
+            version: "1.0"
+            authority: Example Authority
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Requirement
+            id: req-a
+            title: Requirement A
+            standard: std-a
+            theme: Theme A
+            statement: Do the thing.
+            citation_label: Source A
+            citation_url: https://example.com/a
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Control
+            id: ctrl-a
+            title: Control A
+            maps_to:
+              - req-a
+            evaluation: all
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: EvidenceCollector
+            id: ec-a
+            title: Collector A
+            control: ctrl-a
+            type: integration
+            frequency: daily
+            connection: conn-missing
+            checks:
+              - source_key: "1"
+                name: check-a
+                severity: Hard
+            """);
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(1, exit);
+            Assert.Contains("conn-missing", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ValidateAttestationTemplateWithUnknownControlExitsOneNamingTheControl()
     {
         var dir = WriteTempConfig("""

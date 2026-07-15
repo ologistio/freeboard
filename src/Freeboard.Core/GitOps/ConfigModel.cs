@@ -17,6 +17,7 @@ public static class GitOpsSchema
     public const string KindVendorScope = "VendorScope";
     public const string KindEvidenceCollector = "EvidenceCollector";
     public const string KindAttestationTemplate = "AttestationTemplate";
+    public const string KindIntegrationConnection = "IntegrationConnection";
 }
 
 /// <summary>
@@ -217,6 +218,47 @@ public sealed record VendorScope
 }
 
 /// <summary>
+/// A provider connection (for example a FleetDM instance): one base URL and a discovery cadence that
+/// drive machine discovery and back many per-control collectors. Identity is <see cref="Id"/>.
+/// <see cref="Provider"/> is a closed token (see <see cref="IntegrationProvider.Tokens"/>) selecting the
+/// runner/adapter; it is not unique - one provider backs many connections. The API token is resolved
+/// out-of-band by connection id: it is never a field here, never authored in git, and never persisted.
+/// </summary>
+public sealed record IntegrationConnection
+{
+    public string ApiVersion { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+
+    /// <summary>Closed provider token selecting the runner/adapter; equals a machine's asset_source.source token.</summary>
+    public string Provider { get; init; } = string.Empty;
+
+    /// <summary>Absolute http/https base URL of the provider instance.</summary>
+    public string BaseUrl { get; init; } = string.Empty;
+
+    /// <summary>Discovery cadence token (reuses the collector-frequency vocabulary).</summary>
+    public string DiscoveryCadence { get; init; } = string.Empty;
+
+    /// <summary>Optional Vendor id; blank means absent.</summary>
+    public string Vendor { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// One tracked check on an integration <see cref="EvidenceCollector"/>. <see cref="SourceKey"/> is the
+/// provider-native id (a Fleet policy id) that joins a provider result to this check; a provider result
+/// whose id is not authored here is not a tracked check. <see cref="Name"/> is the Freeboard check name
+/// (as <c>evidence_checks.name</c> carries). <see cref="Severity"/> is <c>Hard</c> or <c>Soft</c> (as
+/// <c>evidence_checks.severity</c> stores): <c>Hard</c> fails the requirement, <c>Soft</c> warns.
+/// </summary>
+public sealed record Check
+{
+    public string SourceKey { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string Severity { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// Attaches a data source to one <see cref="Control"/>. Identity is <see cref="Id"/>. A collector
 /// names its <see cref="Control"/> (the attach point) and, optionally, a <see cref="Vendor"/>.
 /// <see cref="Type"/> is one of a fixed token set; <see cref="Frequency"/> is a collection cadence.
@@ -248,6 +290,12 @@ public sealed record EvidenceCollector
 
     /// <summary>Free-form type-specific settings; empty when absent.</summary>
     public Dictionary<string, string> Config { get; init; } = [];
+
+    /// <summary>Integration connection id; required for <c>type: integration</c>, empty otherwise.</summary>
+    public string Connection { get; init; } = string.Empty;
+
+    /// <summary>Ordered tracked checks; required non-empty for <c>type: integration</c>, empty otherwise.</summary>
+    public List<Check> Checks { get; init; } = [];
 }
 
 /// <summary>
@@ -324,4 +372,5 @@ public sealed record GitOpsConfig
     public List<VendorScope> VendorScopes { get; init; } = [];
     public List<EvidenceCollector> EvidenceCollectors { get; init; } = [];
     public List<AttestationTemplate> AttestationTemplates { get; init; } = [];
+    public List<IntegrationConnection> IntegrationConnections { get; init; } = [];
 }

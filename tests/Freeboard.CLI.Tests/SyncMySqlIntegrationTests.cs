@@ -252,6 +252,14 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         title: Vendor A
         ---
         apiVersion: freeboard.dev/v1alpha1
+        kind: IntegrationConnection
+        id: conn-a
+        title: Connection A
+        provider: fleet
+        base_url: https://fleet.example.com
+        discovery_cadence: daily
+        ---
+        apiVersion: freeboard.dev/v1alpha1
         kind: VendorScope
         id: vs-keep
         title: Keep scope
@@ -275,6 +283,11 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         vendor: vendor-a
         type: integration
         frequency: daily
+        connection: conn-a
+        checks:
+          - source_key: "1"
+            name: keep-check
+            severity: Hard
         ---
         apiVersion: freeboard.dev/v1alpha1
         kind: EvidenceCollector
@@ -333,6 +346,14 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         title: Vendor A
         ---
         apiVersion: freeboard.dev/v1alpha1
+        kind: IntegrationConnection
+        id: conn-a
+        title: Connection A
+        provider: fleet
+        base_url: https://fleet.example.com
+        discovery_cadence: daily
+        ---
+        apiVersion: freeboard.dev/v1alpha1
         kind: VendorScope
         id: vs-keep
         title: Keep scope
@@ -348,6 +369,11 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         vendor: vendor-a
         type: integration
         frequency: daily
+        connection: conn-a
+        checks:
+          - source_key: "1"
+            name: keep-check
+            severity: Hard
         ---
         apiVersion: freeboard.dev/v1alpha1
         kind: AttestationTemplate

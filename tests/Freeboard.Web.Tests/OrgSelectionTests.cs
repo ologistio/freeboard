@@ -144,6 +144,9 @@ public sealed class OrgSelectionTests
         public Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<AttestationTemplateRow>)[]);
 
+        public Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult((IReadOnlyList<IntegrationConnectionRow>)[]);
+
         public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new SoaInputs(Organisations, [], [], []));
 
