@@ -193,8 +193,10 @@ public sealed class IntegrationConnectionIntegrationTests
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
         var checks = new List<Check> { new() { SourceKey = "12", Name = "mfa-enforced", Severity = "Hard" } };
+        // fleet-prod points at vendor-b, and both are removed on re-sync, so the connection-before-vendor
+        // prune order is genuinely exercised: a wrong order raises the RESTRICT foreign-key violation.
         await importer.ImportAsync(Config(
-            connections: [Conn("fleet-prod"), Conn("fleet-dev")],
+            connections: [Conn("fleet-prod", "vendor-b"), Conn("fleet-dev")],
             collectors: [IntegrationEc("collector-a", "fleet-prod", checks)],
             vendors: [Vnd("vendor-a"), Vnd("vendor-b")]));
 

@@ -49,15 +49,15 @@ dependency.
 - Resolve the API token out-of-band from `IConfiguration`, never in git, never in
   a collector `config`, never persisted, never logged.
 - Warn once at startup for a referenced connection whose token is unresolvable
-  (naming the id, never the value), boot anyway, and let that collector's runs
-  fail as an `Error` run at collection time.
+  (naming the id, never the value), boot anyway, and let that collector's
+  scheduled dispatch fail as the scheduler's `error` status at collection time.
 - List connections with a `tokenResolvable` health flag on both the web and the
   CLI.
 
 **Non-Goals:**
 
 - No integration runner/adapter, discovery, provider HTTP call, or collection
-  execution engine. The `Error`-run outcome is a contract the future runner
+  execution engine. The scheduler-`error` outcome is a contract the future runner
   honours.
 - No secret-store retrieval; `IConfiguration` only.
 - No per-provider `config`-block schema validation (lands with the

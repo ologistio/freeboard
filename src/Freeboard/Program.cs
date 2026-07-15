@@ -319,8 +319,8 @@ if (emailOptions.Transport == Freeboard.Email.EmailTransport.Log)
 // Warn once per referenced connection whose out-of-band token is unresolvable, naming the id (never the
 // value). Registered on ApplicationStarted and run as a guarded fire-and-forget so it executes just after
 // the server starts, off the boot path: an unreachable store (a hung TCP connect) can never delay or gate
-// startup. Guarded so a store outage is a silent non-fatal skip; the runtime read path and the collector
-// scheduler surface the same condition later.
+// startup. Guarded so a store outage is a silent non-fatal skip; the read surfaces (page and API) show the
+// same token-health condition.
 app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
 {
     try

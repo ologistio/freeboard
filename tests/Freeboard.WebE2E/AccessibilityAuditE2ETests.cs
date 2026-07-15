@@ -72,6 +72,7 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         { "/compliance/vendors", Access.Full },
         { "/settings/evidence-collectors", Access.Full },
         { "/settings/attestation-templates", Access.Full },
+        { "/settings/integration-connections", Access.Full },
         { "/account", Access.Full },
         { "/account/mfa", Access.Full },
         { "/account/password/change", Access.Full },
