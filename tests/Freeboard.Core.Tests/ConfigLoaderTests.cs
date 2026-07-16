@@ -48,7 +48,7 @@ public sealed class ConfigLoaderTests
                 kind: Scope
                 id: scope-a
                 title: Scope A
-                organisation: org-a
+                subject: org-a
                 standard: std-a
                 disposition: In
                 """));
@@ -74,7 +74,7 @@ public sealed class ConfigLoaderTests
         Assert.Empty(organisation.Parent);
 
         var scope = result.Config.Scopes[0];
-        Assert.Equal("org-a", scope.Organisation);
+        Assert.Equal("org-a", scope.Subject);
         Assert.Equal("std-a", scope.Standard);
         Assert.Equal("In", scope.Disposition);
     }
@@ -117,19 +117,20 @@ public sealed class ConfigLoaderTests
                 ---
                 apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
-                id: scope-a
-                title: Scope A
-                organisation: org-a
+                id: scope-org-std
+                title: Org A in std-a
+                subject: org-a
                 standard: std-a
                 disposition: In
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: RequirementScope
-                id: rs-a
-                title: Exclude req-a
-                organisation: org-a
+                kind: Scope
+                id: scope-org-req
+                title: Exclude req-a for org-a
+                subject: org-a
                 requirement: req-a
                 disposition: Out
+                justification: Handled by a compensating control.
                 ---
                 apiVersion: freeboard.dev/v1alpha1
                 kind: Asset
@@ -140,19 +141,19 @@ public sealed class ConfigLoaderTests
                 owner: org-a
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: VendorScope
-                id: vs-req
+                kind: Scope
+                id: scope-vendor-req
                 title: Except req-a for vendor-a
-                vendor: vendor-a
+                subject: vendor-a
                 requirement: req-a
                 disposition: Out
                 justification: Supports MFA but not SSO.
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: VendorScope
-                id: vs-ctrl
+                kind: Scope
+                id: scope-vendor-ctrl
                 title: Include ctrl-a for vendor-a
-                vendor: vendor-a
+                subject: vendor-a
                 control: ctrl-a
                 disposition: In
                 """));
@@ -161,9 +162,11 @@ public sealed class ConfigLoaderTests
 
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
         Assert.Equal(2, result.Config.Assets.Count);
-        Assert.Equal(2, result.Config.VendorScopes.Count);
+        Assert.Equal(4, result.Config.Scopes.Count);
         Assert.Contains(result.Config.Assets, a => a.Id == "vendor-a" && a.Type == "Vendor");
-        Assert.Equal(["vs-req", "vs-ctrl"], result.Config.VendorScopes.Select(v => v.Id).ToArray());
+        Assert.Equal(
+            ["scope-org-std", "scope-org-req", "scope-vendor-req", "scope-vendor-ctrl"],
+            result.Config.Scopes.Select(s => s.Id).ToArray());
     }
 
     [Fact]

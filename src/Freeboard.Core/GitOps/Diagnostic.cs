@@ -11,6 +11,18 @@ public enum DiagnosticSeverity
 }
 
 /// <summary>
+/// A machine-readable tag for the diagnostics a caller must treat specially. Most diagnostics carry
+/// <see cref="None"/>; the scope-subject-unresolved warning is tagged so the CLI sync path can suppress
+/// the DB-less Core signal in favour of the importer's DB-accurate result while still printing every
+/// other warning.
+/// </summary>
+public enum DiagnosticCode
+{
+    None,
+    ScopeSubjectUnresolved,
+}
+
+/// <summary>
 /// A single structured problem found while loading or validating config.
 /// Errors are data: the loader and validator never throw on bad input.
 /// </summary>
@@ -21,6 +33,9 @@ public sealed record Diagnostic
 
     /// <summary>Severity of the problem; defaults to <see cref="DiagnosticSeverity.Error"/>.</summary>
     public DiagnosticSeverity Severity { get; init; } = DiagnosticSeverity.Error;
+
+    /// <summary>Machine-readable tag; defaults to <see cref="DiagnosticCode.None"/>.</summary>
+    public DiagnosticCode Code { get; init; } = DiagnosticCode.None;
 
     /// <summary>1-based line number where known, otherwise null.</summary>
     public int? Line { get; init; }

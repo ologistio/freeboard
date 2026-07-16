@@ -30,11 +30,9 @@ public static class ConfigLoader
             },
             [GitOpsSchema.KindControl] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "maps_to", "evaluation" },
             [GitOpsSchema.KindAsset] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "source", "parent", "owner" },
-            [GitOpsSchema.KindScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "standard", "disposition" },
-            [GitOpsSchema.KindRequirementScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "requirement", "disposition" },
-            [GitOpsSchema.KindVendorScope] = new(StringComparer.Ordinal)
+            [GitOpsSchema.KindScope] = new(StringComparer.Ordinal)
             {
-                "apiVersion", "kind", "id", "title", "vendor", "requirement", "control", "disposition", "justification",
+                "apiVersion", "kind", "id", "title", "subject", "standard", "requirement", "control", "disposition", "justification",
             },
             [GitOpsSchema.KindEvidenceCollector] = new(StringComparer.Ordinal)
             {
@@ -66,8 +64,6 @@ public static class ConfigLoader
         .WithAttributeOverride<Control>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Asset>(a => a.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Scope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
-        .WithAttributeOverride<RequirementScope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
-        .WithAttributeOverride<VendorScope>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<EvidenceCollector>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<AttestationTemplate>(t => t.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<IntegrationConnection>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
@@ -174,7 +170,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindAsset}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}, {GitOpsSchema.KindIntegrationConnection}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindAsset}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}, {GitOpsSchema.KindIntegrationConnection}.",
             });
             return;
         }
@@ -202,12 +198,6 @@ public static class ConfigLoader
                     break;
                 case GitOpsSchema.KindScope:
                     config.Scopes.Add(Deserialize<Scope>(mapping));
-                    break;
-                case GitOpsSchema.KindRequirementScope:
-                    config.RequirementScopes.Add(Deserialize<RequirementScope>(mapping));
-                    break;
-                case GitOpsSchema.KindVendorScope:
-                    config.VendorScopes.Add(Deserialize<VendorScope>(mapping));
                     break;
                 case GitOpsSchema.KindEvidenceCollector:
                     var collector = Deserialize<EvidenceCollector>(mapping);

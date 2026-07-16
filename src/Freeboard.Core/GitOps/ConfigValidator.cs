@@ -8,11 +8,11 @@ namespace Freeboard.Core.GitOps;
 /// <see cref="Diagnostic"/>; never throws and never writes output. Owns: required
 /// fields, apiVersion value, unique id per kind, reference resolution, the asset set (type/source
 /// tokens, mutually-exclusive parent/owner edges with their target/carrier-type rules, and dangling
-/// edges, parent cycles, and missing read anchors as non-blocking warnings), the scope mapping (resolvable references,
-/// disposition enum, unique organisation/standard pair), the requirement-scope mapping
-/// (resolvable references, disposition enum, unique organisation/requirement pair), and the
-/// vendor-scope mapping (exactly-one target, resolvable references, disposition enum, unique
-/// vendor/target pair, justification required when Out), and the evidence-collectors (resolvable
+/// edges, parent cycles, and missing read anchors as non-blocking warnings), the scope mapping
+/// (exactly-one target of standard/requirement/control, resolvable target references, a scalar
+/// dangling-tolerant subject warned when it resolves to no asset, the Vendor-subject-no-standard rule,
+/// disposition enum, justification required when Out, and the three unique subject/target pairs), and the
+/// evidence-collectors (resolvable
 /// control/vendor references, type/frequency/threshold checks, the control evaluation rule required once
 /// a control has an attached collector, the type-conditional connection/checks rules, and each tracked
 /// check's shape and severity token), the integration-connections (required fields, closed provider
@@ -72,10 +72,8 @@ public static class ConfigValidator
         // Assets produce the typed id subsets the reference phases consume: organisation refs resolve
         // against Company/Department asset ids, vendor refs against Vendor asset ids.
         var assets = ValidateAssets(config, diagnostics);
-        ValidateScopes(config, assets.OrganisationIds, standardIds, diagnostics);
-        ValidateRequirementScopes(config, assets.OrganisationIds, requirementIds, diagnostics);
         var vendorIds = assets.VendorIds;
-        ValidateVendorScopes(config, vendorIds, requirementIds, controlIds, diagnostics);
+        ValidateScopes(config, assets.AllIds, vendorIds, standardIds, requirementIds, controlIds, diagnostics);
         // Integration-connections consume vendor ids (for the optional vendor reference) and produce the
         // connection id set the evidence-collectors then resolve their connection reference against.
         var connectionIds = ValidateIntegrationConnections(config, vendorIds, diagnostics);
@@ -231,8 +229,9 @@ public static class ConfigValidator
         return ids;
     }
 
-    /// <summary>The typed id subsets a validated asset set exposes to the reference phases.</summary>
-    private sealed record AssetIdSets(HashSet<string> OrganisationIds, HashSet<string> VendorIds);
+    /// <summary>The typed id subsets a validated asset set exposes to the reference phases.
+    /// <paramref name="AllIds"/> is every asset id (any type), for the scope subject-dangling check.</summary>
+    private sealed record AssetIdSets(HashSet<string> OrganisationIds, HashSet<string> VendorIds, HashSet<string> AllIds);
 
     private static AssetIdSets ValidateAssets(GitOpsConfig config, List<Diagnostic> diagnostics)
     {
@@ -321,7 +320,7 @@ public static class ConfigValidator
         }
 
         ValidateAssetEdges(config, allIds, typeById, diagnostics);
-        return new AssetIdSets(organisationIds, vendorIds);
+        return new AssetIdSets(organisationIds, vendorIds, allIds);
     }
 
     private static void ValidateAssetSource(Asset asset, List<Diagnostic> diagnostics)
@@ -485,34 +484,47 @@ public static class ConfigValidator
         }
     }
 
+    // The unified scope validator. A scope names one asset subject and exactly one target (a standard,
+    // requirement, or control). The subject reference is scalar and dangling-tolerant: a subject naming no
+    // asset is a non-blocking Warning (like a dangling asset edge), tagged so the CLI sync path can defer to
+    // the importer's DB-accurate check. The three target references keep real FKs, so a dangling target is
+    // an Error. A Vendor subject cannot target a standard.
     private static void ValidateScopes(
         GitOpsConfig config,
-        HashSet<string> organisationIds,
+        HashSet<string> allAssetIds,
+        HashSet<string> vendorIds,
         HashSet<string> standardIds,
+        HashSet<string> requirementIds,
+        HashSet<string> controlIds,
         List<Diagnostic> diagnostics)
     {
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
-        var seenPairs = new HashSet<(string, string)>();
+        var seenStandardPairs = new HashSet<(string, string)>();
+        var seenRequirementPairs = new HashSet<(string, string)>();
+        var seenControlPairs = new HashSet<(string, string)>();
 
         foreach (var scope in config.Scopes)
         {
             CheckApiVersion(scope.ApiVersion, GitOpsSchema.KindScope, scope.Id, diagnostics);
             CheckRequired(scope.Id, GitOpsSchema.KindScope, "id", scope.Title, diagnostics);
             CheckRequired(scope.Title, GitOpsSchema.KindScope, "title", scope.Id, diagnostics);
-            CheckRequired(scope.Organisation, GitOpsSchema.KindScope, "organisation", scope.Id, diagnostics);
-            CheckRequired(scope.Standard, GitOpsSchema.KindScope, "standard", scope.Id, diagnostics);
+            CheckRequired(scope.Subject, GitOpsSchema.KindScope, "subject", scope.Id, diagnostics);
             CheckRequired(scope.Disposition, GitOpsSchema.KindScope, "disposition", scope.Id, diagnostics);
 
-            if (!string.IsNullOrEmpty(scope.Organisation) && !organisationIds.Contains(scope.Organisation))
+            var hasStandard = !string.IsNullOrWhiteSpace(scope.Standard);
+            var hasRequirement = !string.IsNullOrWhiteSpace(scope.Requirement);
+            var hasControl = !string.IsNullOrWhiteSpace(scope.Control);
+            var targetCount = (hasStandard ? 1 : 0) + (hasRequirement ? 1 : 0) + (hasControl ? 1 : 0);
+            if (targetCount != 1)
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Organisation id "
-                        + $"'{scope.Organisation}'.",
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' must name exactly one of "
+                        + "'standard', 'requirement', or 'control'.",
                 });
             }
 
-            if (!string.IsNullOrEmpty(scope.Standard) && !standardIds.Contains(scope.Standard))
+            if (hasStandard && !standardIds.Contains(scope.Standard))
             {
                 diagnostics.Add(new Diagnostic
                 {
@@ -521,7 +533,49 @@ public static class ConfigValidator
                 });
             }
 
-            if (!string.IsNullOrEmpty(scope.Disposition) && !TryParseDisposition(scope.Disposition, out _))
+            if (hasRequirement && !requirementIds.Contains(scope.Requirement))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Requirement id "
+                        + $"'{scope.Requirement}'.",
+                });
+            }
+
+            if (hasControl && !controlIds.Contains(scope.Control))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' references unknown Control id "
+                        + $"'{scope.Control}'.",
+                });
+            }
+
+            // A subject naming no asset is a tolerated Warning: a subject may name a discovered asset a
+            // later sync removes, or one not yet discovered. Tagged so the sync path can defer to the
+            // importer's DB-accurate result. A resolving subject that is a Vendor cannot target a standard.
+            var subjectResolves = !string.IsNullOrEmpty(scope.Subject) && allAssetIds.Contains(scope.Subject);
+            if (!string.IsNullOrEmpty(scope.Subject) && !subjectResolves)
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Severity = DiagnosticSeverity.Warning,
+                    Code = DiagnosticCode.ScopeSubjectUnresolved,
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' has subject '{scope.Subject}' that "
+                        + "resolves to no asset.",
+                });
+            }
+            else if (subjectResolves && hasStandard && vendorIds.Contains(scope.Subject))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' subject '{scope.Subject}' is a Vendor "
+                        + "and cannot target a standard.",
+                });
+            }
+
+            var dispositionParsed = TryParseDisposition(scope.Disposition, out var disposition);
+            if (!string.IsNullOrEmpty(scope.Disposition) && !dispositionParsed)
             {
                 diagnostics.Add(new Diagnostic
                 {
@@ -531,189 +585,49 @@ public static class ConfigValidator
                 });
             }
 
+            // An Out exception must carry its rationale. An In scope may omit it.
+            if (dispositionParsed && disposition == ScopeDisposition.Out
+                && string.IsNullOrWhiteSpace(scope.Justification))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindScope} '{Describe(scope.Id)}' has disposition 'Out' but is "
+                        + "missing required field 'justification'.",
+                });
+            }
+
             if (!string.IsNullOrEmpty(scope.Id) && !seenIds.Add(scope.Id))
             {
                 diagnostics.Add(Dup(GitOpsSchema.KindScope, scope.Id));
             }
 
-            if (!string.IsNullOrEmpty(scope.Organisation)
-                && !string.IsNullOrEmpty(scope.Standard)
-                && !seenPairs.Add((scope.Organisation, scope.Standard)))
+            if (!string.IsNullOrEmpty(scope.Subject) && hasStandard
+                && !seenStandardPairs.Add((scope.Subject, scope.Standard)))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindScope} maps organisation '{scope.Organisation}' to standard "
+                    Message = $"{GitOpsSchema.KindScope} maps subject '{scope.Subject}' to standard "
                         + $"'{scope.Standard}' more than once.",
                 });
             }
-        }
-    }
 
-    private static void ValidateRequirementScopes(
-        GitOpsConfig config,
-        HashSet<string> organisationIds,
-        HashSet<string> requirementIds,
-        List<Diagnostic> diagnostics)
-    {
-        var seenIds = new HashSet<string>(StringComparer.Ordinal);
-        var seenPairs = new HashSet<(string, string)>();
-
-        foreach (var requirementScope in config.RequirementScopes)
-        {
-            CheckApiVersion(requirementScope.ApiVersion, GitOpsSchema.KindRequirementScope, requirementScope.Id, diagnostics);
-            CheckRequired(requirementScope.Id, GitOpsSchema.KindRequirementScope, "id", requirementScope.Title, diagnostics);
-            CheckRequired(requirementScope.Title, GitOpsSchema.KindRequirementScope, "title", requirementScope.Id, diagnostics);
-            CheckRequired(requirementScope.Organisation, GitOpsSchema.KindRequirementScope, "organisation", requirementScope.Id, diagnostics);
-            CheckRequired(requirementScope.Requirement, GitOpsSchema.KindRequirementScope, "requirement", requirementScope.Id, diagnostics);
-            CheckRequired(requirementScope.Disposition, GitOpsSchema.KindRequirementScope, "disposition", requirementScope.Id, diagnostics);
-
-            if (!string.IsNullOrEmpty(requirementScope.Organisation) && !organisationIds.Contains(requirementScope.Organisation))
+            if (!string.IsNullOrEmpty(scope.Subject) && hasRequirement
+                && !seenRequirementPairs.Add((scope.Subject, scope.Requirement)))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindRequirementScope} '{Describe(requirementScope.Id)}' references unknown Organisation id "
-                        + $"'{requirementScope.Organisation}'.",
+                    Message = $"{GitOpsSchema.KindScope} maps subject '{scope.Subject}' to requirement "
+                        + $"'{scope.Requirement}' more than once.",
                 });
             }
 
-            if (!string.IsNullOrEmpty(requirementScope.Requirement) && !requirementIds.Contains(requirementScope.Requirement))
+            if (!string.IsNullOrEmpty(scope.Subject) && hasControl
+                && !seenControlPairs.Add((scope.Subject, scope.Control)))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindRequirementScope} '{Describe(requirementScope.Id)}' references unknown Requirement id "
-                        + $"'{requirementScope.Requirement}'.",
-                });
-            }
-
-            if (!string.IsNullOrEmpty(requirementScope.Disposition) && !TryParseDisposition(requirementScope.Disposition, out _))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindRequirementScope} '{Describe(requirementScope.Id)}' has unknown disposition "
-                        + $"'{requirementScope.Disposition}'. Expected '{nameof(ScopeDisposition.In)}' or "
-                        + $"'{nameof(ScopeDisposition.Out)}'.",
-                });
-            }
-
-            if (!string.IsNullOrEmpty(requirementScope.Id) && !seenIds.Add(requirementScope.Id))
-            {
-                diagnostics.Add(Dup(GitOpsSchema.KindRequirementScope, requirementScope.Id));
-            }
-
-            if (!string.IsNullOrEmpty(requirementScope.Organisation)
-                && !string.IsNullOrEmpty(requirementScope.Requirement)
-                && !seenPairs.Add((requirementScope.Organisation, requirementScope.Requirement)))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindRequirementScope} maps organisation '{requirementScope.Organisation}' to requirement "
-                        + $"'{requirementScope.Requirement}' more than once.",
-                });
-            }
-        }
-    }
-
-    private static void ValidateVendorScopes(
-        GitOpsConfig config,
-        HashSet<string> vendorIds,
-        HashSet<string> requirementIds,
-        HashSet<string> controlIds,
-        List<Diagnostic> diagnostics)
-    {
-        var seenIds = new HashSet<string>(StringComparer.Ordinal);
-        var seenRequirementPairs = new HashSet<(string, string)>();
-        var seenControlPairs = new HashSet<(string, string)>();
-
-        foreach (var vendorScope in config.VendorScopes)
-        {
-            CheckApiVersion(vendorScope.ApiVersion, GitOpsSchema.KindVendorScope, vendorScope.Id, diagnostics);
-            CheckRequired(vendorScope.Id, GitOpsSchema.KindVendorScope, "id", vendorScope.Title, diagnostics);
-            CheckRequired(vendorScope.Title, GitOpsSchema.KindVendorScope, "title", vendorScope.Id, diagnostics);
-            CheckRequired(vendorScope.Vendor, GitOpsSchema.KindVendorScope, "vendor", vendorScope.Id, diagnostics);
-            CheckRequired(vendorScope.Disposition, GitOpsSchema.KindVendorScope, "disposition", vendorScope.Id, diagnostics);
-
-            var hasRequirement = !string.IsNullOrWhiteSpace(vendorScope.Requirement);
-            var hasControl = !string.IsNullOrWhiteSpace(vendorScope.Control);
-            if (hasRequirement == hasControl)
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} '{Describe(vendorScope.Id)}' must name exactly one of "
-                        + "'requirement' or 'control', not both and not neither.",
-                });
-            }
-
-            if (!string.IsNullOrEmpty(vendorScope.Vendor) && !vendorIds.Contains(vendorScope.Vendor))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} '{Describe(vendorScope.Id)}' references unknown Vendor id "
-                        + $"'{vendorScope.Vendor}'.",
-                });
-            }
-
-            if (hasRequirement && !requirementIds.Contains(vendorScope.Requirement))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} '{Describe(vendorScope.Id)}' references unknown Requirement id "
-                        + $"'{vendorScope.Requirement}'.",
-                });
-            }
-
-            if (hasControl && !controlIds.Contains(vendorScope.Control))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} '{Describe(vendorScope.Id)}' references unknown Control id "
-                        + $"'{vendorScope.Control}'.",
-                });
-            }
-
-            var dispositionParsed = TryParseDisposition(vendorScope.Disposition, out var disposition);
-            if (!string.IsNullOrEmpty(vendorScope.Disposition) && !dispositionParsed)
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} '{Describe(vendorScope.Id)}' has unknown disposition "
-                        + $"'{vendorScope.Disposition}'. Expected '{nameof(ScopeDisposition.In)}' or "
-                        + $"'{nameof(ScopeDisposition.Out)}'.",
-                });
-            }
-
-            // The one net-new rule: an Out exception must carry its rationale. An In scope may omit it.
-            if (dispositionParsed && disposition == ScopeDisposition.Out
-                && string.IsNullOrWhiteSpace(vendorScope.Justification))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} '{Describe(vendorScope.Id)}' has disposition 'Out' but is "
-                        + "missing required field 'justification'.",
-                });
-            }
-
-            if (!string.IsNullOrEmpty(vendorScope.Id) && !seenIds.Add(vendorScope.Id))
-            {
-                diagnostics.Add(Dup(GitOpsSchema.KindVendorScope, vendorScope.Id));
-            }
-
-            if (!string.IsNullOrEmpty(vendorScope.Vendor) && hasRequirement
-                && !seenRequirementPairs.Add((vendorScope.Vendor, vendorScope.Requirement)))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} maps vendor '{vendorScope.Vendor}' to requirement "
-                        + $"'{vendorScope.Requirement}' more than once.",
-                });
-            }
-
-            if (!string.IsNullOrEmpty(vendorScope.Vendor) && hasControl
-                && !seenControlPairs.Add((vendorScope.Vendor, vendorScope.Control)))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindVendorScope} maps vendor '{vendorScope.Vendor}' to control "
-                        + $"'{vendorScope.Control}' more than once.",
+                    Message = $"{GitOpsSchema.KindScope} maps subject '{scope.Subject}' to control "
+                        + $"'{scope.Control}' more than once.",
                 });
             }
         }
