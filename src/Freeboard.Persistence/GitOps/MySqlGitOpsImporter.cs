@@ -6,19 +6,18 @@ namespace Freeboard.Persistence.GitOps;
 
 /// <summary>
 /// Imports a validated <see cref="GitOpsConfig"/> into MySQL in one DML transaction.
-/// FK-safe order: upsert standards (with metadata), requirements (reference standards), controls (with
-/// their evaluation rule), organisations (parent-before-child), vendors, integration-connections
-/// (reference vendors), evidence-collectors (reference controls, vendors, and integration-connections),
+/// First fails the whole sync if a declared id collides with an existing discovered asset (so a discovered
+/// row is never rewritten). FK-safe order: upsert standards (with metadata), requirements (reference
+/// standards), controls (with their evaluation rule), declared assets (Company/Department/Vendor, one id
+/// space, no parent-before-child order since assets.parent has no FK), integration-connections (reference
+/// vendor assets), evidence-collectors (reference controls, vendor assets, and integration-connections),
 /// attestation-templates (reference controls); prune absent scopes then upsert the new scope set (which
-/// references organisations and standards); replace the whole requirement-scope set and the whole
-/// vendor-scope set (delete-all then insert); replace all control->requirement join rows; then hard-remove
-/// absent domain rows (organisations child-before-parent; absent evidence-collectors and absent
-/// attestation-templates first, then absent integration-connections before vendors, so their RESTRICT FKs
-/// stay safe; vendors; controls; requirements before standards, so a removed standard's requirements clear
-/// before the RESTRICT FK is hit; standards). The requirement-scope and vendor-scope replaces and the
-/// absent-collector, absent-template, and absent-connection prunes precede the absent-organisation,
-/// absent-vendor, absent-control, and absent-requirement deletes, keeping those RESTRICT FKs safe. Matches
-/// on id only.
+/// references assets and standards); replace the whole requirement-scope set and the whole vendor-scope set
+/// (delete-all then insert); replace all control->requirement join rows; then hard-remove absent rows:
+/// org role assignments, absent evidence-collectors and attestation-templates, absent
+/// integration-connections, then ONE source = 'declared'-guarded declared-asset prune (which never touches
+/// a discovered row) after every asset-referencing row is gone, then controls, requirements before
+/// standards. Matches on id only.
 /// </summary>
 public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) : IGitOpsImporter
 {
@@ -30,18 +29,24 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        // 1. Upsert domain rows by id, FK-safe (standards, requirements, controls, organisations).
+        // Before any write: a declared id that collides with an existing discovered ULID would rewrite
+        // that discovered row on upsert (flipping its source, blanking its discovered fields), violating
+        // "sync never touches a discovered asset". Fail the whole sync here, inside the transaction, so it
+        // rolls back and mutates nothing. The CLI maps this to exit 3 (operational), distinct from an
+        // exit-1 config-validation error found before any DB connection.
+        await GuardDeclaredDiscoveredCollisionAsync(connection, transaction, plan.AssetIds, cancellationToken).ConfigureAwait(false);
+
+        // 1. Upsert domain rows by id, FK-safe (standards, requirements, controls, assets).
         //    Requirements reference standards, so they follow standards and precede any standard delete.
         await UpsertStandardsAsync(connection, transaction, plan.Standards, now, cancellationToken).ConfigureAwait(false);
         await UpsertRequirementsAsync(connection, transaction, plan.Requirements, now, cancellationToken).ConfigureAwait(false);
         await UpsertControlsAsync(connection, transaction, plan.Controls, now, cancellationToken).ConfigureAwait(false);
-        await UpsertOrganisationsAsync(connection, transaction, plan.Organisations, now, cancellationToken).ConfigureAwait(false);
 
-        // Vendors are independent identity+metadata rows (like controls); upsert them here so their
-        // referencing vendor_scopes can be replaced below. Absent vendors are pruned only after the
-        // vendor_scopes replace, since the RESTRICT FK blocks deleting a still-referenced vendor.
-        await UpsertAsync(
-            connection, transaction, "vendors", plan.Vendors, now, cancellationToken).ConfigureAwait(false);
+        // Declared assets (Company/Department/Vendor) are one id space, upserted together. assets.parent
+        // has no FK, so no parent-before-child order is needed. Their referencing scopes, vendor_scopes,
+        // and collectors are replaced/pruned below; absent declared assets are pruned after those, in one
+        // source-guarded prune that never touches a discovered row.
+        await UpsertAssetsAsync(connection, transaction, plan.Assets, now, cancellationToken).ConfigureAwait(false);
 
         // Integration-connections reference vendors, so upsert them after vendors and before the
         // evidence-collectors that reference them. Absent connections are pruned after absent collectors
@@ -92,26 +97,24 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         //    importer needs no role semantics, only the prune, mirroring how it prunes absent scopes.
         await DeleteAbsentOrganisationAssignmentsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
 
-        // 6. Hard-remove remaining domain rows whose id is absent, FK-safe order (organisations
-        //    child-before-parent; controls; requirements before standards; standards). OrganisationIds
-        //    is parent-before-child, so reversing it deletes children first. Requirements reference
-        //    standards with ON DELETE RESTRICT, so a removed standard's requirements must clear first.
-        await DeleteAbsentOrganisationsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
-        // Prune absent evidence_collectors before their target rows: the collector FKs to controls and
-        // vendors are RESTRICT, so a still-referenced control or vendor cannot be deleted while a stale
-        // collector points at it.
+        // 6. Hard-remove remaining rows whose id is absent, FK-safe order. Prune absent evidence_collectors
+        //    before their target rows: the collector FKs to controls and vendor assets are RESTRICT, so a
+        //    still-referenced control or vendor asset cannot be deleted while a stale collector points at it.
         await DeleteAbsentAsync(connection, transaction, "evidence_collectors", plan.EvidenceCollectorIds, cancellationToken).ConfigureAwait(false);
         // Prune absent attestation_templates before their target controls: the control_id FK is RESTRICT,
         // so a still-referenced control cannot be deleted while a stale template points at it.
         await DeleteAbsentAsync(connection, transaction, "attestation_templates", plan.AttestationTemplateIds, cancellationToken).ConfigureAwait(false);
         // Prune absent integration_connections after absent evidence_collectors (whose connection_id FK
-        // is RESTRICT) and before absent vendors (the connection's vendor_id FK is RESTRICT), so both
-        // FKs stay satisfied.
+        // is RESTRICT) and before the declared-asset prune (the connection's vendor_id FK to a vendor
+        // asset is RESTRICT), so both FKs stay satisfied.
         await DeleteAbsentAsync(connection, transaction, "integration_connections", plan.IntegrationConnectionIds, cancellationToken).ConfigureAwait(false);
-        // Absent vendors are pruned after their vendor_scopes are gone (step 3b). Absent controls and
-        // requirements are pruned after vendor_scopes too, so a vendor-scope's RESTRICT FK to a removed
-        // control/requirement is already cleared.
-        await DeleteAbsentAsync(connection, transaction, "vendors", plan.VendorIds, cancellationToken).ConfigureAwait(false);
+        // The single declared-asset prune, guarded by source = 'declared' so it NEVER touches a discovered
+        // row. It runs after every row that references an asset (scopes, requirement_scopes, vendor_scopes,
+        // evidence_collectors, integration_connections, and the org role assignments) has been pruned or
+        // replaced to only reference in-config assets, so the RESTRICT FKs into assets stay satisfied.
+        // assets.parent has no FK, so removing a parent while a child survives is a tolerated dangling
+        // edge, not an FK violation - no child-before-parent order is needed.
+        await DeleteAbsentDeclaredAssetsAsync(connection, transaction, plan.AssetIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "controls", plan.ControlIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "requirements", plan.RequirementIds, cancellationToken).ConfigureAwait(false);
         await DeleteAbsentAsync(connection, transaction, "standards", plan.StandardIds, cancellationToken).ConfigureAwait(false);
@@ -338,11 +341,31 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             .ConfigureAwait(false);
     }
 
-    private static async Task UpsertAsync(
+    private static async Task GuardDeclaredDiscoveredCollisionAsync(
         DbConnection connection,
         DbTransaction transaction,
-        string table,
-        IReadOnlyList<DomainRow> rows,
+        IReadOnlyList<string> declaredIds,
+        CancellationToken cancellationToken)
+    {
+        if (declaredIds.Count == 0)
+        {
+            return;
+        }
+
+        var collision = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT id FROM assets WHERE source = 'discovered' AND id IN @Ids LIMIT 1;",
+            new { Ids = declaredIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (collision is not null)
+        {
+            throw new InvalidOperationException(
+                $"Declared asset id '{collision}' collides with an existing discovered asset. Nothing was written.");
+        }
+    }
+
+    private static async Task UpsertAssetsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<AssetRowPlan> rows,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -351,41 +374,19 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             return;
         }
 
-        // created_at on insert only; title/api_version/updated_at advance on duplicate.
-        var sql =
-            $"INSERT INTO {table} (id, api_version, title, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Now, @Now) "
+        // Declared rows always write source = 'declared' and leave the discovered-only columns null. No
+        // parent-before-child order (assets.parent has no FK), so a single batched upsert is safe. The
+        // collision guard above already ensured no id here matches a discovered row.
+        const string sql =
+            "INSERT INTO assets (id, type, source, api_version, title, parent, owner, created_at, updated_at) "
+            + "VALUES (@Id, @Type, 'declared', @ApiVersion, @Title, @Parent, @Owner, @Now, @Now) "
             + "ON DUPLICATE KEY UPDATE "
-            + "api_version = VALUES(api_version), title = VALUES(title), updated_at = VALUES(updated_at);";
+            + "type = VALUES(type), api_version = VALUES(api_version), title = VALUES(title), "
+            + "parent = VALUES(parent), owner = VALUES(owner), updated_at = VALUES(updated_at);";
 
-        var parameters = rows.Select(r => new { r.Id, r.ApiVersion, r.Title, Now = now });
+        var parameters = rows.Select(r => new { r.Id, r.Type, r.ApiVersion, r.Title, r.Parent, r.Owner, Now = now });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
-    }
-
-    private static async Task UpsertOrganisationsAsync(
-        DbConnection connection,
-        DbTransaction transaction,
-        IReadOnlyList<OrganisationRowPlan> rows,
-        DateTime now,
-        CancellationToken cancellationToken)
-    {
-        // Insert one row at a time in parent-before-child order so the self-FK holds mid-transaction.
-        const string sql =
-            "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Kind, @Parent, @Now, @Now) "
-            + "ON DUPLICATE KEY UPDATE "
-            + "api_version = VALUES(api_version), title = VALUES(title), kind = VALUES(kind), "
-            + "parent_id = VALUES(parent_id), updated_at = VALUES(updated_at);";
-
-        foreach (var row in rows)
-        {
-            await connection.ExecuteAsync(new CommandDefinition(
-                sql,
-                new { row.Id, row.ApiVersion, row.Title, row.Kind, row.Parent, Now = now },
-                transaction,
-                cancellationToken: cancellationToken)).ConfigureAwait(false);
-        }
     }
 
     private static async Task UpsertScopesAsync(
@@ -546,29 +547,20 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             sql, new { KeepIds = keepIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
     }
 
-    private static async Task DeleteAbsentOrganisationsAsync(
+    private static async Task DeleteAbsentDeclaredAssetsAsync(
         DbConnection connection,
         DbTransaction transaction,
         IReadOnlyList<string> keepIds,
         CancellationToken cancellationToken)
     {
-        // The self-FK is ON DELETE RESTRICT, so an absent parent cannot be deleted while an
-        // absent child still points at it. Each pass deletes only absent leaves (rows that are no
-        // longer any row's parent), repeating until no absent rows remain. This removes children
-        // before parents without needing the depth order here.
-        var keepClause = keepIds.Count == 0 ? string.Empty : "id NOT IN @KeepIds AND ";
-        var sql =
-            $"DELETE FROM organisations WHERE {keepClause}"
-            + "id NOT IN (SELECT parent_id FROM (SELECT parent_id FROM organisations WHERE parent_id IS NOT NULL) AS p);";
+        // Guarded by source = 'declared' so a config with zero declared assets never truncates the
+        // discovered inventory. assets.parent has no FK, so a parent can be deleted while a child
+        // survives (the child is left with a tolerated dangling parent); no leaf-first loop is needed.
+        var sql = keepIds.Count == 0
+            ? "DELETE FROM assets WHERE source = 'declared';"
+            : "DELETE FROM assets WHERE source = 'declared' AND id NOT IN @KeepIds;";
 
-        while (true)
-        {
-            var deleted = await connection.ExecuteAsync(new CommandDefinition(
-                sql, new { KeepIds = keepIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-            if (deleted == 0)
-            {
-                break;
-            }
-        }
+        await connection.ExecuteAsync(new CommandDefinition(
+            sql, new { KeepIds = keepIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
     }
 }

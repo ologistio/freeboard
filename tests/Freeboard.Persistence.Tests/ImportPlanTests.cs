@@ -29,9 +29,10 @@ public sealed class ImportPlanTests
         [
             new Control { Id = "ctrl-a", ApiVersion = "v1", Title = "Control A", MapsTo = ["req-a"] },
         ],
-        Organisations =
+        Assets =
         [
-            new Organisation { Id = "org-a", ApiVersion = "v1", Title = "Org A", OrgKind = "Company" },
+            new Asset { Id = "org-a", ApiVersion = "v1", Title = "Org A", Type = "Company", Source = "declared" },
+            new Asset { Id = "vendor-a", ApiVersion = "v1", Title = "Vendor A", Type = "Vendor", Source = "declared", Owner = "org-a" },
         ],
         Scopes =
         [
@@ -57,10 +58,6 @@ public sealed class ImportPlanTests
                 Disposition = "Out",
             },
         ],
-        Vendors =
-        [
-            new Vendor { Id = "vendor-a", ApiVersion = "v1", Title = "Vendor A" },
-        ],
         VendorScopes =
         [
             new VendorScope
@@ -83,7 +80,7 @@ public sealed class ImportPlanTests
 
         Assert.Equal("std-a", Assert.Single(plan.Standards).Id);
         Assert.Equal("ctrl-a", Assert.Single(plan.Controls).Id);
-        Assert.Equal("org-a", Assert.Single(plan.Organisations).Id);
+        Assert.Equal(["org-a", "vendor-a"], plan.Assets.Select(a => a.Id).ToArray());
         Assert.Equal("scope-a", Assert.Single(plan.Scopes).Id);
         Assert.Equal("rs-a", Assert.Single(plan.RequirementScopes).Id);
     }
@@ -440,31 +437,46 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void OrganisationRowCarriesKindAndNullParentForRoot()
+    public void AssetRowCarriesTypeAndNullEdgesForRoot()
     {
-        var row = Assert.Single(ImportPlan.From(SampleConfig()).Organisations);
+        var row = Assert.Single(ImportPlan.From(SampleConfig()).Assets, a => a.Id == "org-a");
 
-        Assert.Equal("Company", row.Kind);
+        Assert.Equal("Company", row.Type);
         Assert.Null(row.Parent);
+        Assert.Null(row.Owner);
     }
 
     [Fact]
-    public void OrganisationsOrderedParentBeforeChild()
+    public void AssetsFlattenInConfigOrderWithNoParentBeforeChildReordering()
     {
+        // assets.parent has no FK, so the plan imposes no topological order: rows keep config order.
         var config = new GitOpsConfig
         {
-            Organisations =
+            Assets =
             [
-                new Organisation { Id = "child", ApiVersion = "v1", Title = "Child", OrgKind = "Department", Parent = "root" },
-                new Organisation { Id = "root", ApiVersion = "v1", Title = "Root", OrgKind = "Company" },
-                new Organisation { Id = "grandchild", ApiVersion = "v1", Title = "GC", OrgKind = "Department", Parent = "child" },
+                new Asset { Id = "child", ApiVersion = "v1", Title = "Child", Type = "Department", Source = "declared", Parent = "root" },
+                new Asset { Id = "root", ApiVersion = "v1", Title = "Root", Type = "Company", Source = "declared" },
+                new Asset { Id = "grandchild", ApiVersion = "v1", Title = "GC", Type = "Department", Source = "declared", Parent = "child" },
             ],
         };
 
-        var ids = ImportPlan.From(config).OrganisationIds;
+        Assert.Equal(["child", "root", "grandchild"], ImportPlan.From(config).AssetIds.ToArray());
+    }
 
-        Assert.True(ids.ToList().IndexOf("root") < ids.ToList().IndexOf("child"));
-        Assert.True(ids.ToList().IndexOf("child") < ids.ToList().IndexOf("grandchild"));
+    [Fact]
+    public void AssetEdgesNormalizeToNullIfBlank()
+    {
+        var config = new GitOpsConfig
+        {
+            Assets =
+            [
+                new Asset { Id = "v", ApiVersion = "v1", Title = "V", Type = "Vendor", Source = "declared", Owner = "  " },
+            ],
+        };
+
+        var row = Assert.Single(ImportPlan.From(config).Assets);
+        Assert.Null(row.Parent);
+        Assert.Null(row.Owner);
     }
 
     [Fact]
@@ -584,10 +596,10 @@ public sealed class ImportPlanTests
         Assert.Equal(["std-a"], plan.StandardIds);
         Assert.Equal(["req-a"], plan.RequirementIds);
         Assert.Equal(["ctrl-a"], plan.ControlIds);
+        Assert.Equal(["org-a", "vendor-a"], plan.AssetIds);
         Assert.Equal(["org-a"], plan.OrganisationIds);
         Assert.Equal(["scope-a"], plan.ScopeIds);
         Assert.Equal(["rs-a"], plan.RequirementScopeIds);
-        Assert.Equal(["vendor-a"], plan.VendorIds);
         Assert.Equal(["vs-a"], plan.VendorScopeIds);
     }
 }

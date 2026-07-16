@@ -75,8 +75,12 @@ public sealed record SoaDrilldownInputs(
     IReadOnlyList<AttestationTemplateRow> Templates,
     IReadOnlyList<VendorRow> Vendors);
 
-/// <summary>A persisted vendor (a piece of software or platform in use).</summary>
-public sealed record VendorRow(string Id, string Title);
+/// <summary>
+/// A persisted vendor (a piece of software or platform in use). <see cref="Owner"/> is the
+/// Company/Department asset accountable for the vendor and drives read-access narrowing; it is null when
+/// unset (a vendor with a null or dangling owner is visible to no caller, fail-closed).
+/// </summary>
+public sealed record VendorRow(string Id, string Title, string? Owner);
 
 /// <summary>
 /// A persisted vendor-scope binding one vendor to exactly one target (a requirement or a control,

@@ -71,7 +71,8 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var rows = await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, kind AS Kind, parent_id AS Parent FROM organisations ORDER BY id;",
+            "SELECT id AS Id, title AS Title, type AS Kind, parent AS Parent FROM assets "
+            + "WHERE type IN ('Company', 'Department') ORDER BY id;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
@@ -100,7 +101,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var rows = await connection.QueryAsync<VendorRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title FROM vendors ORDER BY id;",
+            "SELECT id AS Id, title AS Title, owner AS Owner FROM assets WHERE type = 'Vendor' ORDER BY id;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
@@ -192,7 +193,8 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
         var organisations = (await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, kind AS Kind, parent_id AS Parent FROM organisations ORDER BY id;",
+            "SELECT id AS Id, title AS Title, type AS Kind, parent AS Parent FROM assets "
+            + "WHERE type IN ('Company', 'Department') ORDER BY id;",
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -229,7 +231,8 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
         var organisations = (await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, kind AS Kind, parent_id AS Parent FROM organisations ORDER BY id;",
+            "SELECT id AS Id, title AS Title, type AS Kind, parent AS Parent FROM assets "
+            + "WHERE type IN ('Company', 'Department') ORDER BY id;",
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -297,7 +300,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .ToList();
 
         var vendors = (await connection.QueryAsync<VendorRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title FROM vendors ORDER BY id;",
+            "SELECT id AS Id, title AS Title, owner AS Owner FROM assets WHERE type = 'Vendor' ORDER BY id;",
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -319,10 +322,10 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
             + "(SELECT COUNT(*) FROM requirements) AS Requirements, "
-            + "(SELECT COUNT(*) FROM organisations) AS Organisations, "
+            + "(SELECT COUNT(*) FROM assets WHERE type IN ('Company', 'Department')) AS Organisations, "
             + "(SELECT COUNT(*) FROM scopes) AS Scopes, "
             + "(SELECT COUNT(*) FROM requirement_scopes) AS RequirementScopes, "
-            + "(SELECT COUNT(*) FROM vendors) AS Vendors, "
+            + "(SELECT COUNT(*) FROM assets WHERE type = 'Vendor') AS Vendors, "
             + "(SELECT COUNT(*) FROM vendor_scopes) AS VendorScopes, "
             + "(SELECT COUNT(*) FROM evidence_collectors) AS EvidenceCollectors, "
             + "(SELECT COUNT(*) FROM attestation_templates) AS AttestationTemplates;",

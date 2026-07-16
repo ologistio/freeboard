@@ -19,7 +19,8 @@ namespace Freeboard.Persistence;
 public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory, IUlidFactory ulidFactory)
     : IAssetWriteStore
 {
-    private const string MachineKind = "Machine";
+    private const string MachineType = "Machine";
+    private const string SourceDiscovered = "discovered";
     private const string StateSeen = "Seen";
     private const string StateRetired = "Retired";
 
@@ -114,8 +115,8 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
         // state the caller asked for is already at least as fresh).
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await connection.ExecuteAsync(new CommandDefinition(
-            "UPDATE asset SET state = @Retired, retired_at = @Now "
-            + "WHERE id = @AssetId AND organisation_id = @OrganisationId AND state <> @Retired "
+            "UPDATE assets SET state = @Retired, retired_at = @Now "
+            + "WHERE id = @AssetId AND source = 'discovered' AND parent = @OrganisationId AND state <> @Retired "
             + "AND @Now >= last_seen_at;",
             new { Retired = StateRetired, Now = DateTime.UtcNow, AssetId = assetId, OrganisationId = organisationId },
             cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -170,12 +171,12 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
             // advances via GREATEST). A stale observation therefore cannot regress state, retired_at, or the
             // hostname.
             await connection.ExecuteAsync(new CommandDefinition(
-                "UPDATE asset SET "
+                "UPDATE assets SET "
                 + "state = IF(@Now >= last_seen_at, @Seen, state), "
                 + "retired_at = IF(@Now >= last_seen_at, NULL, retired_at), "
                 + "hostname = IF(@Now >= last_seen_at, COALESCE(@Hostname, hostname), hostname), "
                 + "last_seen_at = GREATEST(last_seen_at, @Now) "
-                + "WHERE id = @Id AND organisation_id = @Org;",
+                + "WHERE id = @Id AND source = 'discovered' AND parent = @Org;",
                 new
                 {
                     Now = now,
@@ -191,14 +192,15 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
             targetAssetId = ulidFactory.NewId();
             created = true;
             await connection.ExecuteAsync(new CommandDefinition(
-                "INSERT INTO asset (id, organisation_id, kind, identity_kind, identity_value, hostname, "
+                "INSERT INTO assets (id, type, source, parent, identity_kind, identity_value, hostname, "
                 + "state, first_seen_at, last_seen_at, retired_at, created_at) "
-                + "VALUES (@Id, @Org, @Kind, @IdentityKind, @IdentityValue, @Hostname, @Seen, @Now, @Now, NULL, @Now);",
+                + "VALUES (@Id, @Type, @Source, @Org, @IdentityKind, @IdentityValue, @Hostname, @Seen, @Now, @Now, NULL, @Now);",
                 new
                 {
                     Id = targetAssetId,
+                    Type = MachineType,
+                    Source = SourceDiscovered,
                     Org = observation.OrganisationId,
-                    Kind = MachineKind,
                     IdentityKind = identityKind,
                     IdentityValue = identity.Value,
                     observation.Hostname,
@@ -271,9 +273,9 @@ public sealed class MySqlAssetWriteStore(IDbConnectionFactory connectionFactory,
         DbConnection connection, DbTransaction transaction, string organisationId,
         string identityKind, string identityValue, CancellationToken cancellationToken) =>
         connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
-            "SELECT id FROM asset "
-            + "WHERE organisation_id = @Org AND identity_kind = @IdentityKind AND identity_value = @IdentityValue "
-            + "FOR UPDATE;",
+            "SELECT id FROM assets "
+            + "WHERE source = 'discovered' AND parent = @Org AND identity_kind = @IdentityKind "
+            + "AND identity_value = @IdentityValue FOR UPDATE;",
             new { Org = organisationId, IdentityKind = identityKind, IdentityValue = identityValue },
             transaction, cancellationToken: cancellationToken));
 }
