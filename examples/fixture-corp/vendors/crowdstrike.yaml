@@ -9,9 +9,9 @@ source: declared
 owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-crowdstrike-edr-in
 title: CrowdStrike provides endpoint malware protection
-vendor: vendor-crowdstrike
+subject: vendor-crowdstrike
 control: ctrl-fc-edr
 disposition: In

@@ -8,17 +8,17 @@ source: declared
 owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-fleet-device-mgmt-in
 title: Fleet provides device inventory and configuration baseline
-vendor: vendor-fleet
+subject: vendor-fleet
 control: ctrl-fc-device-mgmt
 disposition: In
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-fleet-patching-in
 title: Fleet reports device patch status
-vendor: vendor-fleet
+subject: vendor-fleet
 requirement: req-ce-plus-security-update-management-04
 disposition: In

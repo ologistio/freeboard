@@ -1,11 +1,20 @@
-# Sample scopes. Each maps one organisation to one standard with a disposition
-# (In or Out). Dispositions are sparse: a node with no scope for a standard
-# inherits its nearest ancestor's disposition.
+# Sample scopes. Each maps one subject (an asset id) to exactly one target - a
+# Standard, a Requirement, or a Control - with a disposition (In or Out). An Out
+# scope is an exception and MUST carry a non-empty justification; an In scope may
+# omit it.
+#
+# Standard-target scopes are sparse and inherit down the org tree: a node with no
+# scope for a standard inherits its nearest ancestor's disposition. Requirement-
+# target scopes layer under the standard scope and inherit the same way. A Vendor
+# subject cannot target a standard; it targets a Requirement or a Control and does
+# not inherit down the org tree.
+
+# Standard-target scopes for the organisation tree.
 apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-ce
 title: Ologist Products - Cyber Essentials
-organisation: ologist-products
+subject: ologist-products
 standard: std-cyber-essentials
 disposition: In
 ---
@@ -13,7 +22,7 @@ apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-ce-plus
 title: Ologist Products - Cyber Essentials Plus
-organisation: ologist-products
+subject: ologist-products
 standard: std-cyber-essentials-plus
 disposition: In
 ---
@@ -21,6 +30,96 @@ apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-soc2
 title: Ologist Products - SOC 2
-organisation: ologist-products
+subject: ologist-products
 standard: std-soc2
 disposition: Out
+justification: >-
+  SOC 2 is not a current certification target for Ologist Products; the roadmap
+  reassesses it next financial year.
+---
+# Requirement-target scopes: Ologist Products excludes one Cyber Essentials Plus
+# requirement company-wide, and the Engineering department re-includes it -
+# demonstrating both the exclusion and the child-override path. Both sit under the
+# CE+ standard scope above, which resolves In for ologist-products.
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: rs-products-firewalls-01-out
+title: Exclude firewall-on-every-device company-wide
+subject: ologist-products
+requirement: req-ce-plus-firewalls-01
+disposition: Out
+justification: >-
+  Company-issued laptops run a managed host firewall centrally; the per-device
+  perimeter-firewall requirement is excepted pending the endpoint rollout.
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: rs-products-eng-firewalls-01-in
+title: Re-include firewall-on-every-device for Engineering
+subject: ologist-products-eng
+requirement: req-ce-plus-firewalls-01
+disposition: In
+---
+# Vendor-target scopes: each binds one Vendor subject to a Requirement or a Control.
+# In: the vendor participates normally in meeting the target.
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: vs-crowdstrike-malware-in
+title: CrowdStrike provides malware protection
+subject: vendor-crowdstrike
+requirement: req-ce-plus-malware-protection-01
+disposition: In
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: vs-fleetdm-patching-in
+title: Fleet reports device patch status
+subject: vendor-fleetdm
+requirement: req-ce-plus-security-update-management-04
+disposition: In
+---
+# In against a Control id (rather than a Requirement) - Google Workspace is the
+# identity provider enforcing MFA.
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: vs-google-workspace-mfa-in
+title: Google Workspace enforces multi-factor authentication
+subject: vendor-google-workspace
+control: ctrl-mfa
+disposition: In
+---
+# Out: the vendor cannot meet the target. Justification is required and is always
+# surfaced in the vendor register.
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: vs-ledgerleaf-user-access-out
+title: LedgerLeaf excluded from centralised user access control
+subject: vendor-ledgerleaf
+requirement: req-ce-plus-user-access-control-01
+disposition: Out
+justification: >-
+  LedgerLeaf supports MFA but not SSO, so accounts are provisioned and removed
+  manually; a quarterly access review is the compensating control.
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: vs-quill-mfa-out
+title: Quill Accountancy excluded from MFA
+subject: vendor-quill-accountancy
+requirement: req-ce-plus-user-access-control-04
+disposition: Out
+justification: >-
+  Quill Accountancy is an external firm with no logins to our systems - N/A.
+  Documents are exchanged over an encrypted portal.
+---
+# Out against a Control id.
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: vs-sentinel-vpn-patching-out
+title: Sentinel VPN patching managed by the vendor
+subject: vendor-sentinel-vpn
+control: ctrl-patching
+disposition: Out
+justification: >-
+  Sentinel VPN is a managed appliance; the vendor patches it under contract,
+  evidenced by their SOC 2 report, so it is out of scope for our patch process.

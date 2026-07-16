@@ -10,10 +10,10 @@ source: declared
 owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-quill-mfa-out
 title: Quill Accountancy excluded from the MFA control
-vendor: vendor-quill-accountancy
+subject: vendor-quill-accountancy
 control: ctrl-fc-mfa
 disposition: Out
 justification: >-

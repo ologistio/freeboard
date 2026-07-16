@@ -10,9 +10,9 @@ source: declared
 owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-northwind-cloud-firewall-in
 title: Northwind Cloud security groups provide perimeter firewalling
-vendor: vendor-northwind-cloud
+subject: vendor-northwind-cloud
 control: ctrl-fc-firewall
 disposition: In

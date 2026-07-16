@@ -10,10 +10,10 @@ source: declared
 owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-ledgerleaf-user-access-out
 title: LedgerLeaf excluded from centralised user access control
-vendor: vendor-ledgerleaf
+subject: vendor-ledgerleaf
 requirement: req-ce-plus-user-access-control-01
 disposition: Out
 justification: >-

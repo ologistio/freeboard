@@ -9,9 +9,9 @@ source: declared
 owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-keyvault-user-access-in
 title: KeyVault enforces unique, strong credentials
-vendor: vendor-keyvault
+subject: vendor-keyvault
 requirement: req-ce-plus-user-access-control-02
 disposition: In
