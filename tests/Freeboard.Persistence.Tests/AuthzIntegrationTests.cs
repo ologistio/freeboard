@@ -26,6 +26,23 @@ public sealed class AuthzIntegrationTests
     private static async Task MigrateAsync(MySqlTestDatabase db) =>
         await new MySqlMigrationRunner(db.ConnectionFactory, typeof(IMigrationRunner).Assembly).ApplyPendingAsync();
 
+    // Apply every migration before 019 on an open connection. Migration 010's backfills read the
+    // organisations table, which 019 folds into assets and drops, so a test that replays 010 must run
+    // against the pre-019 schema it was authored for.
+    private static async Task ApplyPre019Async(MySqlConnection conn)
+    {
+        foreach (var migration in MigrationCatalog.Load(typeof(IMigrationRunner).Assembly).Where(m => m.Ordinal < 19))
+        {
+            await conn.ExecuteAsync(migration.Sql);
+        }
+    }
+
+    private static Task InsertOrganisationRowAsync(MySqlConnection conn, string id, string? parent = null)
+        => conn.ExecuteAsync(
+            "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
+            + "VALUES (@Id, 'v1', @Id, 'Company', @Parent, NOW(6), NOW(6));",
+            new { Id = id, Parent = parent });
+
     private static async Task InsertUserAsync(
         MySqlConnection conn, string id, string role, bool enabled = true, bool withCredential = true)
     {
@@ -44,8 +61,8 @@ public sealed class AuthzIntegrationTests
 
     private static async Task InsertOrgAsync(MySqlConnection conn, string id, string? parent = null)
         => await conn.ExecuteAsync(
-            "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
-            + "VALUES (@Id, 'v1', @Id, 'Company', @Parent, NOW(6), NOW(6));",
+            "INSERT INTO assets (id, type, source, api_version, title, parent, created_at, updated_at) "
+            + "VALUES (@Id, 'Company', 'declared', 'v1', @Id, @Parent, NOW(6), NOW(6));",
             new { Id = id, Parent = parent });
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -81,16 +98,16 @@ public sealed class AuthzIntegrationTests
     public async Task AdminAndMemberBackfillsRunOnMigration()
     {
         await using var db = await RequireDbAsync();
-        // Seed users and root/child orgs BEFORE migrating so the backfills see them.
-        await new MySqlMigrationRunner(db.ConnectionFactory, typeof(IMigrationRunner).Assembly).ApplyPendingAsync();
-
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
+
+        // Apply the pre-019 schema (organisations still present), then seed users and root/child orgs.
+        await ApplyPre019Async(conn);
         await InsertUserAsync(conn, "admin1", "admin");
         await InsertUserAsync(conn, "member1", "member");
         await InsertUserAsync(conn, "disabled1", "member", enabled: false);
-        await InsertOrgAsync(conn, "root1");
-        await InsertOrgAsync(conn, "child1", "root1");
+        await InsertOrganisationRowAsync(conn, "root1");
+        await InsertOrganisationRowAsync(conn, "child1", "root1");
 
         // Re-run the migration file so its backfills apply to the now-seeded rows (idempotent).
         var raw = await conn.ReadMigration010Async();
@@ -116,12 +133,12 @@ public sealed class AuthzIntegrationTests
     public async Task MigrationReRunIsIdempotent()
     {
         await using var db = await RequireDbAsync();
-        await MigrateAsync(db);
-
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
+
+        // Pre-019 runs 010 once; replaying its file must not throw or duplicate seed rows.
+        await ApplyPre019Async(conn);
         var raw = await conn.ReadMigration010Async();
-        // Applying the file a second time must not throw or duplicate seed rows.
         await conn.ExecuteAsync(raw);
 
         var roleCount = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM authz_roles;");
@@ -282,12 +299,12 @@ public sealed class AuthzIntegrationTests
             Standards = [],
             Requirements = [],
             Controls = [],
-            Organisations = [],
+            Assets = [],
             Scopes = [],
             RequirementScopes = [],
         });
 
-        Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM organisations WHERE id = 'gone';"));
+        Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM assets WHERE id = 'gone';"));
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM authz_organisation_role_assignments WHERE organisation_id = 'gone';"));
     }

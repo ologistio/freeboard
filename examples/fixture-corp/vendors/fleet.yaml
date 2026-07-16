@@ -1,8 +1,11 @@
 # Fleet - device inventory and configuration/patch reporting across the estate.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-fleet
 title: Fleet
+type: Vendor
+source: declared
+owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: VendorScope

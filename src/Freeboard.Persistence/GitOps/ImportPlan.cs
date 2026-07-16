@@ -4,12 +4,9 @@ using Freeboard.Core.GitOps;
 
 namespace Freeboard.Persistence.GitOps;
 
-/// <summary>A domain row to upsert. Keyed on <see cref="Id"/>; never matched on title.</summary>
-public sealed record DomainRow(string Id, string ApiVersion, string Title);
-
 /// <summary>
 /// A control row to upsert. Carries the optional <see cref="Evaluation"/> roll-up rule (null when
-/// blank); this extra column is why controls use their own row rather than the generic <see cref="DomainRow"/>.
+/// blank); this extra column is why controls use their own row rather than a generic domain row.
 /// </summary>
 public sealed record ControlRowPlan(string Id, string ApiVersion, string Title, string? Evaluation);
 
@@ -86,8 +83,12 @@ public sealed record RequirementRowPlan(
     string CitationLabel,
     string CitationUrl);
 
-/// <summary>An organisation row to upsert, with its kind and nullable parent id.</summary>
-public sealed record OrganisationRowPlan(string Id, string ApiVersion, string Title, string Kind, string? Parent);
+/// <summary>
+/// A declared asset row to upsert, with its <see cref="Type"/> (Company/Department/Vendor) and the two
+/// nullable, mutually-exclusive edges. No parent-before-child ordering is needed: assets.parent has no
+/// foreign key, so upsert and delete need no topological order.
+/// </summary>
+public sealed record AssetRowPlan(string Id, string ApiVersion, string Title, string Type, string? Parent, string? Owner);
 
 /// <summary>A scope row to upsert: organisation and standard foreign keys plus disposition.</summary>
 public sealed record ScopeRowPlan(
@@ -119,8 +120,7 @@ public sealed record VendorScopeRowPlan(
 
 /// <summary>
 /// The flattened, id-keyed shape derived from a validated <see cref="GitOpsConfig"/>.
-/// Pure (no database), so the mapping is unit testable without MySQL. Organisations are
-/// ordered parent-before-child so the self-FK holds during the import upsert.
+/// Pure (no database), so the mapping is unit testable without MySQL.
 /// </summary>
 public sealed class ImportPlan
 {
@@ -130,15 +130,13 @@ public sealed class ImportPlan
 
     public IReadOnlyList<ControlRowPlan> Controls { get; }
 
-    public IReadOnlyList<OrganisationRowPlan> Organisations { get; }
+    public IReadOnlyList<AssetRowPlan> Assets { get; }
 
     public IReadOnlyList<ScopeRowPlan> Scopes { get; }
 
     public IReadOnlyList<RequirementScopeRowPlan> RequirementScopes { get; }
 
     public IReadOnlyList<ControlRequirementRow> ControlRequirements { get; }
-
-    public IReadOnlyList<DomainRow> Vendors { get; }
 
     public IReadOnlyList<VendorScopeRowPlan> VendorScopes { get; }
 
@@ -163,7 +161,11 @@ public sealed class ImportPlan
         Controls = config.Controls
             .Select(c => new ControlRowPlan(c.Id, c.ApiVersion, c.Title, NullIfBlank(c.Evaluation)))
             .ToList();
-        Organisations = OrderParentBeforeChild(config.Organisations);
+        // Declared assets: parent/owner normalize to null-if-blank (like Organisation.Parent did). No
+        // parent-before-child ordering because assets.parent has no foreign key.
+        Assets = config.Assets
+            .Select(a => new AssetRowPlan(a.Id, a.ApiVersion, a.Title, a.Type, NullIfBlank(a.Parent), NullIfBlank(a.Owner)))
+            .ToList();
         Scopes = config.Scopes
             .Select(s => new ScopeRowPlan(
                 s.Id, s.ApiVersion, s.Title, s.Organisation, s.Standard, s.Disposition))
@@ -179,10 +181,6 @@ public sealed class ImportPlan
         ControlRequirements = config.Controls
             .SelectMany(c => c.MapsTo.Select(requirementId => new ControlRequirementRow(c.Id, requirementId)))
             .Distinct()
-            .ToList();
-
-        Vendors = config.Vendors
-            .Select(v => new DomainRow(v.Id, v.ApiVersion, v.Title))
             .ToList();
 
         // Exactly one target is set (Core validation guarantees it); the empty side normalizes to
@@ -239,14 +237,16 @@ public sealed class ImportPlan
 
     public IReadOnlyList<string> ControlIds => Controls.Select(r => r.Id).ToList();
 
-    /// <summary>Organisation ids in parent-before-child order (upsert order).</summary>
-    public IReadOnlyList<string> OrganisationIds => Organisations.Select(r => r.Id).ToList();
+    /// <summary>Every declared asset id (the keep set for the source-guarded declared-asset prune).</summary>
+    public IReadOnlyList<string> AssetIds => Assets.Select(r => r.Id).ToList();
+
+    /// <summary>Declared Company/Department asset ids (the keep set for the org-role-assignment prune).</summary>
+    public IReadOnlyList<string> OrganisationIds =>
+        Assets.Where(r => r.Type is "Company" or "Department").Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> ScopeIds => Scopes.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> RequirementScopeIds => RequirementScopes.Select(r => r.Id).ToList();
-
-    public IReadOnlyList<string> VendorIds => Vendors.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> VendorScopeIds => VendorScopes.Select(r => r.Id).ToList();
 
@@ -255,50 +255,4 @@ public sealed class ImportPlan
     public IReadOnlyList<string> AttestationTemplateIds => AttestationTemplates.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> IntegrationConnectionIds => IntegrationConnections.Select(r => r.Id).ToList();
-
-    /// <summary>
-    /// Orders organisations so every parent precedes its children (topological by depth).
-    /// A validated config is acyclic with resolvable parents, so a stable order exists;
-    /// any node whose parent is not present (e.g. unvalidated input) is treated as a root
-    /// so the method still terminates.
-    /// </summary>
-    private static IReadOnlyList<OrganisationRowPlan> OrderParentBeforeChild(IReadOnlyList<Organisation> organisations)
-    {
-        var byId = new Dictionary<string, Organisation>(StringComparer.Ordinal);
-        foreach (var organisation in organisations)
-        {
-            byId[organisation.Id] = organisation;
-        }
-
-        var depth = new Dictionary<string, int>(StringComparer.Ordinal);
-
-        int DepthOf(string id)
-        {
-            if (depth.TryGetValue(id, out var cached))
-            {
-                return cached;
-            }
-
-            // Guard against an unvalidated cycle: mark in-progress as depth 0 so a back edge
-            // does not recurse forever.
-            depth[id] = 0;
-            var node = byId[id];
-            var computed = string.IsNullOrEmpty(node.Parent) || !byId.ContainsKey(node.Parent)
-                ? 0
-                : DepthOf(node.Parent) + 1;
-            depth[id] = computed;
-            return computed;
-        }
-
-        return organisations
-            .OrderBy(o => DepthOf(o.Id))
-            .ThenBy(o => o.Id, StringComparer.Ordinal)
-            .Select(o => new OrganisationRowPlan(
-                o.Id,
-                o.ApiVersion,
-                o.Title,
-                o.OrgKind,
-                string.IsNullOrEmpty(o.Parent) ? null : o.Parent))
-            .ToList();
-    }
 }

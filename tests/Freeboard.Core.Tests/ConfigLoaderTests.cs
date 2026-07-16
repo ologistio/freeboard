@@ -37,10 +37,11 @@ public sealed class ConfigLoaderTests
                 """),
             ("orgs.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: org-a
                 title: Org A
                 type: Company
+                source: declared
                 """),
             ("scopes.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
@@ -58,7 +59,7 @@ public sealed class ConfigLoaderTests
         Assert.Single(result.Config.Standards);
         Assert.Single(result.Config.Requirements);
         Assert.Single(result.Config.Controls);
-        Assert.Single(result.Config.Organisations);
+        Assert.Single(result.Config.Assets);
         Assert.Single(result.Config.Scopes);
 
         var standard = result.Config.Standards[0];
@@ -67,9 +68,9 @@ public sealed class ConfigLoaderTests
         Assert.NotEqual(standard.Id, standard.Title);
         Assert.Equal(["req-a"], result.Config.Controls[0].MapsTo);
 
-        var organisation = result.Config.Organisations[0];
+        var organisation = result.Config.Assets[0];
         Assert.Equal("org-a", organisation.Id);
-        Assert.Equal("Company", organisation.OrgKind);
+        Assert.Equal("Company", organisation.Type);
         Assert.Empty(organisation.Parent);
 
         var scope = result.Config.Scopes[0];
@@ -108,10 +109,11 @@ public sealed class ConfigLoaderTests
                   - req-a
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: org-a
                 title: Org A
                 type: Company
+                source: declared
                 ---
                 apiVersion: freeboard.dev/v1alpha1
                 kind: Scope
@@ -130,9 +132,12 @@ public sealed class ConfigLoaderTests
                 disposition: Out
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Vendor
+                kind: Asset
                 id: vendor-a
                 title: Vendor A
+                type: Vendor
+                source: declared
+                owner: org-a
                 ---
                 apiVersion: freeboard.dev/v1alpha1
                 kind: VendorScope
@@ -155,9 +160,9 @@ public sealed class ConfigLoaderTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
-        Assert.Single(result.Config.Vendors);
+        Assert.Equal(2, result.Config.Assets.Count);
         Assert.Equal(2, result.Config.VendorScopes.Count);
-        Assert.Equal("vendor-a", result.Config.Vendors[0].Id);
+        Assert.Contains(result.Config.Assets, a => a.Id == "vendor-a" && a.Type == "Vendor");
         Assert.Equal(["vs-req", "vs-ctrl"], result.Config.VendorScopes.Select(v => v.Id).ToArray());
     }
 
@@ -192,9 +197,19 @@ public sealed class ConfigLoaderTests
                 evaluation: all
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Vendor
+                kind: Asset
+                id: org-a
+                title: Org A
+                type: Company
+                source: declared
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Asset
                 id: vendor-a
                 title: Vendor A
+                type: Vendor
+                source: declared
+                owner: org-a
                 ---
                 apiVersion: freeboard.dev/v1alpha1
                 kind: IntegrationConnection
@@ -415,38 +430,22 @@ public sealed class ConfigLoaderTests
     }
 
     [Fact]
-    public void OrganisationKindAuthoredUnderType()
+    public void AssetTypeAuthoredUnderType()
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: org-a
                 title: Org A
                 type: Company
+                source: declared
                 """));
 
         var result = ConfigLoader.Load(dir.Path);
 
         Assert.Empty(result.Diagnostics);
-        Assert.Equal("Company", Assert.Single(result.Config.Organisations).OrgKind);
-    }
-
-    [Fact]
-    public void OrganisationOrgKindKeyIsRejectedAsUnknownField()
-    {
-        using var dir = TempConfig.Create(
-            ("org.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
-                id: org-a
-                title: Org A
-                org_kind: Company
-                """));
-
-        var result = ConfigLoader.Load(dir.Path);
-
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Unknown field 'org_kind'"));
+        Assert.Equal("Company", Assert.Single(result.Config.Assets).Type);
     }
 
     [Fact]

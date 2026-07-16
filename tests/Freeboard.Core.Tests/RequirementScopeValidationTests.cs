@@ -33,10 +33,11 @@ public sealed class RequirementScopeValidationTests
 
     private const string ValidOrganisation = """
         apiVersion: freeboard.dev/v1alpha1
-        kind: Organisation
+        kind: Asset
         id: org-a
         title: Org A
         type: Company
+        source: declared
         """;
 
     private const string ValidRequirementScope = """

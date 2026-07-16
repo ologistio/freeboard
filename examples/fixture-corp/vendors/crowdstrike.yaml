@@ -1,9 +1,12 @@
 # CrowdStrike Falcon - the EDR agent behind Fixture Corp's endpoint malware
 # control. In scope: it participates normally in meeting the control.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-crowdstrike
 title: CrowdStrike Falcon
+type: Vendor
+source: declared
+owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: VendorScope

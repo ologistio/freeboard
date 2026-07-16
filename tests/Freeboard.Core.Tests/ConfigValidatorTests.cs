@@ -117,10 +117,11 @@ public sealed class ConfigValidatorTests
         using var dir = TempConfig.Create(
             ("org.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: org-a
                 title: Org A
                 type: Company
+                source: declared
                 """),
             ("scope.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
@@ -139,21 +140,22 @@ public sealed class ConfigValidatorTests
     }
 
     [Fact]
-    public void UnknownOrganisationKindFails()
+    public void UnknownAssetTypeFails()
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: org-a
                 title: Org A
                 type: Guild
+                source: declared
                 """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("unknown kind 'Guild'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("unknown type 'Guild'"));
     }
 
     [Fact]
@@ -168,10 +170,11 @@ public sealed class ConfigValidatorTests
                 """),
             ("org.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: org-a
                 title: Org A
                 type: Company
+                source: declared
                 """),
             ("scope.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
@@ -190,92 +193,30 @@ public sealed class ConfigValidatorTests
     }
 
     [Fact]
-    public void DanglingOrganisationParentFails()
-    {
-        using var dir = TempConfig.Create(
-            ("org.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
-                id: org-a
-                title: Org A
-                type: Department
-                parent: org-missing
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("unknown parent 'org-missing'"));
-    }
-
-    [Fact]
-    public void OrganisationSelfParentIsCycle()
-    {
-        using var dir = TempConfig.Create(
-            ("org.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
-                id: org-a
-                title: Org A
-                type: Company
-                parent: org-a
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("cycle"));
-    }
-
-    [Fact]
-    public void OrganisationTwoNodeCycleFails()
-    {
-        using var dir = TempConfig.Create(
-            ("org.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
-                id: org-a
-                title: Org A
-                type: Company
-                parent: org-b
-                ---
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
-                id: org-b
-                title: Org B
-                type: Department
-                parent: org-a
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("cycle"));
-    }
-
-    [Fact]
     public void CompanyWithDepartmentChildLoadsAsTree()
     {
         using var dir = TempConfig.Create(
             ("org.yaml", """
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: ologist-products
                 title: Ologist Products Ltd
                 type: Company
+                source: declared
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: ologist-products-eng
                 title: Engineering
                 type: Department
+                source: declared
                 parent: ologist-products
                 """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
-        var child = result.Config.Organisations.Single(o => o.Id == "ologist-products-eng");
+        var child = result.Config.Assets.Single(o => o.Id == "ologist-products-eng");
         Assert.Equal("ologist-products", child.Parent);
     }
 
@@ -290,10 +231,11 @@ public sealed class ConfigValidatorTests
                 title: A
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: Organisation
+                kind: Asset
                 id: org-a
                 title: Org A
                 type: Company
+                source: declared
                 """),
             ("scopes.yaml", """
                 apiVersion: freeboard.dev/v1alpha1

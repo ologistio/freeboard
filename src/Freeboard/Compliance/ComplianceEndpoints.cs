@@ -140,16 +140,19 @@ public static class ComplianceEndpoints
             }
         });
 
-        // Vendors and vendor-scopes are org-independent reference data (the flat model, no
-        // organisation dimension), so - unlike /organisations, /scopes, /requirement-scopes - they are
-        // intentionally NOT narrowed by IOrgAccess: any authenticated user reads every vendor and every
-        // exception justification. Revisit if a later change adds an organisation dimension.
-        reads.MapGet("/vendors", async (IComplianceStore store, CancellationToken ct) =>
+        // A vendor is visible only when its owner (a Company/Department asset) is in the caller's
+        // accessible-org set; a vendor with a null or dangling owner is visible to no one (fail-closed).
+        // vendor-scopes narrow the same way, so a hidden vendor leaks neither its id nor its Out exception
+        // justifications. This narrowing covers /vendors and /vendor-scopes only; /evidence-collectors and
+        // /integration-connections still expose a hidden vendor's id.
+        reads.MapGet("/vendors", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
+                var accessible = await access.AccessibleOrgIdsAsync(user, await store.GetOrganisationsAsync(ct), ct);
                 var rows = await store.GetVendorsAsync(ct);
-                return Results.Ok(rows.Select(r => new { id = r.Id, title = r.Title }));
+                return Results.Ok(rows.Where(r => r.Owner is not null && accessible.Contains(r.Owner))
+                    .Select(r => new { id = r.Id, title = r.Title }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
             {
@@ -157,12 +160,17 @@ public static class ComplianceEndpoints
             }
         });
 
-        reads.MapGet("/vendor-scopes", async (IComplianceStore store, CancellationToken ct) =>
+        reads.MapGet("/vendor-scopes", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
+                var accessible = await access.AccessibleOrgIdsAsync(user, await store.GetOrganisationsAsync(ct), ct);
+                var visibleVendors = (await store.GetVendorsAsync(ct))
+                    .Where(v => v.Owner is not null && accessible.Contains(v.Owner))
+                    .Select(v => v.Id)
+                    .ToHashSet(StringComparer.Ordinal);
                 var rows = await store.GetVendorScopesAsync(ct);
-                return Results.Ok(rows.Select(r => new
+                return Results.Ok(rows.Where(r => visibleVendors.Contains(r.Vendor)).Select(r => new
                 {
                     id = r.Id,
                     title = r.Title,

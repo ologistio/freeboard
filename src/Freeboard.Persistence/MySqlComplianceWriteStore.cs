@@ -6,12 +6,15 @@ using MySqlConnector;
 namespace Freeboard.Persistence;
 
 /// <summary>
-/// MySQL-backed <see cref="IComplianceWriteStore"/>. Each write runs in one transaction and
-/// checks the domain invariants against the current rows before committing; a violated
-/// invariant rolls back so the store is never left in a half-written state. The database keys
-/// (self-FK, the unique <c>(organisation_id, standard_id)</c> and
-/// <c>(organisation_id, requirement_id)</c> keys) are the backstop, but the checks here return a
-/// clear error instead of a raw driver exception.
+/// MySQL-backed <see cref="IComplianceWriteStore"/>. Organisations are declared Company/Department rows
+/// in the unified assets table. Each write runs in one transaction and checks the domain invariants
+/// against the current rows before committing; a violated invariant rolls back so the store is never left
+/// in a half-written state. These app-managed writes stay STRICTER than the gitops sync path: a
+/// self-parent, a cycle, a dangling parent, or deleting an org with children or scopes is rejected here as
+/// an immediate authoring error, where sync only warns. assets.parent carries no foreign key, so these
+/// app-level guards (not a DB self-FK) are what hold the org tree acyclic and referentially whole; the
+/// unique <c>(organisation_id, standard_id)</c> and <c>(organisation_id, requirement_id)</c> scope keys
+/// remain the DB backstop.
 /// </summary>
 public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFactory) : IComplianceWriteStore
 {
@@ -57,7 +60,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
                 return WriteResult.Fail("An organisation cannot be its own parent.");
             }
 
-            var parentExists = await ExistsAsync(connection, transaction, "organisations", parentId, cancellationToken).ConfigureAwait(false);
+            var parentExists = await OrganisationExistsAsync(connection, transaction, parentId, cancellationToken).ConfigureAwait(false);
             if (!parentExists)
             {
                 return WriteResult.Fail($"Parent organisation '{parentId}' does not exist.");
@@ -73,17 +76,18 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         var parameters = new { Id = id, ApiVersion = GitOpsSchema.ApiVersion, Title = title, Kind = kind, Parent = parentId, Now = now };
         try
         {
-            // Create is INSERT-only so a row inserted concurrently between the lock and this write
-            // surfaces as a conflict, not a silent last-write-wins overwrite. Update stays an upsert
-            // keyed on the row the caller was authorized for and already re-locked above.
+            // Org rows now live in the unified assets table as declared Company/Department assets; the
+            // org kind is the asset `type` and the parent is `parent`. Create is INSERT-only so a row
+            // inserted concurrently (or an id already used by any asset) surfaces as a conflict, not a
+            // silent overwrite. Update stays an upsert keyed on the row the caller re-locked above.
             var sql = expectExisting
-                ? "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Kind, @Parent, @Now, @Now) "
+                ? "INSERT INTO assets (id, type, source, api_version, title, parent, created_at, updated_at) "
+                    + "VALUES (@Id, @Kind, 'declared', @ApiVersion, @Title, @Parent, @Now, @Now) "
                     + "ON DUPLICATE KEY UPDATE "
-                    + "api_version = VALUES(api_version), title = VALUES(title), kind = VALUES(kind), "
-                    + "parent_id = VALUES(parent_id), updated_at = VALUES(updated_at);"
-                : "INSERT INTO organisations (id, api_version, title, kind, parent_id, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Kind, @Parent, @Now, @Now);";
+                    + "api_version = VALUES(api_version), title = VALUES(title), type = VALUES(type), "
+                    + "parent = VALUES(parent), updated_at = VALUES(updated_at);"
+                : "INSERT INTO assets (id, type, source, api_version, title, parent, created_at, updated_at) "
+                    + "VALUES (@Id, @Kind, 'declared', @ApiVersion, @Title, @Parent, @Now, @Now);";
             await connection.ExecuteAsync(new CommandDefinition(
                 sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
@@ -102,7 +106,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         var childCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM organisations WHERE parent_id = @Id;",
+            "SELECT COUNT(*) FROM assets WHERE parent = @Id AND type IN ('Company', 'Department');",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (childCount > 0)
         {
@@ -133,7 +137,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM organisations WHERE id = @Id;",
+            "DELETE FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -172,7 +176,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             return WriteResult.Conflict("The scope's owning organisation changed concurrently; re-authorize and retry.");
         }
 
-        if (!await ExistsAsync(connection, transaction, "organisations", organisation, cancellationToken).ConfigureAwait(false))
+        if (!await OrganisationExistsAsync(connection, transaction, organisation, cancellationToken).ConfigureAwait(false))
         {
             return WriteResult.Fail($"Organisation '{organisation}' does not exist.");
         }
@@ -271,7 +275,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             return WriteResult.Conflict("The requirement-scope's owning organisation changed concurrently; re-authorize and retry.");
         }
 
-        if (!await ExistsAsync(connection, transaction, "organisations", organisation, cancellationToken).ConfigureAwait(false))
+        if (!await OrganisationExistsAsync(connection, transaction, organisation, cancellationToken).ConfigureAwait(false))
         {
             return WriteResult.Fail($"Organisation '{organisation}' does not exist.");
         }
@@ -352,6 +356,19 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
     }
 
     /// <summary>
+    /// True when the id names a Company or Department asset. Org data now lives in the unified assets
+    /// table, so an org-existence check must exclude Vendor and Machine rows sharing the id space.
+    /// </summary>
+    private static async Task<bool> OrganisationExistsAsync(
+        DbConnection connection, DbTransaction transaction, string id, CancellationToken cancellationToken)
+    {
+        var count = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
+            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return count > 0;
+    }
+
+    /// <summary>
     /// Locks the existing row (<c>SELECT ... FOR UPDATE</c>) and reports whether its current owning
     /// organisation differs from the one the caller authorized. When the caller expected no existing row
     /// (<paramref name="expectedCurrentOrganisation"/> null), a row that now exists under any org is a
@@ -395,7 +412,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         CancellationToken cancellationToken)
     {
         var rows = (await connection.QueryAsync<string?>(new CommandDefinition(
-            "SELECT parent_id FROM organisations WHERE id = @Id FOR UPDATE;",
+            "SELECT parent FROM assets WHERE id = @Id AND type IN ('Company', 'Department') FOR UPDATE;",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
         if (rows.Count == 0)
@@ -429,7 +446,7 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             }
 
             current = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
-                "SELECT parent_id FROM organisations WHERE id = @Id;",
+                "SELECT parent FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
                 new { Id = current }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
 

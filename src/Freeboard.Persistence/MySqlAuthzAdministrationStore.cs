@@ -125,7 +125,9 @@ public sealed class MySqlAuthzAdministrationStore(IDbConnectionFactory connectio
             return AuthzWriteResult.Invalid($"User '{userId}' does not exist.");
         }
 
-        if (!await ExistsAsync(connection, transaction, "organisations", "id", organisationId, cancellationToken).ConfigureAwait(false))
+        // Org rows live in the unified assets table; an org-role can only be assigned on a Company or
+        // Department asset, never a Vendor or Machine sharing the id space.
+        if (!await OrganisationExistsAsync(connection, transaction, organisationId, cancellationToken).ConfigureAwait(false))
         {
             return AuthzWriteResult.Invalid($"Organisation '{organisationId}' does not exist.");
         }
@@ -425,6 +427,15 @@ public sealed class MySqlAuthzAdministrationStore(IDbConnectionFactory connectio
         // table/column are fixed internal constants, never caller input.
         var count = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
             $"SELECT COUNT(*) FROM {table} WHERE {column} = @Id;",
+            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return count > 0;
+    }
+
+    private static async Task<bool> OrganisationExistsAsync(
+        DbConnection connection, DbTransaction transaction, string id, CancellationToken cancellationToken)
+    {
+        var count = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return count > 0;
     }

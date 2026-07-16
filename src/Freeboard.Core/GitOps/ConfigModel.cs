@@ -10,10 +10,9 @@ public static class GitOpsSchema
     public const string KindStandard = "Standard";
     public const string KindRequirement = "Requirement";
     public const string KindControl = "Control";
-    public const string KindOrganisation = "Organisation";
+    public const string KindAsset = "Asset";
     public const string KindScope = "Scope";
     public const string KindRequirementScope = "RequirementScope";
-    public const string KindVendor = "Vendor";
     public const string KindVendorScope = "VendorScope";
     public const string KindEvidenceCollector = "EvidenceCollector";
     public const string KindAttestationTemplate = "AttestationTemplate";
@@ -98,7 +97,8 @@ public sealed record Control
     public string Evaluation { get; init; } = string.Empty;
 }
 
-/// <summary>What an organisation node represents in the tree.</summary>
+/// <summary>What an organisation node represents in the tree. Retained for the app-managed org
+/// write path, which only ever authors a Company or Department asset.</summary>
 public enum OrganisationKind
 {
     Company,
@@ -106,25 +106,34 @@ public enum OrganisationKind
 }
 
 /// <summary>
-/// A node in the organisation tree being assessed. Identity is <see cref="Id"/>.
-/// <see cref="Parent"/> is the id of another organisation, empty for a root.
+/// A declared asset authored in gitops config - any type (Company, Department, Vendor, or Machine)
+/// with <c>source: declared</c>. Identity is <see cref="Id"/>. <see cref="Type"/> is the asset type
+/// authored under the YAML key <c>type</c> (distinct from the document discriminator
+/// <see cref="Kind"/>). <see cref="Parent"/> and <see cref="Owner"/> are the two mutually-exclusive
+/// edges: <see cref="Parent"/> is containment (a Company/Department id) and <see cref="Owner"/> is
+/// accountability (a Company/Department id on a Vendor); both are empty when absent. Machine assets
+/// are normally discovered (written by ingest), but a Machine may be declared; either way, no
+/// declared document carries the discovered-only fields (identity, state, first/last seen) - those
+/// live on the persistence asset row, and the loader rejects them if authored here.
 /// </summary>
-public sealed record Organisation
+public sealed record Asset
 {
     public string ApiVersion { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
     public string Id { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
 
-    /// <summary>
-    /// Raw Company/Department text as authored under the YAML key <c>type</c>; validation maps it
-    /// to <see cref="OrganisationKind"/>. This is the organisation's kind, distinct from the
-    /// document discriminator <see cref="Kind"/>.
-    /// </summary>
-    public string OrgKind { get; init; } = string.Empty;
+    /// <summary>Raw asset-type text authored under <c>type</c>; validation maps it to an asset kind.</summary>
+    public string Type { get; init; } = string.Empty;
 
-    /// <summary>Parent organisation id, empty for a root.</summary>
+    /// <summary>Raw source text authored under <c>source</c>; only <c>declared</c> is valid in config.</summary>
+    public string Source { get; init; } = string.Empty;
+
+    /// <summary>Containment edge (a Company/Department id); empty when absent.</summary>
     public string Parent { get; init; } = string.Empty;
+
+    /// <summary>Accountability edge (a Company/Department id); empty when absent.</summary>
+    public string Owner { get; init; } = string.Empty;
 }
 
 /// <summary>Whether an organisation is in or out of scope for a standard.</summary>
@@ -135,9 +144,9 @@ public enum ScopeDisposition
 }
 
 /// <summary>
-/// Maps one <see cref="Organisation"/> to one <see cref="Standard"/> with a
-/// <see cref="Disposition"/>. Identity is <see cref="Id"/>; at most one Scope exists
-/// per <c>(organisation, standard)</c> pair.
+/// Maps one Company/Department asset (named under <see cref="Organisation"/>) to one
+/// <see cref="Standard"/> with a <see cref="Disposition"/>. Identity is <see cref="Id"/>; at most one
+/// Scope exists per <c>(organisation, standard)</c> pair.
 /// </summary>
 public sealed record Scope
 {
@@ -153,8 +162,8 @@ public sealed record Scope
 }
 
 /// <summary>
-/// Maps one <see cref="Organisation"/> to one <see cref="Requirement"/> with a
-/// <see cref="Disposition"/>. Identity is <see cref="Id"/>; at most one RequirementScope
+/// Maps one Company/Department asset (named under <see cref="Organisation"/>) to one
+/// <see cref="Requirement"/> with a <see cref="Disposition"/>. Identity is <see cref="Id"/>; at most one RequirementScope
 /// exists per <c>(organisation, requirement)</c> pair. The owning standard is derived from
 /// the requirement, so there is no <c>standard</c> field. Resolved under the standard-level
 /// <see cref="Scope"/>: it applies only where the requirement's standard resolves <c>In</c>.
@@ -173,21 +182,8 @@ public sealed record RequirementScope
 }
 
 /// <summary>
-/// A piece of software or a platform in use (for example Crowdstrike, FleetDM, Google Workspace,
-/// an outsourced accountant). Identity is <see cref="Id"/>; <see cref="Title"/> is display only.
-/// Carries no other required fields in this increment.
-/// </summary>
-public sealed record Vendor
-{
-    public string ApiVersion { get; init; } = string.Empty;
-    public string Kind { get; init; } = string.Empty;
-    public string Id { get; init; } = string.Empty;
-    public string Title { get; init; } = string.Empty;
-}
-
-/// <summary>
 /// Records whether one <see cref="Requirement"/> or one <see cref="Control"/> applies to one
-/// <see cref="Vendor"/>, with an exception rationale. Identity is <see cref="Id"/>. Exactly one of
+/// Vendor asset, with an exception rationale. Identity is <see cref="Id"/>. Exactly one of
 /// <see cref="Requirement"/> or <see cref="Control"/> is set (the target); the other is empty.
 /// <see cref="Disposition"/> reuses the <see cref="Scope"/> disposition (<c>In</c>/<c>Out</c>):
 /// <c>In</c> means the target applies to the vendor, <c>Out</c> means it is excepted. A
@@ -260,7 +256,7 @@ public sealed record Check
 
 /// <summary>
 /// Attaches a data source to one <see cref="Control"/>. Identity is <see cref="Id"/>. A collector
-/// names its <see cref="Control"/> (the attach point) and, optionally, a <see cref="Vendor"/>.
+/// names its <see cref="Control"/> (the attach point) and, optionally, a Vendor asset id.
 /// <see cref="Type"/> is one of a fixed token set; <see cref="Frequency"/> is a collection cadence.
 /// <see cref="Threshold"/> is carried as raw authored text (an integer percent 0..100) so a malformed
 /// value surfaces as a clean validation diagnostic rather than a YAML binding error. <see cref="Config"/>
@@ -365,10 +361,9 @@ public sealed record GitOpsConfig
     public List<Standard> Standards { get; init; } = [];
     public List<Requirement> Requirements { get; init; } = [];
     public List<Control> Controls { get; init; } = [];
-    public List<Organisation> Organisations { get; init; } = [];
+    public List<Asset> Assets { get; init; } = [];
     public List<Scope> Scopes { get; init; } = [];
     public List<RequirementScope> RequirementScopes { get; init; } = [];
-    public List<Vendor> Vendors { get; init; } = [];
     public List<VendorScope> VendorScopes { get; init; } = [];
     public List<EvidenceCollector> EvidenceCollectors { get; init; } = [];
     public List<AttestationTemplate> AttestationTemplates { get; init; } = [];

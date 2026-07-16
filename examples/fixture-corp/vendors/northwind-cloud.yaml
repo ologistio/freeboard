@@ -2,9 +2,12 @@
 # platform. Perimeter firewalling is provided by cloud security groups rather
 # than on-prem hardware.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-northwind-cloud
 title: Northwind Cloud (example)
+type: Vendor
+source: declared
+owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: VendorScope

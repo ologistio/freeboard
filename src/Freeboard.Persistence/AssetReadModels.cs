@@ -1,17 +1,21 @@
 namespace Freeboard.Persistence;
 
 /// <summary>
-/// A persisted machine asset: one resolved machine. Identity is <see cref="Id"/> (a ULID).
-/// <see cref="OrganisationId"/> is a scalar reference (no FK), so an asset outlives a removed
-/// organisation. <see cref="Kind"/> is the <c>AssetKind</c> name (<c>Machine</c>). <see cref="IdentityKind"/>
-/// (<c>Serial</c> or <c>HostUuid</c>) and <see cref="IdentityValue"/> are the resolved canonical identity;
-/// <see cref="State"/> is <c>Seen</c> or <c>Retired</c>. <see cref="Hostname"/> is display-only and null
-/// when unset. <see cref="RetiredAt"/> is null while the machine is <c>Seen</c>.
+/// A persisted machine asset: one resolved discovered machine from the unified <c>assets</c> table.
+/// Identity is <see cref="Id"/> (a ULID). <see cref="Type"/> is the asset type (<c>Machine</c>) and
+/// <see cref="Source"/> is <c>discovered</c>. <see cref="Parent"/> is the containing organisation id, a
+/// scalar reference with no FK so an asset outlives a removed organisation; <see cref="Owner"/> is unused
+/// for a machine. <see cref="IdentityKind"/> (<c>Serial</c> or <c>HostUuid</c>) and
+/// <see cref="IdentityValue"/> are the resolved canonical identity; <see cref="State"/> is <c>Seen</c> or
+/// <c>Retired</c>. <see cref="Hostname"/> is display-only and null when unset. <see cref="RetiredAt"/> is
+/// null while the machine is <c>Seen</c>.
 /// </summary>
 public sealed record AssetRow(
     string Id,
-    string OrganisationId,
-    string Kind,
+    string Type,
+    string Source,
+    string? Parent,
+    string? Owner,
     string IdentityKind,
     string IdentityValue,
     string? Hostname,

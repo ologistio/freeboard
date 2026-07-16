@@ -246,7 +246,7 @@ public sealed class EvidenceIntegrationTests
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
 
-        // Seed a real organisation and requirement, then append evidence referencing them.
+        // Seed a real Company asset and requirement, then append evidence referencing them.
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
         await conn.ExecuteAsync(
@@ -255,15 +255,16 @@ public sealed class EvidenceIntegrationTests
             "INSERT INTO requirements (id, api_version, title, standard_id, theme, statement, citation_label, citation_url, created_at, updated_at) "
             + "VALUES ('req-a', 'v1', 'R', 'std', 'T', 'S', 'L', 'https://example.com/r', NOW(6), NOW(6));");
         await conn.ExecuteAsync(
-            "INSERT INTO organisations (id, api_version, title, kind, created_at, updated_at) VALUES ('org-a', 'v1', 'O', 'Company', NOW(6), NOW(6));");
+            "INSERT INTO assets (id, type, source, api_version, title, created_at, updated_at) "
+            + "VALUES ('org-a', 'Company', 'declared', 'v1', 'O', NOW(6), NOW(6));");
 
         var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
         var store = new MySqlEvidenceStore(db.ConnectionFactory);
         Assert.True((await writes.AppendEvidenceAsync(Run("org-a", "req-a", "vendor-a", "ref-1"))).Ok);
 
-        // Scalar refs, no FK: dropping the requirement and organisation does not touch the evidence row.
+        // Scalar refs, no FK: dropping the requirement and the asset does not touch the evidence row.
         await conn.ExecuteAsync("DELETE FROM requirements WHERE id = 'req-a';");
-        await conn.ExecuteAsync("DELETE FROM organisations WHERE id = 'org-a';");
+        await conn.ExecuteAsync("DELETE FROM assets WHERE id = 'org-a';");
 
         Assert.Single(await store.GetEvidenceRunsAsync("org-a", "req-a"));
     }

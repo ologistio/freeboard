@@ -23,16 +23,18 @@ maps_to:
   - req-a
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: Organisation
+kind: Asset
 id: org-a
 title: Org A
 type: Company
+source: declared
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: Organisation
+kind: Asset
 id: org-eng
 title: Engineering
 type: Department
+source: declared
 parent: org-a
 ---
 apiVersion: freeboard.dev/v1alpha1

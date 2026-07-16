@@ -1,18 +1,20 @@
 using Freeboard.Persistence;
+using Freeboard.Web;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Freeboard.Pages.Compliance;
 
 /// <summary>
-/// Read-only server-rendered vendor register: every persisted vendor and, under each, its
+/// Read-only server-rendered vendor register: each vendor the caller may see and, under it, its
 /// vendor-scopes (target, disposition, and - for every Out - the justification, so an exception is
 /// never silent). GET-only, so the GitOps read-only middleware never blocks it. Reads vendors and
 /// vendor-scopes through <see cref="IComplianceStore"/> in-process (like the Statement of
 /// Applicability page) inside one try/catch that sets <see cref="StoreUnreachable"/>, so a store
-/// outage renders an in-page notice rather than a 500. Vendors are org-independent reference data, so
-/// the page does NOT narrow by accessible organisation: any authenticated user sees every vendor.
+/// outage renders an in-page notice rather than a 500. A vendor is shown only when its owner is in the
+/// caller's accessible-org set; a vendor with a null or dangling owner is hidden (fail-closed), and its
+/// vendor-scope justifications are hidden with it.
 /// </summary>
-public sealed class VendorsModel(IComplianceStore store) : PageModel
+public sealed class VendorsModel(IComplianceStore store, IOrgAccess orgAccess) : PageModel
 {
     /// <summary>All vendors, ordered by id.</summary>
     public IReadOnlyList<VendorRow> Vendors { get; private set; } = [];
@@ -27,10 +29,16 @@ public sealed class VendorsModel(IComplianceStore store) : PageModel
     {
         try
         {
+            var accessible = await orgAccess.AccessibleOrgIdsAsync(
+                User, await store.GetOrganisationsAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+
             Vendors = (await store.GetVendorsAsync(ct).ConfigureAwait(false))
+                .Where(v => v.Owner is not null && accessible.Contains(v.Owner))
                 .OrderBy(v => v.Id, StringComparer.Ordinal).ToList();
 
+            var visibleVendorIds = Vendors.Select(v => v.Id).ToHashSet(StringComparer.Ordinal);
             scopesByVendor = (await store.GetVendorScopesAsync(ct).ConfigureAwait(false))
+                .Where(s => visibleVendorIds.Contains(s.Vendor))
                 .GroupBy(s => s.Vendor, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         }

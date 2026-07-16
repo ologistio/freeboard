@@ -55,8 +55,8 @@ public sealed class ComplianceEndpointTests
         ],
         Vendors =
         [
-            new VendorRow("vendor-a", "Vendor A"),
-            new VendorRow("vendor-b", "Vendor B"),
+            new VendorRow("vendor-a", "Vendor A", "org-a"),
+            new VendorRow("vendor-b", "Vendor B", "org-a"),
         ],
         VendorScopes =
         [
@@ -421,20 +421,57 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
-    public async Task ZeroGrantEnforceCallerStillReadsEveryVendor()
+    public async Task OwnerExcludedEnforceCallerSeesNoVendorOrScope()
     {
-        // Unlike /organisations, the vendor endpoints do NOT narrow by IOrgAccess. Under strict
-        // Enforce with no grants, AuthzOrgAccess yields an empty accessible-org set, yet a member
-        // still reads every vendor and every vendor-scope (including Out justifications).
+        // The vendor endpoints narrow by IOrgAccess through the vendor owner. Under strict Enforce with
+        // no grants the accessible-org set is empty, so every vendor is hidden - and with it every
+        // vendor-scope, so an Out justification for a hidden vendor never leaks.
         using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var vendors = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
-        Assert.Equal(["vendor-a", "vendor-b"], vendors.EnumerateArray().Select(v => v.GetProperty("id").GetString()!).ToArray());
+        Assert.Equal(0, vendors.GetArrayLength());
 
         var scopes = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendor-scopes");
-        Assert.Equal(2, scopes.GetArrayLength());
-        Assert.Equal("Supports MFA but not SSO.", scopes[0].GetProperty("justification").GetString());
+        Assert.Equal(0, scopes.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task VendorReadsNarrowToTheCallerAccessibleOwners()
+    {
+        // Two vendors owned by different orgs; the reader is granted on org-a only. Under Enforce the
+        // caller sees vendor-a and its scope, but neither vendor-b nor vendor-b's Out justification -
+        // the hidden vendor takes its vendor-scopes with it (fail-closed).
+        var store = new FakeComplianceStore
+        {
+            Organisations =
+            [
+                new OrganisationRow("org-a", "Org A", "Company", null),
+                new OrganisationRow("org-b", "Org B", "Company", null),
+            ],
+            Vendors =
+            [
+                new VendorRow("vendor-a", "Vendor A", "org-a"),
+                new VendorRow("vendor-b", "Vendor B", "org-b"),
+            ],
+            VendorScopes =
+            [
+                new VendorScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", "req-a", null, "In", null),
+                new VendorScopeRow("vs-b", "Except req-b for vendor-b", "vendor-b", "req-b", null, "Out", "Owned elsewhere."),
+            ],
+        };
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var vendors = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
+        Assert.Equal(["vendor-a"], vendors.EnumerateArray().Select(v => v.GetProperty("id").GetString()!).ToArray());
+
+        var scopes = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendor-scopes");
+        Assert.Equal(["vs-a"], scopes.EnumerateArray().Select(s => s.GetProperty("id").GetString()!).ToArray());
+
+        var raw = await client.GetStringAsync("/api/v1/freeboard/vendor-scopes");
+        Assert.DoesNotContain("Owned elsewhere.", raw, StringComparison.Ordinal);
     }
 
     [Fact]

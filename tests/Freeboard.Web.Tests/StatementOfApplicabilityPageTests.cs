@@ -164,7 +164,7 @@ public sealed class StatementOfApplicabilityPageTests
         [
             new AttestationTemplateRow("tmpl-a", "Template A", "ctrl-a", "manual", null, [], null, []),
         ],
-        Vendors = [new VendorRow("vendor-x", "Vendor X")],
+        Vendors = [new VendorRow("vendor-x", "Vendor X", null)],
     };
 
     [Fact]

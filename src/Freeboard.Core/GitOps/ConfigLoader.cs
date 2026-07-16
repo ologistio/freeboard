@@ -13,9 +13,9 @@ namespace Freeboard.Core.GitOps;
 public static class ConfigLoader
 {
     // Schema keys per kind. apiVersion/kind are camelCase exceptions; domain fields are snake_case.
-    // The top-level `kind` is the document discriminator (Standard/Control/Organisation/Scope). An
-    // Organisation's Company/Department distinction is authored under `type` so it does not collide
-    // with the discriminator; it persists and reads back as the organisation's `kind`.
+    // The top-level `kind` is the document discriminator (Standard/Control/Asset/Scope). An Asset's
+    // Company/Department/Vendor distinction is authored under `type` so it does not collide with the
+    // discriminator.
     private static readonly IReadOnlyDictionary<string, HashSet<string>> SchemaKeys =
         new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         {
@@ -29,10 +29,9 @@ public static class ConfigLoader
                 "citation_label", "citation_url",
             },
             [GitOpsSchema.KindControl] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "maps_to", "evaluation" },
-            [GitOpsSchema.KindOrganisation] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "parent" },
+            [GitOpsSchema.KindAsset] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "source", "parent", "owner" },
             [GitOpsSchema.KindScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "standard", "disposition" },
             [GitOpsSchema.KindRequirementScope] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "organisation", "requirement", "disposition" },
-            [GitOpsSchema.KindVendor] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title" },
             [GitOpsSchema.KindVendorScope] = new(StringComparer.Ordinal)
             {
                 "apiVersion", "kind", "id", "title", "vendor", "requirement", "control", "disposition", "justification",
@@ -52,17 +51,22 @@ public static class ConfigLoader
             },
         };
 
+    // Discovered-only keys: valid columns on a discovered Machine asset, but never authored in declared
+    // config. Rejected by presence on the parsed key set (an omitted vs authored-blank field is
+    // indistinguishable once deserialized), with a distinct message from the generic unknown-field one.
+    private static readonly HashSet<string> DiscoveredOnlyAssetKeys = new(StringComparer.Ordinal)
+    {
+        "identity_kind", "identity_value", "state", "first_seen", "last_seen",
+    };
+
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
         .WithAttributeOverride<Standard>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Requirement>(r => r.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Control>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
-        .WithAttributeOverride<Organisation>(o => o.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
-        // The Company/Department value is authored under `type`; it binds to the OrgKind property.
-        .WithAttributeOverride<Organisation>(o => o.OrgKind, new YamlMemberAttribute { Alias = "type", ApplyNamingConventions = false })
+        .WithAttributeOverride<Asset>(a => a.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Scope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<RequirementScope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
-        .WithAttributeOverride<Vendor>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<VendorScope>(v => v.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<EvidenceCollector>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<AttestationTemplate>(t => t.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
@@ -170,7 +174,7 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindOrganisation}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendor}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}, {GitOpsSchema.KindIntegrationConnection}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindAsset}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindRequirementScope}, {GitOpsSchema.KindVendorScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}, {GitOpsSchema.KindIntegrationConnection}.",
             });
             return;
         }
@@ -193,17 +197,14 @@ public static class ConfigLoader
                     // to empty so the validator emits a diagnostic instead of throwing.
                     config.Controls.Add(control with { MapsTo = control.MapsTo ?? [] });
                     break;
-                case GitOpsSchema.KindOrganisation:
-                    config.Organisations.Add(Deserialize<Organisation>(mapping));
+                case GitOpsSchema.KindAsset:
+                    config.Assets.Add(Deserialize<Asset>(mapping));
                     break;
                 case GitOpsSchema.KindScope:
                     config.Scopes.Add(Deserialize<Scope>(mapping));
                     break;
                 case GitOpsSchema.KindRequirementScope:
                     config.RequirementScopes.Add(Deserialize<RequirementScope>(mapping));
-                    break;
-                case GitOpsSchema.KindVendor:
-                    config.Vendors.Add(Deserialize<Vendor>(mapping));
                     break;
                 case GitOpsSchema.KindVendorScope:
                     config.VendorScopes.Add(Deserialize<VendorScope>(mapping));
@@ -270,16 +271,24 @@ public static class ConfigLoader
                 continue;
             }
 
-            if (!knownKeys.Contains(key.Value))
+            if (knownKeys.Contains(key.Value))
             {
-                diagnostics.Add(new Diagnostic
-                {
-                    File = relative,
-                    Line = (int)key.Start.Line,
-                    Column = (int)key.Start.Column,
-                    Message = $"Unknown field '{key.Value}' on {kind}.",
-                });
+                continue;
             }
+
+            // A discovered-only field on a declared Asset gets a distinct message: it is a real column
+            // on a discovered Machine but is written by ingest, never authored in config.
+            var isDiscoveredOnly = string.Equals(kind, GitOpsSchema.KindAsset, StringComparison.Ordinal)
+                && DiscoveredOnlyAssetKeys.Contains(key.Value);
+            diagnostics.Add(new Diagnostic
+            {
+                File = relative,
+                Line = (int)key.Start.Line,
+                Column = (int)key.Start.Column,
+                Message = isDiscoveredOnly
+                    ? $"Field '{key.Value}' on {kind} is discovered-only and cannot be authored in config."
+                    : $"Unknown field '{key.Value}' on {kind}.",
+            });
         }
     }
 

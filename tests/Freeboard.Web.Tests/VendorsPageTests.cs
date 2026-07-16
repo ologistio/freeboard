@@ -9,10 +9,11 @@ namespace Freeboard.Web.Tests;
 
 /// <summary>
 /// Server-rendered vendor register page: requires an authenticated user (an anonymous browser is
-/// redirected to /login; the admin role is NOT required), lists every vendor with its scopes, shows
-/// the justification for every Out exception, is GET-only and served in GitOps read-only mode, reads
-/// through the injected <see cref="IComplianceStore"/> (no MySQL), and - unlike the per-org pages -
-/// never narrows to the caller's accessible organisations.
+/// redirected to /login; the admin role is NOT required), lists each vendor the caller may see with its
+/// scopes, shows the justification for every Out exception, is GET-only and served in GitOps read-only
+/// mode, reads through the injected <see cref="IComplianceStore"/> (no MySQL), and narrows to vendors
+/// whose owner is in the caller's accessible-org set (a vendor with a hidden owner is hidden with its
+/// vendor-scope justifications).
 /// </summary>
 public sealed class VendorsPageTests
 {
@@ -20,10 +21,11 @@ public sealed class VendorsPageTests
 
     private static FakeComplianceStore PopulatedStore() => new()
     {
+        Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
         Vendors =
         [
-            new VendorRow("vendor-a", "Vendor A"),
-            new VendorRow("vendor-b", "Vendor B"),
+            new VendorRow("vendor-a", "Vendor A", "org-a"),
+            new VendorRow("vendor-b", "Vendor B", "org-a"),
         ],
         VendorScopes =
         [
@@ -117,10 +119,10 @@ public sealed class VendorsPageTests
     }
 
     [Fact]
-    public async Task ZeroGrantEnforceCallerSeesEveryVendor()
+    public async Task OwnerExcludedEnforceCallerSeesNoVendorOrJustification()
     {
-        // The register does not narrow by accessible organisation, so a zero-grant Enforce caller
-        // still sees every vendor and every Out justification.
+        // The register narrows by vendor owner. Under strict Enforce with no grants the accessible-org
+        // set is empty, so no vendor renders and no Out justification leaks.
         using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
         using var client = NoRedirectClient(factory);
 
@@ -128,17 +130,53 @@ public sealed class VendorsPageTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var html = await response.Content.ReadAsStringAsync();
-        Assert.Contains("data-vendor-id=\"vendor-a\"", html, StringComparison.Ordinal);
-        Assert.Contains("data-vendor-id=\"vendor-b\"", html, StringComparison.Ordinal);
-        Assert.Contains("Supports MFA but not SSO.", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-vendor-id", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Supports MFA but not SSO.", html, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ConstructorTakesOnlyComplianceStore()
+    public async Task NarrowsToVendorsWhoseOwnerTheCallerCanAccess()
+    {
+        // Two vendors owned by different orgs; the reader is granted on org-a only. Under Enforce the
+        // page renders vendor-a and its justification, but neither vendor-b nor vendor-b's justification.
+        var store = new FakeComplianceStore
+        {
+            Organisations =
+            [
+                new OrganisationRow("org-a", "Org A", "Company", null),
+                new OrganisationRow("org-b", "Org B", "Company", null),
+            ],
+            Vendors =
+            [
+                new VendorRow("vendor-a", "Vendor A", "org-a"),
+                new VendorRow("vendor-b", "Vendor B", "org-b"),
+            ],
+            VendorScopes =
+            [
+                new VendorScopeRow("vs-a", "Except req-a", "vendor-a", "req-a", null, "Out", "Visible justification."),
+                new VendorScopeRow("vs-b", "Except req-b", "vendor-b", "req-b", null, "Out", "Hidden justification."),
+            ],
+        };
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path, AuthWebFactory.MakeUser("u1"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-vendor-id=\"vendor-a\"", html, StringComparison.Ordinal);
+        Assert.Contains("Visible justification.", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-vendor-id=\"vendor-b\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hidden justification.", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConstructorTakesComplianceStoreAndOrgAccess()
     {
         var ctor = Assert.Single(typeof(VendorsModel).GetConstructors());
-        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToList();
+        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
-        Assert.Equal([typeof(IComplianceStore)], paramTypes);
+        Assert.Equal(new HashSet<Type> { typeof(IComplianceStore), typeof(IOrgAccess) }, paramTypes);
     }
 }

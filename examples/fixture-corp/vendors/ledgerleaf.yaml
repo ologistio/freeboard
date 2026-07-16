@@ -2,9 +2,12 @@
 # It supports MFA but not SSO, so it cannot join the central user-access control;
 # an Out scope with a justification records the exception (never silent).
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-ledgerleaf
 title: LedgerLeaf Accounting (example)
+type: Vendor
+source: declared
+owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: VendorScope

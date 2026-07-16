@@ -47,7 +47,8 @@ public sealed class IntegrationConnectionIntegrationTests
     private static Control Ctrl(string id, string[] mapsTo, string evaluation) =>
         new() { Id = id, Title = "T", ApiVersion = "v1", MapsTo = [.. mapsTo], Evaluation = evaluation };
 
-    private static Vendor Vnd(string id) => new() { Id = id, Title = "T", ApiVersion = "v1" };
+    private static Asset Vnd(string id) =>
+        new() { Id = id, Title = "T", ApiVersion = "v1", Type = "Vendor", Source = "declared" };
 
     private static IntegrationConnection Conn(string id, string vendor = "vendor-a") =>
         new()
@@ -77,12 +78,12 @@ public sealed class IntegrationConnectionIntegrationTests
     private static GitOpsConfig Config(
         IEnumerable<IntegrationConnection>? connections = null,
         IEnumerable<EvidenceCollector>? collectors = null,
-        IEnumerable<Vendor>? vendors = null) => new()
+        IEnumerable<Asset>? vendors = null) => new()
         {
             Standards = [Std("std-a")],
             Requirements = [Req("req-a", "std-a")],
             Controls = [Ctrl("ctrl-a", ["req-a"], "all")],
-            Vendors = vendors?.ToList() ?? [Vnd("vendor-a")],
+            Assets = (vendors ?? [Vnd("vendor-a")]).ToList(),
             IntegrationConnections = connections?.ToList() ?? [],
             EvidenceCollectors = collectors?.ToList() ?? [],
         };
