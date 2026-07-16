@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Model a provider integration as a first-class GitOps kind - an `IntegrationConnection` that an
+Model a provider integration as a first-class GitOps kind - an `Integration` that an
 `EvidenceCollector` of `type: integration` references - so discovery and integration collection
 share one persisted, referentially-consistent connection record. The connection's API token is
 resolved out-of-band from configuration (never git-tracked, persisted, or logged) and surfaced

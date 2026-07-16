@@ -11,7 +11,7 @@ each standard, the assets being assessed (the organisation tree, the vendors in
 use, and the discovered machines), the scopes that map an organisation asset to a
 standard, the requirement-scopes that map an organisation asset to a requirement,
 the vendor-scopes that record whether a requirement or control applies to a vendor
-asset, the integration-connections that define an integration's base URL and
+asset, the integrations that define a provider connection's base URL and
 discovery cadence, the evidence-collectors that attach a data source to a control,
 and the attestation-templates that describe an attestation form for a control. The
 format SHALL be loadable into a typed config model in `Freeboard.Core`.
@@ -20,7 +20,7 @@ A config directory contains one or more `.yaml` files. Each document has a
 top-level `apiVersion` and `kind`. The only valid `apiVersion` value for this
 increment is `freeboard.dev/v1alpha1`. For this increment the valid `kind` values
 are `Standard`, `Control`, `Requirement`, `Asset`, `Scope`, `RequirementScope`,
-`VendorScope`, `IntegrationConnection`, `EvidenceCollector`, and
+`VendorScope`, `Integration`, `EvidenceCollector`, and
 `AttestationTemplate`. Documents of different kinds MAY appear in any file. Every
 resource SHALL have an immutable `id` that is its identity and a mutable `title`
 for display. A `Standard` has an `id`, a `title`, required `version` and
@@ -43,7 +43,7 @@ has an `id`, a `title`, an `organisation` (a `Company`/`Department` asset id), a
 `title`, a `vendor` (a `Vendor` asset id), exactly one of `requirement` (a
 `Requirement` id) or `control` (a `Control` id), a `disposition` (`In` or `Out`),
 and a `justification` (required when the disposition is `Out`). An
-`IntegrationConnection` has an `id`, a `title`, a required `provider` (a closed
+`Integration` has an `id`, a `title`, a required `provider` (a closed
 token set whose only value in this increment is `fleet`), a required `base_url` (an
 absolute `http`/`https` URL), a required `discovery_cadence` (`continuous`,
 `daily`, `weekly`, `monthly`, `quarterly`, or `annual`), and an optional `vendor`
@@ -53,7 +53,7 @@ optional `vendor` (a `Vendor` asset id), a `type` (exactly one of `integration`,
 `script`, `manual-attestation`, `training-attestation`, or `agent`), a `frequency`
 (`continuous`, `daily`, `weekly`, `monthly`, `quarterly`, or `annual`), an optional
 `threshold` (an integer percent from 0 to 100), an optional `config`, a
-`connection` (an `IntegrationConnection` id, required when `type` is `integration`
+`connection` (an `Integration` id, required when `type` is `integration`
 and empty otherwise), and a `checks` list (each item a `source_key`, a `name`, and
 a `severity` of `Hard` or `Soft`, required and non-empty when `type` is
 `integration`). An `AttestationTemplate` has an `id`, a `title`, a `control`, a
@@ -68,10 +68,10 @@ are camelCase.
 
 - **WHEN** a directory contains well-formed YAML documents of kinds `Standard`,
   `Control`, `Requirement`, `Asset`, `Scope`, `RequirementScope`, `VendorScope`,
-  `IntegrationConnection`, `EvidenceCollector`, and `AttestationTemplate`
+  `Integration`, `EvidenceCollector`, and `AttestationTemplate`
 - **THEN** the loader returns a typed config model containing all standards,
   controls, requirements, assets (with `type`, `source`, and any `parent`/`owner`),
-  scopes, requirement-scopes, vendor-scopes, integration-connections,
+  scopes, requirement-scopes, vendor-scopes, integrations,
   evidence-collectors, and attestation-templates with their `id`, `title`, and
   reference fields populated and no errors
 
@@ -196,9 +196,18 @@ does not fail loading or validation.
 
 - **WHEN** a document has a `kind` that is missing or not one of `Standard`,
   `Control`, `Requirement`, `Asset`, `Scope`, `RequirementScope`, `VendorScope`,
-  `IntegrationConnection`, `EvidenceCollector`, or `AttestationTemplate`
+  `Integration`, `EvidenceCollector`, or `AttestationTemplate`
 - **THEN** the loader returns a diagnostic naming the document and the bad `kind`,
   does not throw, and does not deserialize that document further
+
+#### Scenario: Retired IntegrationConnection kind is now unknown
+
+- **WHEN** a document authors `kind: IntegrationConnection`, the pre-ratification wire
+  token
+- **THEN** the loader loads no connection from it and returns an unknown-kind
+  diagnostic naming the document and the bad `kind`; the diagnostic's valid-kinds
+  enumeration lists `Integration` and does NOT contain the substring
+  `IntegrationConnection`
 
 ### Requirement: Config carries no secret material
 
@@ -207,7 +216,7 @@ key, password, or equivalent). Credentials needed by integrations SHALL be
 referenced by identity and resolved out-of-band, never inlined in git-tracked
 config. The `EvidenceCollector.config` map is git-tracked type-specific settings and
 SHALL NOT inline credential material; a collector that needs a credential names it
-for out-of-band resolution. An `IntegrationConnection` names its provider, base URL,
+for out-of-band resolution. An `Integration` names its provider, base URL,
 and discovery cadence in git, but SHALL NOT carry its API token: the token is
 resolved out-of-band at runtime, keyed by the connection id, and is never authored in
 config. The `AttestationTemplate` `body`, `fields`, and `quiz` are git-tracked form
@@ -219,10 +228,10 @@ from every broad read surface (the read API, CLI, and web register).
 #### Scenario: No credential fields exist
 
 - **WHEN** the schema for `Standard`, `Control`, `Requirement`, `Organisation`,
-  `Scope`, `RequirementScope`, `Vendor`, `VendorScope`, `IntegrationConnection`,
+  `Scope`, `RequirementScope`, `Vendor`, `VendorScope`, `Integration`,
   `EvidenceCollector`, and `AttestationTemplate` is inspected
 - **THEN** it contains no field intended to hold credential material, and an
-  `IntegrationConnection` in particular declares no token field
+  `Integration` in particular declares no token field
 
 ### Requirement: Deterministic loading
 
@@ -451,13 +460,16 @@ of type-specific settings). A control MAY have several collectors; identity is k
 collector that resolves to a control resolves to at least one requirement.
 
 An `EvidenceCollector` of `type: integration` SHALL additionally name a `connection`
-(an `IntegrationConnection` id, the connection that backs the collector) and a
+(an `Integration` id, the connection that backs the collector) and a
 `checks` list. Each item in `checks` has a `source_key` (the provider-native id, for
 example a Fleet policy id, the key that joins a provider result to a Freeboard
 check), a `name` (the Freeboard check name), and a `severity` that is exactly one of
 `Hard` or `Soft` (matching an evidence check's severity: a failing `Hard` check fails
 the requirement, a failing `Soft` check warns). The `connection` SHALL be empty and
 the `checks` list SHALL be omitted on any collector whose `type` is not `integration`.
+The provider that runs an integration collector is the `provider` of the `Integration`
+it names; that provider is drawn from the single, shared provider token set (only
+`fleet` in this increment), not a separate collector vocabulary.
 
 The authored `checks` list SHALL be the exhaustive set of checks tracked for an
 integration collector: a provider-native id (`source_key`) that is not present in the
@@ -483,7 +495,7 @@ collectors; it is REQUIRED on a control that has at least one attached collector
 #### Scenario: Integration collector loads with a connection and checks
 
 - **WHEN** an `EvidenceCollector` document declares `type: integration`, a
-  `connection` naming a defined `IntegrationConnection` id, and a non-empty `checks`
+  `connection` naming a defined `Integration` id, and a non-empty `checks`
   list whose items each name a `source_key`, a `name`, and a `severity` of `Hard` or
   `Soft`
 - **THEN** it loads as an integration `EvidenceCollector` bound to that connection
@@ -515,7 +527,7 @@ field is present on an `EvidenceCollector`; an `EvidenceCollector.type` is not o
 is not an integer from 0 to 100; an `EvidenceCollector.control` references a `Control`
 id that no document defines; an `EvidenceCollector.vendor` is present but references a
 `Vendor` id that no document defines; an `EvidenceCollector` of `type: integration` is
-missing its `connection` or names a `connection` id that no `IntegrationConnection`
+missing its `connection` or names a `connection` id that no `Integration`
 document defines; an `EvidenceCollector` of `type: integration` has an empty `checks`
 list; an `EvidenceCollector` whose `type` is not `integration` names a non-empty
 `connection` or a non-empty `checks` list; a `checks` item is missing or blank on
@@ -561,7 +573,7 @@ absent and do NOT fail validation.
 #### Scenario: Integration collector missing or dangling connection rejected
 
 - **WHEN** an `EvidenceCollector` of `type: integration` omits its `connection` or
-  names a `connection` id that no `IntegrationConnection` document defines
+  names a `connection` id that no `Integration` document defines
 - **THEN** validation fails and the error list names the collector and the missing or
   unknown connection
 
@@ -776,16 +788,16 @@ kind the loader and validator support. For each kind it SHALL state the schema
 fields, at least one example document, and the validation rules, including the
 referential-integrity rules (which fields reference which other kind by id and
 that a reference to an absent id is rejected). This SHALL include
-IntegrationConnection (an optional `vendor` reference by id, its out-of-band token
+Integration (an optional `vendor` reference by id, its out-of-band token
 resolved by id, never in config), EvidenceCollector (references a control by id
 and, optionally, a vendor by id, and, when `type: integration`, a connection by id
 plus its `checks` list) and AttestationTemplate (references a control by id), so the
 documented surface matches the shipped `GitOpsSchema` kind set.
 
-#### Scenario: IntegrationConnection documented with its schema and token rule
+#### Scenario: Integration documented with its schema and token rule
 
 - **WHEN** a reader consults `docs/gitops.md`
-- **THEN** it describes the IntegrationConnection kind, its `provider`, `base_url`,
+- **THEN** it describes the Integration kind, its `provider`, `base_url`,
   and `discovery_cadence` fields and optional `vendor` reference, and states that the
   API token is never authored in config but resolved out-of-band by connection id
 
@@ -801,113 +813,10 @@ documented surface matches the shipped `GitOpsSchema` kind set.
 
 - **WHEN** a reader consults the supported-kinds list and the noun mapping table
   in `docs/gitops.md`
-- **THEN** both include IntegrationConnection alongside the existing kinds, so no
-  shipped kind is omitted from the catalogue
-
-### Requirement: IntegrationConnection authorship
-
-The system SHALL support an `IntegrationConnection` kind that defines an
-integration's connection: one base URL and one discovery cadence, backing an
-integration's discovery and its per-control collectors. An `IntegrationConnection`
-has an `id` (its permanent identity), a `title` (display only), a required
-`provider`, a required `base_url`, a required `discovery_cadence`, and an optional
-`vendor` (a `Vendor` id linking the connection to a vendor record).
-
-`provider` SHALL be drawn from a closed, case-sensitive token set whose only value
-in this increment is `fleet`; it selects the integration runner. `provider` is
-distinct from `vendor` and is NOT unique - one provider MAY back many connections;
-identity is the `id`. A connection's `provider` is the same token a machine reports as
-its `asset_source.source`, so the alignment is at the provider level: a machine seen
-through this provider aligns with the `provider` token, not with a specific connection
-instance. Because a machine's source attachment is keyed by `(organisation_id, source,
-external_id)` and carries no connection id, a machine does not resolve to one connection
-when several connections share a provider; connection-level disambiguation is future
-work. `base_url` SHALL be an absolute `http`/`https` URL (the same
-URL rule as `Requirement.citation_url` and `Standard.source_url`).
-`discovery_cadence` SHALL be one of the collection-cadence tokens `continuous`,
-`daily`, `weekly`, `monthly`, `quarterly`, or `annual` (the same set an
-`EvidenceCollector.frequency` uses). The connection SHALL NOT carry an API token or
-any other credential field; its token is resolved out-of-band at runtime, keyed by
-the connection id.
-
-#### Scenario: IntegrationConnection loads with provider, base URL, and cadence
-
-- **WHEN** an `IntegrationConnection` document names an `id`, a `title`, a `provider`
-  of `fleet`, an absolute `http`/`https` `base_url`, and a `discovery_cadence`
-- **THEN** it loads as an `IntegrationConnection` with those fields populated and its
-  optional `vendor` populated when present, and it declares no token field
-
-#### Scenario: IntegrationConnection links to a vendor
-
-- **WHEN** an `IntegrationConnection` names a `vendor` that a `Vendor` document defines
-- **THEN** it loads with that vendor link, distinct from its `provider`
-
-### Requirement: IntegrationConnection validation
-
-The system SHALL validate integration-connections and report every error as a
-structured diagnostic, consistent with the rest of config validation. Validation
-SHALL fail when any of the following hold: an `IntegrationConnection` is missing or
-blank on `id`, `title`, `provider`, `base_url`, or `discovery_cadence`; an
-`IntegrationConnection` id is duplicated within its kind; an unknown field is present
-on an `IntegrationConnection`; an `IntegrationConnection.provider` is not the token
-`fleet`; an `IntegrationConnection.base_url` is not a well-formed absolute
-`http`/`https` URL; an `IntegrationConnection.discovery_cadence` is not one of
-`continuous`, `daily`, `weekly`, `monthly`, `quarterly`, or `annual`; an
-`IntegrationConnection.id` contains a `:` character or a `__` sequence, or two
-`IntegrationConnection` ids collide case-insensitively; or an
-`IntegrationConnection.vendor` is present but references a `Vendor` id that no document
-defines. An omitted `vendor` is treated as absent and does NOT fail validation.
-
-The `id` rules exist because the connection id is interpolated into the out-of-band
-token configuration key `Freeboard:Integrations:<id>:ApiToken`, and .NET configuration
-keys are case-insensitive and `:`-delimited (the environment-variable provider maps `__`
-to `:`). An id containing `:` or `__`, or two ids that differ only in case, would resolve
-an ambiguous or wrong token. These id constraints apply only to the
-`IntegrationConnection` kind, because only its id resolves a secret.
-
-#### Scenario: IntegrationConnection missing a required field
-
-- **WHEN** an `IntegrationConnection` document omits its `provider`, `base_url`, or
-  `discovery_cadence`
-- **THEN** validation fails and the error list names the connection and the missing
-  field
-
-#### Scenario: IntegrationConnection unknown provider rejected
-
-- **WHEN** an `IntegrationConnection` declares a `provider` other than `fleet`
-- **THEN** validation fails and the error list names the connection and the bad
-  provider
-
-#### Scenario: IntegrationConnection malformed base URL rejected
-
-- **WHEN** an `IntegrationConnection.base_url` is not a well-formed absolute
-  `http`/`https` URL
-- **THEN** validation fails and the error list names the connection and the malformed
-  base URL
-
-#### Scenario: IntegrationConnection unknown cadence rejected
-
-- **WHEN** an `IntegrationConnection.discovery_cadence` is outside the cadence set
-- **THEN** validation fails and the error list names the connection and the bad cadence
-
-#### Scenario: IntegrationConnection references an unknown vendor
-
-- **WHEN** an `IntegrationConnection` names a `vendor` id that no `Vendor` document
-  defines
-- **THEN** validation fails and the error list names the connection and the unknown
-  vendor reference
-
-#### Scenario: Duplicate connection id rejected
-
-- **WHEN** two `IntegrationConnection` documents share the same `id`
-- **THEN** validation fails and the error list names the duplicated id
-
-#### Scenario: Connection id that is an unsafe configuration-key segment rejected
-
-- **WHEN** an `IntegrationConnection.id` contains a `:` character or a `__` sequence, or
-  two `IntegrationConnection` ids differ only in letter case
-- **THEN** validation fails and the error list names the connection and the unsafe or
-  colliding id, because the id would resolve an ambiguous or wrong out-of-band token
+- **THEN** the supported-kinds list includes `Integration` alongside the existing
+  kinds, and the noun-mapping row stays `integration-connections` (it is NOT renamed to
+  `integration`), so no shipped kind is omitted from the catalogue and the
+  persisted-entity noun is unchanged
 
 ### Requirement: Asset authoring, type, source, and edges
 
@@ -1034,4 +943,121 @@ root and SHALL NOT warn.
 - **THEN** a non-blocking `Warning` diagnostic names the asset as unreachable and
   validation does not fail on it, while a parent-less `Company` or `Department`
   produces no diagnostic
+
+### Requirement: Integration authorship
+
+The system SHALL support an `Integration` kind that defines an
+integration's connection: one base URL and one discovery cadence, backing an
+integration's discovery and its per-control collectors. `Integration` is the seventh
+declared kind of the object model, alongside `Standard`, `Requirement`, `Control`,
+`Asset`, `Scope`, and `Collector`. An `Integration`
+has an `id` (its permanent identity), a `title` (display only), a required
+`provider`, a required `base_url`, a required `discovery_cadence`, and an optional
+`vendor` (a `Vendor` id linking the connection to a vendor record).
+
+`provider` SHALL be drawn from a single, closed, case-sensitive provider token set
+whose only value in this increment is `fleet`. That one closed set governs exactly two
+things: it validates `Integration.provider`, and it selects the runner for an
+integration `EvidenceCollector` that names this connection. There is no separate
+provider token set for collectors. `provider` is distinct from `vendor` and is NOT
+unique - one provider MAY back many connections; identity is the `id`.
+
+The closed set does NOT govern a machine's `asset_source.source` broadly.
+`asset_source.source` accepts any nonblank token (validated only as nonblank, up to 64
+characters) and is NOT checked against `IntegrationProvider.Tokens`; a machine reported
+by some other source carries whatever source token that source emits. The tie to
+`provider` is narrower and forward-looking: when the future integration runner writes a
+machine observation discovered through this connection, it SHALL write the exact
+`Integration.provider` token as that observation's `asset_source.source`. That equality
+is a contract for the integration runner, not a runtime validation of every
+`asset_source.source`. Because a machine's source attachment is keyed by
+`(organisation_id, source, external_id)` and carries no connection id, a machine does
+not resolve to one connection when several connections share a provider;
+connection-level disambiguation is future work. `base_url` SHALL be an absolute
+`http`/`https` URL (the same
+URL rule as `Requirement.citation_url` and `Standard.source_url`).
+`discovery_cadence` SHALL be one of the collection-cadence tokens `continuous`,
+`daily`, `weekly`, `monthly`, `quarterly`, or `annual` (the same set an
+`EvidenceCollector.frequency` uses). The connection SHALL NOT carry an API token or
+any other credential field; its token is resolved out-of-band at runtime, keyed by
+the connection id.
+
+#### Scenario: Integration loads with provider, base URL, and cadence
+
+- **WHEN** an `Integration` document names an `id`, a `title`, a `provider`
+  of `fleet`, an absolute `http`/`https` `base_url`, and a `discovery_cadence`
+- **THEN** it loads as an `Integration` with those fields populated and its
+  optional `vendor` populated when present, and it declares no token field
+
+#### Scenario: Integration links to a vendor
+
+- **WHEN** an `Integration` names a `vendor` that a `Vendor` document defines
+- **THEN** it loads with that vendor link, distinct from its `provider`
+
+### Requirement: Integration validation
+
+The system SHALL validate integrations and report every error as a
+structured diagnostic, consistent with the rest of config validation. Validation
+SHALL fail when any of the following hold: an `Integration` is missing or
+blank on `id`, `title`, `provider`, `base_url`, or `discovery_cadence`; an
+`Integration` id is duplicated within its kind; an unknown field is present
+on an `Integration`; an `Integration.provider` is not the token
+`fleet`; an `Integration.base_url` is not a well-formed absolute
+`http`/`https` URL; an `Integration.discovery_cadence` is not one of
+`continuous`, `daily`, `weekly`, `monthly`, `quarterly`, or `annual`; an
+`Integration.id` contains a `:` character or a `__` sequence, or two
+`Integration` ids collide case-insensitively; or an
+`Integration.vendor` is present but references a `Vendor` id that no document
+defines. An omitted `vendor` is treated as absent and does NOT fail validation.
+
+The `id` rules exist because the connection id is interpolated into the out-of-band
+token configuration key `Freeboard:Integrations:<id>:ApiToken`, and .NET configuration
+keys are case-insensitive and `:`-delimited (the environment-variable provider maps `__`
+to `:`). An id containing `:` or `__`, or two ids that differ only in case, would resolve
+an ambiguous or wrong token. These id constraints apply only to the
+`Integration` kind, because only its id resolves a secret.
+
+#### Scenario: Integration missing a required field
+
+- **WHEN** an `Integration` document omits its `provider`, `base_url`, or
+  `discovery_cadence`
+- **THEN** validation fails and the error list names the connection and the missing
+  field
+
+#### Scenario: Integration unknown provider rejected
+
+- **WHEN** an `Integration` declares a `provider` other than `fleet`
+- **THEN** validation fails and the error list names the connection and the bad
+  provider
+
+#### Scenario: Integration malformed base URL rejected
+
+- **WHEN** an `Integration.base_url` is not a well-formed absolute
+  `http`/`https` URL
+- **THEN** validation fails and the error list names the connection and the malformed
+  base URL
+
+#### Scenario: Integration unknown cadence rejected
+
+- **WHEN** an `Integration.discovery_cadence` is outside the cadence set
+- **THEN** validation fails and the error list names the connection and the bad cadence
+
+#### Scenario: Integration references an unknown vendor
+
+- **WHEN** an `Integration` names a `vendor` id that no `Vendor` document
+  defines
+- **THEN** validation fails and the error list names the connection and the unknown
+  vendor reference
+
+#### Scenario: Duplicate connection id rejected
+
+- **WHEN** two `Integration` documents share the same `id`
+- **THEN** validation fails and the error list names the duplicated id
+
+#### Scenario: Connection id that is an unsafe configuration-key segment rejected
+
+- **WHEN** an `Integration.id` contains a `:` character or a `__` sequence, or
+  two `Integration` ids differ only in letter case
+- **THEN** validation fails and the error list names the connection and the unsafe or
+  colliding id, because the id would resolve an ambiguous or wrong out-of-band token
 

@@ -305,7 +305,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         source: declared
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: IntegrationConnection
+        kind: Integration
         id: conn-a
         title: Connection A
         provider: fleet
@@ -401,7 +401,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         source: declared
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: IntegrationConnection
+        kind: Integration
         id: conn-a
         title: Connection A
         provider: fleet

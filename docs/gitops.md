@@ -44,7 +44,7 @@ or more documents separated by `---`. Every document declares:
 - `apiVersion` - must be exactly `freeboard.dev/v1alpha1`.
 - `kind` - one of `Standard`, `Requirement`, `Control`, `Asset`, `Scope`,
   `RequirementScope`, `VendorScope`, `EvidenceCollector`,
-  `AttestationTemplate`, or `IntegrationConnection`.
+  `AttestationTemplate`, or `Integration`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -264,7 +264,7 @@ percent from 0 to 100. `config` is an optional free-form map of type-specific
 settings; it holds no secret material.
 
 A collector of `type: integration` additionally requires a `connection` (the id of
-an `IntegrationConnection`) and a non-empty `checks` list. Each `checks` item is a
+an `Integration`) and a non-empty `checks` list. Each `checks` item is a
 tracked check with a `source_key` (the provider-native id, e.g. a Fleet policy id),
 a `name` (the Freeboard check name), and a `severity` of `Hard` or `Soft`. The
 authored `checks` list is the exhaustive tracked set: a provider result whose id is
@@ -349,9 +349,9 @@ quiz:
     answer: Report it and do not open it
 ```
 
-### IntegrationConnection
+### Integration
 
-An integration-connection is a provider connection - one base URL and a discovery
+An `Integration` is a provider connection - one base URL and a discovery
 cadence that drive machine discovery and back many integration collectors. `provider`
 is a closed token selecting the runner/adapter; its only value is `fleet`. `provider`
 is not unique: one provider backs many connections, and identity is `id`. `base_url`
@@ -368,7 +368,7 @@ case-insensitively.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
-kind: IntegrationConnection
+kind: Integration
 id: conn-fleet-prod
 title: Fleet Production
 provider: fleet
@@ -425,17 +425,17 @@ Validation collects every error in one pass (not just the first). It fails when:
 - a `Control` has at least one attached evidence-collector but omits `evaluation`
   (which must be `all`, `any`, or `manual`);
 - an `EvidenceCollector` of `type: integration` omits `connection`, names an
-  `IntegrationConnection` id that does not exist, or omits a non-empty `checks`;
+  `Integration` id that does not exist, or omits a non-empty `checks`;
 - an `EvidenceCollector` of any other type declares `connection` or `checks`;
 - an `EvidenceCollector` `checks` item omits `source_key`/`name`/`severity`, has a
   `severity` other than `Hard` or `Soft`, or repeats a `name` or `source_key` within
   the collector;
-- an `IntegrationConnection` omits a required field (`provider`, `base_url`,
+- an `Integration` omits a required field (`provider`, `base_url`,
   `discovery_cadence`), has a `provider` other than `fleet`, a `base_url` that is not
   an absolute `http`/`https` URL, or a `discovery_cadence` outside the frequency set;
-- an `IntegrationConnection.vendor` is present but names a `Vendor` id that does not
+- an `Integration.vendor` is present but names a `Vendor` id that does not
   exist;
-- an `IntegrationConnection.id` contains `:` or `__`, or two connection ids collide
+- an `Integration.id` contains `:` or `__`, or two connection ids collide
   case-insensitively (the id resolves an out-of-band configuration token key);
 - an `AttestationTemplate.control` names a `Control` id that does not exist;
 - an `AttestationTemplate.type` is not `manual` or `training`;

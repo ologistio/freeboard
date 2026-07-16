@@ -907,7 +907,7 @@ public static class ConfigValidator
                     diagnostics.Add(new Diagnostic
                     {
                         Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' references unknown "
-                            + $"IntegrationConnection id '{collector.Connection}'.",
+                            + $"{GitOpsSchema.KindIntegrationConnection} id '{collector.Connection}'.",
                     });
                 }
 

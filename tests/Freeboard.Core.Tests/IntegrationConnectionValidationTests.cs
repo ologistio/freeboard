@@ -3,7 +3,7 @@ using Freeboard.Core.GitOps;
 namespace Freeboard.Core.Tests;
 
 /// <summary>
-/// Covers the IntegrationConnection kind and the two type-conditional EvidenceCollector fields
+/// Covers the Integration kind (persisted as an IntegrationConnection) and the two type-conditional EvidenceCollector fields
 /// (connection, checks): distinct kind routing, required fields, the closed provider token, absolute
 /// base_url, the discovery_cadence token, the optional vendor reference, duplicate and
 /// configuration-key-unsafe ids, the connection/checks conditional rules, and each tracked check's
@@ -63,7 +63,7 @@ public sealed class IntegrationConnectionValidationTests
 
     private const string ValidConnection = """
         apiVersion: freeboard.dev/v1alpha1
-        kind: IntegrationConnection
+        kind: Integration
         id: fleet-prod
         title: Fleet Production
         provider: fleet
@@ -127,7 +127,7 @@ public sealed class IntegrationConnectionValidationTests
     }
 
     [Fact]
-    public void UnknownKindMessageIncludesIntegrationConnection()
+    public void UnknownKindMessageListsIntegration()
     {
         using var dir = TempConfig.Create(("x.yaml", """
             apiVersion: freeboard.dev/v1alpha1
@@ -137,7 +137,39 @@ public sealed class IntegrationConnectionValidationTests
 
         var result = ConfigLoader.Load(dir.Path);
 
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("IntegrationConnection"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Integration"));
+    }
+
+    [Fact]
+    public void RetiredIntegrationConnectionKindIsNowUnknown()
+    {
+        // The authored kind is Integration; the retired two-word token no longer validates and there is
+        // no backwards-compatible acceptance of it. "Integration" is a substring of "IntegrationConnection",
+        // so a plain Contains("Integration") would pass even if the old token lingered. Inspect only the
+        // valid-kinds enumeration (after "Expected one of:") to prove the old token is gone there.
+        using var dir = TempConfig.Create(("x.yaml", """
+            apiVersion: freeboard.dev/v1alpha1
+            kind: IntegrationConnection
+            id: fleet-prod
+            title: Fleet Production
+            provider: fleet
+            base_url: https://fleet.example.com
+            discovery_cadence: daily
+            """));
+
+        var result = ConfigLoader.Load(dir.Path);
+
+        Assert.Empty(result.Config.IntegrationConnections);
+        var diagnostic = Assert.Single(
+            result.Diagnostics,
+            d => d.Message.Contains("Unknown kind 'IntegrationConnection'"));
+
+        const string marker = "Expected one of:";
+        var markerIndex = diagnostic.Message.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(markerIndex >= 0, $"diagnostic missing '{marker}': {diagnostic.Message}");
+        var enumeration = diagnostic.Message[(markerIndex + marker.Length)..];
+        Assert.Contains("Integration", enumeration);
+        Assert.DoesNotContain("IntegrationConnection", enumeration);
     }
 
     [Fact]
@@ -185,7 +217,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var connection = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: fleet-prod
             title: Fleet Production
             provider: fleet
@@ -204,7 +236,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var connection = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: fleet-prod
             title: Fleet Production
             provider: crowdstrike
@@ -224,7 +256,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var connection = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: fleet-prod
             title: Fleet Production
             provider: fleet
@@ -244,7 +276,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var connection = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: fleet-prod
             title: Fleet Production
             provider: fleet
@@ -264,7 +296,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var connection = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: fleet-prod
             title: Fleet Production
             provider: fleet
@@ -288,7 +320,7 @@ public sealed class IntegrationConnectionValidationTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Duplicate IntegrationConnection id 'fleet-prod'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Duplicate Integration id 'fleet-prod'"));
     }
 
     [Fact]
@@ -296,7 +328,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var connection = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: "fleet:prod"
             title: Fleet Production
             provider: fleet
@@ -316,7 +348,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var connection = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: fleet__prod
             title: Fleet Production
             provider: fleet
@@ -336,7 +368,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var second = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: IntegrationConnection
+            kind: Integration
             id: Fleet-Prod
             title: Fleet Production Two
             provider: fleet
@@ -397,7 +429,7 @@ public sealed class IntegrationConnectionValidationTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("collector-a") && d.Message.Contains("unknown IntegrationConnection id 'fleet-missing'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("collector-a") && d.Message.Contains("unknown Integration id 'fleet-missing'"));
     }
 
     [Fact]

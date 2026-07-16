@@ -158,6 +158,11 @@ public sealed class IntegrationConnectionsTests
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Contains("data-empty", html, StringComparison.Ordinal);
+        // Assert the specific authoring snippet, not a bare "Integration" (the "Integration
+        // connections" heading also contains that word, so a broad check would pass even if the
+        // authoring instruction regressed).
+        Assert.Contains("author an <code>Integration</code>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<code>IntegrationConnection</code>", html, StringComparison.Ordinal);
     }
 
     [Fact]
