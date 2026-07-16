@@ -165,7 +165,9 @@ public sealed class IntegrationConnectionValidationTests
             d => d.Message.Contains("Unknown kind 'IntegrationConnection'"));
 
         const string marker = "Expected one of:";
-        var enumeration = diagnostic.Message[(diagnostic.Message.IndexOf(marker, StringComparison.Ordinal) + marker.Length)..];
+        var markerIndex = diagnostic.Message.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(markerIndex >= 0, $"diagnostic missing '{marker}': {diagnostic.Message}");
+        var enumeration = diagnostic.Message[(markerIndex + marker.Length)..];
         Assert.Contains("Integration", enumeration);
         Assert.DoesNotContain("IntegrationConnection", enumeration);
     }
