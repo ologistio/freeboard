@@ -27,10 +27,10 @@ public sealed class VendorsPageTests
             new VendorRow("vendor-a", "Vendor A", "org-a"),
             new VendorRow("vendor-b", "Vendor B", "org-a"),
         ],
-        VendorScopes =
+        Scopes =
         [
-            new VendorScopeRow("vs-a", "Except req-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO."),
-            new VendorScopeRow("vs-b", "Include ctrl-a", "vendor-a", null, "ctrl-a", "In", null),
+            new ScopeRow("vs-a", "Except req-a", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO."),
+            new ScopeRow("vs-b", "Include ctrl-a", "vendor-a", null, null, "ctrl-a", "In", null),
         ],
     };
 
@@ -151,10 +151,10 @@ public sealed class VendorsPageTests
                 new VendorRow("vendor-a", "Vendor A", "org-a"),
                 new VendorRow("vendor-b", "Vendor B", "org-b"),
             ],
-            VendorScopes =
+            Scopes =
             [
-                new VendorScopeRow("vs-a", "Except req-a", "vendor-a", "req-a", null, "Out", "Visible justification."),
-                new VendorScopeRow("vs-b", "Except req-b", "vendor-b", "req-b", null, "Out", "Hidden justification."),
+                new ScopeRow("vs-a", "Except req-a", "vendor-a", null, "req-a", null, "Out", "Visible justification."),
+                new ScopeRow("vs-b", "Except req-b", "vendor-b", null, "req-b", null, "Out", "Hidden justification."),
             ],
         };
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");

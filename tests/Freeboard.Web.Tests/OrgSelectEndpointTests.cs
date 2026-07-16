@@ -20,7 +20,7 @@ public sealed class OrgSelectEndpointTests
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
         Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
-        Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+        Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)],
     };
 
     private static AuthWebFactory Factory(bool readOnly = false, IOrgAccess? orgAccess = null)

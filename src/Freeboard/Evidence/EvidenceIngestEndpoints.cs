@@ -229,7 +229,7 @@ public static class EvidenceIngestEndpoints
         SoaInputs soa, string standardId, string organisationId, string requirementId)
     {
         var nodes = StatementOfApplicability.Resolve(
-            soa.Organisations, soa.Scopes, soa.Requirements, soa.RequirementScopes, standardId);
+            soa.Organisations, soa.Scopes, soa.Requirements, standardId);
         var node = nodes.FirstOrDefault(n => string.Equals(n.Id, organisationId, StringComparison.Ordinal));
         if (node is null || !string.Equals(node.Disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal))
         {

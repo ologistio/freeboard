@@ -5,7 +5,8 @@ namespace Freeboard.Web.Tests;
 /// <summary>
 /// In-memory <see cref="IComplianceStore"/> double for web tests so the suite is green
 /// without MySQL. When <see cref="Unreachable"/> is true, every read throws to
-/// simulate a down store.
+/// simulate a down store. <see cref="Scopes"/> carries the unified enriched
+/// <see cref="ScopeRow"/>s (subject-narrowing fields set by the readability tests).
 /// </summary>
 internal sealed class FakeComplianceStore : IComplianceStore
 {
@@ -27,17 +28,20 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public IReadOnlyList<ScopeRow> Scopes { get; set; } = [];
 
-    public IReadOnlyList<RequirementScopeRow> RequirementScopes { get; set; } = [];
-
     public IReadOnlyList<VendorRow> Vendors { get; set; } = [];
-
-    public IReadOnlyList<VendorScopeRow> VendorScopes { get; set; } = [];
 
     public IReadOnlyList<EvidenceCollectorRow> Collectors { get; set; } = [];
 
     public IReadOnlyList<AttestationTemplateRow> Templates { get; set; } = [];
 
     public IReadOnlyList<IntegrationConnectionRow> Connections { get; set; } = [];
+
+    /// <summary>
+    /// The subject-resolving asset id set (present, and not a retired discovered asset) fed to the SoA inputs for the
+    /// dangling-subject notice. Null defaults to the ids of every organisation and vendor in the store,
+    /// so a scope whose subject is one of those resolves and any other subject dangles.
+    /// </summary>
+    public IReadOnlySet<string>? ResolvableAssetIds { get; set; }
 
     public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Standards);
@@ -59,16 +63,25 @@ internal sealed class FakeComplianceStore : IComplianceStore
     }
 
     public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Scopes);
+        Guard(() => (IReadOnlyList<ScopeRow>)Scopes.Select(ResolveSubject).ToList());
 
-    public Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => RequirementScopes);
+    // Mirror the real store's LEFT JOIN assets: when a fixture leaves the subject-narrowing fields unset,
+    // fill an org subject's type and parent from the Organisations list so a Company/Department subject
+    // scope resolves as one. A row that sets SubjectType explicitly (a vendor or machine subject) is left
+    // as authored, and a subject with no matching organisation stays unresolved (SubjectType null).
+    private ScopeRow ResolveSubject(ScopeRow scope)
+    {
+        if (scope.SubjectType is not null)
+        {
+            return scope;
+        }
+
+        var org = Organisations.FirstOrDefault(o => string.Equals(o.Id, scope.Subject, StringComparison.Ordinal));
+        return org is null ? scope : scope with { SubjectType = org.Kind, SubjectParent = org.Parent };
+    }
 
     public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Vendors);
-
-    public Task<IReadOnlyList<VendorScopeRow>> GetVendorScopesAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => VendorScopes);
 
     public Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Collectors);
@@ -86,7 +99,7 @@ internal sealed class FakeComplianceStore : IComplianceStore
             throw new InvalidOperationException("organisations unreachable");
         }
 
-        return Guard(() => new SoaInputs(Organisations, Scopes, Requirements, RequirementScopes));
+        return Guard(() => new SoaInputs(Organisations, Scopes, Requirements, ResolvableAssets()));
     }
 
     public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
@@ -96,13 +109,19 @@ internal sealed class FakeComplianceStore : IComplianceStore
             throw new InvalidOperationException("organisations unreachable");
         }
 
-        return Guard(() => new SoaDrilldownInputs(Organisations, Scopes, Requirements, RequirementScopes, Controls, Collectors, Templates, Vendors));
+        return Guard(() => new SoaDrilldownInputs(
+            Organisations, Scopes, Requirements, ResolvableAssets(), Controls, Collectors, Templates, Vendors));
     }
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => new ComplianceCounts(
             Standards.Count, Controls.Count, Requirements.Count, Organisations.Count, Scopes.Count,
-            RequirementScopes.Count, Vendors.Count, VendorScopes.Count, Collectors.Count, Templates.Count));
+            Vendors.Count, Collectors.Count, Templates.Count));
+
+    private IReadOnlySet<string> ResolvableAssets() =>
+        ResolvableAssetIds ?? Organisations.Select(o => o.Id)
+            .Concat(Vendors.Select(v => v.Id))
+            .ToHashSet(StringComparer.Ordinal);
 
     private Task<T> Guard<T>(Func<T> value)
     {

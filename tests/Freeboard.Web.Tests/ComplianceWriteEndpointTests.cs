@@ -68,7 +68,7 @@ public sealed class ComplianceWriteEndpointTests
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/freeboard/scopes/scope-a",
-            new { title = "Scope A", organisation = "org-a", standard = "std-a", disposition = "In" });
+            new { title = "Scope A", subject = "org-a", standard = "std-a", disposition = "In" });
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal("scope-a", writes.LastScopeId);
@@ -83,7 +83,7 @@ public sealed class ComplianceWriteEndpointTests
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/freeboard/requirement-scopes/rs-a",
-            new { title = "RS A", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+            new { title = "RS A", subject = "org-a", requirement = "req-a", disposition = "Out", justification = "Not applicable." });
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal("rs-a", writes.LastRequirementScopeId);
@@ -103,7 +103,7 @@ public sealed class ComplianceWriteEndpointTests
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/freeboard/requirement-scopes/rs-b",
-            new { title = "RS B", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+            new { title = "RS B", subject = "org-a", requirement = "req-a", disposition = "Out", justification = "Not applicable." });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -120,7 +120,7 @@ public sealed class ComplianceWriteEndpointTests
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/freeboard/requirement-scopes/rs-a",
-            new { title = "RS A", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+            new { title = "RS A", subject = "org-a", requirement = "req-a", disposition = "Out", justification = "Not applicable." });
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -135,7 +135,7 @@ public sealed class ComplianceWriteEndpointTests
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/freeboard/requirement-scopes/rs-a",
-            new { title = "RS A", organisation = "org-a", requirement = "req-a", disposition = "Out" });
+            new { title = "RS A", subject = "org-a", requirement = "req-a", disposition = "Out", justification = "Not applicable." });
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Null(writes.LastRequirementScopeId);
@@ -183,7 +183,7 @@ public sealed class ComplianceWriteEndpointTests
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/freeboard/scopes/scope-a",
-            new { title = "Scope A", organisation = "org-a", standard = "std-a", disposition = "In" });
+            new { title = "Scope A", subject = "org-a", standard = "std-a", disposition = "In" });
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -255,6 +255,53 @@ public sealed class ComplianceWriteEndpointTests
         Assert.Null(writes.LastOrganisationId);
     }
 
+    [Fact]
+    public async Task ScopeOutWithNoJustificationRejectedWith422()
+    {
+        var writes = new FakeComplianceWriteStore();
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/scopes/scope-a",
+            new { title = "Scope A", subject = "org-a", standard = "std-a", disposition = "Out" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Null(writes.LastScopeId);
+    }
+
+    [Fact]
+    public async Task ScopeOutWithJustificationSucceeds()
+    {
+        var writes = new FakeComplianceWriteStore();
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/scopes/scope-a",
+            new { title = "Scope A", subject = "org-a", standard = "std-a", disposition = "Out", justification = "Compensating control in place." });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("scope-a", writes.LastScopeId);
+    }
+
+    [Fact]
+    public async Task WrongTargetKindScopePutReturns404NotConflict()
+    {
+        // The store's global-id branch finds an existing row of a different target kind and returns the
+        // not-found result; the endpoint maps it to 404, not a duplicate-key 409.
+        var writes = new FakeComplianceWriteStore { ScopeResult = WriteResult.NotFound() };
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/scopes/rs-1",
+            new { title = "S", subject = "org-a", standard = "std-a", disposition = "In" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Null(writes.LastScopeId);
+    }
+
     private sealed class WriteFactory(IComplianceWriteStore writes, bool readOnly = false) : AuthWebFactory
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -310,12 +357,18 @@ public sealed class ComplianceWriteEndpointTests
             Throw is not null ? throw Throw : Task.FromResult(OrganisationResult);
 
         public Task<WriteResult> UpsertScopeDispositionAsync(
-            string id, string title, string organisation, string standard, string disposition,
-            string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
+            string id, string title, string subject, string standard, string disposition,
+            string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
         {
             if (Throw is not null)
             {
                 throw Throw;
+            }
+
+            // Mirror the store invariant: an Out disposition requires a non-blank justification.
+            if (disposition == "Out" && string.IsNullOrWhiteSpace(justification))
+            {
+                return Task.FromResult(WriteResult.Fail("An Out disposition requires a justification."));
             }
 
             if (ScopeResult.Ok)
@@ -326,16 +379,21 @@ public sealed class ComplianceWriteEndpointTests
             return Task.FromResult(ScopeResult);
         }
 
-        public Task<WriteResult> DeleteScopeAsync(string id, CancellationToken cancellationToken = default) =>
+        public Task<WriteResult> DeleteScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
             Throw is not null ? throw Throw : Task.FromResult(ScopeResult);
 
         public Task<WriteResult> UpsertRequirementScopeDispositionAsync(
-            string id, string title, string organisation, string requirement, string disposition,
-            string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
+            string id, string title, string subject, string requirement, string disposition,
+            string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
         {
             if (Throw is not null)
             {
                 throw Throw;
+            }
+
+            if (disposition == "Out" && string.IsNullOrWhiteSpace(justification))
+            {
+                return Task.FromResult(WriteResult.Fail("An Out disposition requires a justification."));
             }
 
             if (RequirementScopeResult.Ok)
@@ -346,7 +404,7 @@ public sealed class ComplianceWriteEndpointTests
             return Task.FromResult(RequirementScopeResult);
         }
 
-        public Task<WriteResult> DeleteRequirementScopeAsync(string id, CancellationToken cancellationToken = default) =>
+        public Task<WriteResult> DeleteRequirementScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
             Throw is not null ? throw Throw : Task.FromResult(RequirementScopeResult);
     }
 

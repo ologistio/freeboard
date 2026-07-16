@@ -44,6 +44,10 @@ else
     }
     else if (Model.StandardId is not null)
     {
+        @if (Model.HasDanglingScopeSubject)
+        {
+            <p class="notice-warning max-w-2xl" data-dangling-subject>A scope rule targets a resource that does not currently exist.</p>
+        }
         <p class="mb-3 text-sm text-muted">Scope: <span class="font-medium text-neutral-900" data-active-scope>@Model.ActiveScope</span></p>
         @* No-JS reveal: the whole tree renders server-side, so neutralize x-cloak when Alpine cannot run.
            Scoped to the SoA tree so it never reveals layout chrome (mobile-nav overlay, account menu)

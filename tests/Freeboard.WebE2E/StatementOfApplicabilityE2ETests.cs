@@ -26,7 +26,7 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
             new OrganisationRow("org-a", "Org A", "Company", null),
             new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
         ];
-        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")];
+        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
 
         await using var context = await NewContextAsync();
         // The page requires an authenticated user; seed a session and set its cookie before navigating.
@@ -59,7 +59,7 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
             new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
             new OrganisationRow("org-b", "Org B", "Company", null),
         ];
-        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")];
+        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
 
         await using var context = await NewContextAsync();
         await SignInWithRecentSudoAsync(context, "soa-scope-e2e");
@@ -99,7 +99,7 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
 
         App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
         App.Compliance.Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)];
-        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")];
+        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
         App.Compliance.Requirements =
         [
             new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),

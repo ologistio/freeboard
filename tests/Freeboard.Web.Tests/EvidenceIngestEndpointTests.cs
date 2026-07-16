@@ -40,7 +40,7 @@ public sealed class EvidenceIngestEndpointTests
             new RequirementRow(ExampleRequirement, "MFA", Standard, "Access", "Enforce MFA", null, "A.5", "https://x/r"),
         ],
         Organisations = [new OrganisationRow(ExampleOrg, "Acme", "Company", null)],
-        Scopes = [new ScopeRow("scope-1", "Acme in", ExampleOrg, Standard, "In")],
+        Scopes = [new ScopeRow("scope-1", "Acme in", ExampleOrg, Standard, null, null, "In", null)],
     };
 
     private static AuthWebFactory FactoryFor(string collectorId, string? vendor = "vendor-google") => new()
@@ -303,7 +303,7 @@ public sealed class EvidenceIngestEndpointTests
         factory.Compliance.Organisations =
             [.. factory.Compliance.Organisations, new OrganisationRow("org-out", "Out", "Company", null)];
         factory.Compliance.Scopes =
-            [.. factory.Compliance.Scopes, new ScopeRow("scope-out", "Out", "org-out", Standard, "Out")];
+            [.. factory.Compliance.Scopes, new ScopeRow("scope-out", "Out", "org-out", Standard, null, null, "Out", null)];
 
         var response = await client.PostAsync(Route, Body(Valid(organisationId: "org-out")));
 

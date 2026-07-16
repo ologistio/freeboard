@@ -18,6 +18,12 @@ public sealed class ComplianceAuthzTests
 {
     private sealed class RecordingWriteStore : IComplianceWriteStore
     {
+        /// <summary>The result the scope upsert/delete returns; defaults to success.</summary>
+        public WriteResult ScopeResult { get; init; } = WriteResult.Success;
+
+        /// <summary>The result the requirement-scope upsert/delete returns; defaults to success.</summary>
+        public WriteResult RequirementScopeResult { get; init; } = WriteResult.Success;
+
         public string? LastScopeId { get; private set; }
 
         public string? LastOrganisationId { get; private set; }
@@ -32,18 +38,33 @@ public sealed class ComplianceAuthzTests
 
         public string? LastScopeExpectedOrg { get; private set; }
 
-        public Task<WriteResult> UpsertScopeDispositionAsync(string id, string title, string organisation, string standard, string disposition, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
+        public Task<WriteResult> UpsertScopeDispositionAsync(string id, string title, string subject, string standard, string disposition, string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
         {
-            LastScopeId = id;
-            LastScopeExpectedOrg = expectedCurrentOrganisation;
-            return Task.FromResult(WriteResult.Success);
+            if (ScopeResult.Ok)
+            {
+                LastScopeId = id;
+                LastScopeExpectedOrg = expectedCurrentOrganisation;
+            }
+
+            return Task.FromResult(ScopeResult);
         }
 
-        public Task<WriteResult> DeleteScopeAsync(string id, CancellationToken cancellationToken = default) => Task.FromResult(WriteResult.Success);
+        /// <summary>The owner threaded into the most recent scope/requirement-scope delete.</summary>
+        public string? LastDeleteExpectedOwner { get; private set; }
 
-        public Task<WriteResult> UpsertRequirementScopeDispositionAsync(string id, string title, string organisation, string requirement, string disposition, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default) => Task.FromResult(WriteResult.Success);
+        public Task<WriteResult> DeleteScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default)
+        {
+            LastDeleteExpectedOwner = expectedOwner;
+            return Task.FromResult(ScopeResult);
+        }
 
-        public Task<WriteResult> DeleteRequirementScopeAsync(string id, CancellationToken cancellationToken = default) => Task.FromResult(WriteResult.Success);
+        public Task<WriteResult> UpsertRequirementScopeDispositionAsync(string id, string title, string subject, string requirement, string disposition, string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default) => Task.FromResult(RequirementScopeResult);
+
+        public Task<WriteResult> DeleteRequirementScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default)
+        {
+            LastDeleteExpectedOwner = expectedOwner;
+            return Task.FromResult(RequirementScopeResult);
+        }
     }
 
     private sealed class Factory(RecordingWriteStore writes, string? mode) : AuthWebFactory
@@ -77,7 +98,7 @@ public sealed class ComplianceAuthzTests
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var response = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/s1",
-            new { title = "S", organisation = "org-a", standard = "std", disposition = "In" });
+            new { title = "S", subject = "org-a", standard = "std", disposition = "In" });
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal("s1", writes.LastScopeId);
@@ -93,7 +114,7 @@ public sealed class ComplianceAuthzTests
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var response = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/s1",
-            new { title = "S", organisation = "org-a", standard = "std", disposition = "In" });
+            new { title = "S", subject = "org-a", standard = "std", disposition = "In" });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Null(writes.LastScopeId);
@@ -109,7 +130,7 @@ public sealed class ComplianceAuthzTests
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var response = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/s1",
-            new { title = "S", organisation = "org-a", standard = "std", disposition = "In" });
+            new { title = "S", subject = "org-a", standard = "std", disposition = "In" });
 
         // No admin-claim write fallback: writes always require the proper permission.
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -125,7 +146,7 @@ public sealed class ComplianceAuthzTests
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var response = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/s1",
-            new { title = "S", organisation = "org-a", standard = "std", disposition = "In" });
+            new { title = "S", subject = "org-a", standard = "std", disposition = "In" });
 
         // Writes force-enforce in every mode, so Observe does not open them.
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -139,14 +160,14 @@ public sealed class ComplianceAuthzTests
         var compliance = new FakeComplianceStore
         {
             Organisations = [new OrganisationRow("org-a", "A", "Company", null), new OrganisationRow("org-b", "B", "Company", null)],
-            Scopes = [new ScopeRow("s1", "S", "org-b", "std", "In")], // s1 currently owned by org-b
+            Scopes = [new ScopeRow("s1", "S", "org-b", "std", null, null, "In", null)], // s1 currently owned by org-b
         };
         using var factory = Build(writes, authz, compliance);
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         // Move s1 from org-b (not owned) to org-a (owned): denied because the caller lacks write on the stored org.
         var response = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/s1",
-            new { title = "S", organisation = "org-a", standard = "std", disposition = "In" });
+            new { title = "S", subject = "org-a", standard = "std", disposition = "In" });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Null(writes.LastScopeId);
@@ -160,13 +181,13 @@ public sealed class ComplianceAuthzTests
         var compliance = new FakeComplianceStore
         {
             Organisations = [new OrganisationRow("org-a", "A", "Company", null)],
-            Scopes = [new ScopeRow("s1", "S", "org-a", "std", "In")], // s1 currently owned by org-a
+            Scopes = [new ScopeRow("s1", "S", "org-a", "std", null, null, "In", null)], // s1 currently owned by org-a
         };
         using var factory = Build(writes, authz, compliance);
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var response = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/s1",
-            new { title = "S", organisation = "org-a", standard = "std", disposition = "Out" });
+            new { title = "S", subject = "org-a", standard = "std", disposition = "Out" });
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         // The endpoint hands the authorized current owner to the store, which re-checks it under the
@@ -223,7 +244,7 @@ public sealed class ComplianceAuthzTests
                 new OrganisationRow("org-a", "A", "Company", null),
                 new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
             ],
-            Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+            Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)],
             Requirements = [new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do it.", null, "Src", "https://e/a")],
         };
 
@@ -373,5 +394,138 @@ public sealed class ComplianceAuthzTests
         using var doc = JsonDocument.Parse(json);
         var child = doc.RootElement.EnumerateArray().Single(e => e.GetProperty("id").GetString() == "child");
         Assert.Equal(JsonValueKind.Null, child.GetProperty("parent").ValueKind);
+    }
+
+    // Cross-route target isolation: each app route is confined to its own target column, so an id
+    // cannot cross the target boundary even for an org-owner who could write the row's owning org. The
+    // DELETE authz selector is target-column-filtered, so a wrong-kind id yields no stored owner and the
+    // route resolves to 404 before the store is touched.
+    private static FakeComplianceStore StoreWithOneScope(ScopeRow scope) => new()
+    {
+        Organisations = [new OrganisationRow("org-a", "A", "Company", null)],
+        Scopes = [scope],
+    };
+
+    [Fact]
+    public async Task ScopeRouteCannotDeleteRequirementTargetRow()
+    {
+        var writes = new RecordingWriteStore();
+        var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
+        var store = StoreWithOneScope(new ScopeRow("r1", "Req scope", "org-a", null, "req-a", null, "In", null));
+        using var factory = Build(writes, authz, store);
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var response = await client.DeleteAsync("/api/v1/freeboard/scopes/r1");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        // Fail closed: with no authorized owner (the selector resolves none for a wrong-kind row), the route
+        // 404s before the handler, so the store delete is never invoked - there is no unbound-delete path.
+        Assert.Null(writes.LastDeleteExpectedOwner);
+    }
+
+    [Fact]
+    public async Task RequirementScopeRouteCannotDeleteStandardTargetRow()
+    {
+        var writes = new RecordingWriteStore();
+        var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
+        var store = StoreWithOneScope(new ScopeRow("s1", "Std scope", "org-a", "std-a", null, null, "In", null));
+        using var factory = Build(writes, authz, store);
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var response = await client.DeleteAsync("/api/v1/freeboard/requirement-scopes/s1");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AuthorizedScopeDeleteThreadsStoredOwnerToStore()
+    {
+        // The delete must pass the owner the selector authorized (org-a) to the store, not the id alone, so
+        // a row concurrently moved to an unwritable org cannot be deleted without authorization for it.
+        var writes = new RecordingWriteStore();
+        var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
+        var store = StoreWithOneScope(new ScopeRow("s1", "Std scope", "org-a", "std-a", null, null, "In", null));
+        using var factory = Build(writes, authz, store);
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var response = await client.DeleteAsync("/api/v1/freeboard/scopes/s1");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("org-a", writes.LastDeleteExpectedOwner);
+    }
+
+    [Fact]
+    public async Task NeitherAppRouteReachesAControlTargetRow()
+    {
+        var writes = new RecordingWriteStore();
+        var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
+        var store = StoreWithOneScope(new ScopeRow("c1", "Control scope", "org-a", null, null, "ctrl-a", "In", null));
+        using var factory = Build(writes, authz, store);
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync("/api/v1/freeboard/scopes/c1")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync("/api/v1/freeboard/requirement-scopes/c1")).StatusCode);
+    }
+
+    [Fact]
+    public async Task WrongKindPutAgainstUnwritableOwnerIs404Not403()
+    {
+        // A requirement-target row owned by org-b addressed through the standard route by a caller who
+        // cannot write org-b. Because the endpoint's stored-owner lookup is target-column-filtered, it
+        // never loads the requirement-target row, so it does NOT 403 against org-b: it takes the
+        // create/absent path and the store's not-found result maps to 404. A leak or a 403 would prove
+        // the lookup was unfiltered.
+        var writes = new RecordingWriteStore { ScopeResult = WriteResult.NotFound() };
+        var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a"); // can write org-a, not org-b
+        var store = new FakeComplianceStore
+        {
+            Organisations = [new OrganisationRow("org-a", "A", "Company", null), new OrganisationRow("org-b", "B", "Company", null)],
+            Scopes = [new ScopeRow("r1", "Req scope", "org-b", null, "req-a", null, "In", null)],
+        };
+        using var factory = Build(writes, authz, store);
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var response = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/r1",
+            new { title = "S", subject = "org-a", standard = "std-a", disposition = "In" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // App-managed scope writes are restricted to Company/Department subjects; a Vendor or Machine subject
+    // scope is GitOps-write-only. The caller can write org-a (the PUT body subject) but holds no grant on
+    // the subject asset, so both routes resolve to 404 - never 403 (which would prove the endpoint
+    // authorized against the non-org subject) and never 204. Store results are NotFound so a PUT that
+    // reaches the store still surfaces 404, matching the store-level restriction.
+    [Theory]
+    [InlineData("Vendor")]
+    [InlineData("Machine")]
+    public async Task AppScopeRoutesRejectNonOrgSubjectRowsAsNotFound(string subjectType)
+    {
+        var writes = new RecordingWriteStore { ScopeResult = WriteResult.NotFound(), RequirementScopeResult = WriteResult.NotFound() };
+        var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
+        var stdRow = subjectType == "Vendor"
+            ? new ScopeRow("x-std", "Std", "vendor-a", "std-a", null, null, "In", null, SubjectType: "Vendor", SubjectOwner: "org-a")
+            : new ScopeRow("x-std", "Std", "machine-a", "std-a", null, null, "In", null, SubjectType: "Machine", SubjectParent: "org-a");
+        var reqRow = subjectType == "Vendor"
+            ? new ScopeRow("x-req", "Req", "vendor-a", null, "req-a", null, "In", null, SubjectType: "Vendor", SubjectOwner: "org-a")
+            : new ScopeRow("x-req", "Req", "machine-a", null, "req-a", null, "In", null, SubjectType: "Machine", SubjectParent: "org-a");
+        var store = new FakeComplianceStore
+        {
+            Organisations = [new OrganisationRow("org-a", "A", "Company", null)],
+            Scopes = [stdRow, reqRow],
+        };
+        using var factory = Build(writes, authz, store);
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var putStd = await client.PutAsJsonAsync("/api/v1/freeboard/scopes/x-std",
+            new { title = "S", subject = "org-a", standard = "std-a", disposition = "In" });
+        var putReq = await client.PutAsJsonAsync("/api/v1/freeboard/requirement-scopes/x-req",
+            new { title = "S", subject = "org-a", requirement = "req-a", disposition = "In" });
+
+        Assert.Equal(HttpStatusCode.NotFound, putStd.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, putReq.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync("/api/v1/freeboard/scopes/x-std")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync("/api/v1/freeboard/requirement-scopes/x-req")).StatusCode);
     }
 }

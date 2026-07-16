@@ -56,7 +56,7 @@ public sealed class ControlDetailModel(
             }
 
             var resolved = global::Freeboard.Compliance.StatementOfApplicability.ResolveDrilldown(
-                inputs.Organisations, inputs.Scopes, inputs.Requirements, inputs.RequirementScopes,
+                inputs.Organisations, inputs.Scopes, inputs.Requirements,
                 inputs.Controls, inputs.Collectors, inputs.Templates, inputs.Vendors, standard);
 
             var node = resolved.FirstOrDefault(n => string.Equals(n.Id, org, StringComparison.Ordinal));

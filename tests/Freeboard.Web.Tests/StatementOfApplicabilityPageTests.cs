@@ -25,12 +25,15 @@ public sealed class StatementOfApplicabilityPageTests
             new OrganisationRow("org-a", "Org A", "Company", null),
             new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
         ],
-        Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+        Scopes =
+        [
+            new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null),
+            new ScopeRow("rs-a", "Exclude req-a", "org-a", null, "req-a", null, "Out", "req-a excluded"),
+        ],
         Requirements =
         [
             new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
         ],
-        RequirementScopes = [new RequirementScopeRow("rs-a", "Exclude req-a", "org-a", "req-a", "Out")],
     };
 
     // company -> dept -> team, plus a separate sibling company. std-a is explicit In at the company,
@@ -45,7 +48,7 @@ public sealed class StatementOfApplicabilityPageTests
             new OrganisationRow("org-team", "Team", "Department", "org-dept"),
             new OrganisationRow("org-sib", "Sibling Co", "Company", null),
         ],
-        Scopes = [new ScopeRow("scope-a", "Scope A", "org-co", "std-a", "In")],
+        Scopes = [new ScopeRow("scope-a", "Scope A", "org-co", "std-a", null, null, "In", null)],
     };
 
     private static AuthWebFactory Factory(
@@ -144,13 +147,16 @@ public sealed class StatementOfApplicabilityPageTests
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
         Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
-        Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
+        Scopes =
+        [
+            new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null),
+            new ScopeRow("rs-b", "Exclude req-b", "org-a", null, "req-b", null, "Out", "req-b excluded"),
+        ],
         Requirements =
         [
             new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
             new RequirementRow("req-b", "Requirement B", "std-a", "Theme", "Do another thing.", null, "L", "https://example.com/b"),
         ],
-        RequirementScopes = [new RequirementScopeRow("rs-b", "Exclude req-b", "org-a", "req-b", "Out")],
         Controls =
         [
             new ControlRow("ctrl-a", "Control A", ["req-a"], "all"),
@@ -282,7 +288,7 @@ public sealed class StatementOfApplicabilityPageTests
         {
             Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
             Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
-            Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "Out")],
+            Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "Out", "org-a out")],
             Requirements =
             [
                 new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
@@ -526,6 +532,37 @@ public sealed class StatementOfApplicabilityPageTests
 
         Assert.Contains("could not be reached", html, StringComparison.Ordinal);
         Assert.DoesNotContain("data-node-id", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RendersGenericDanglingSubjectNoticeWithoutNamingIds()
+    {
+        var store = new FakeComplianceStore
+        {
+            Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
+            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+            Scopes =
+            [
+                new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null),
+                // A control-target org scope whose subject resolves to no asset warns, even though the SoA
+                // does not resolve a control-level disposition for it (the scan is not exempt by target kind).
+                new ScopeRow("scope-ghost", "Dangling control", "missing-subject", null, null, "ctrl-a", "In", null),
+            ],
+        };
+        using var factory = Factory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-dangling-subject", html, StringComparison.Ordinal);
+        Assert.Contains("A scope rule targets a resource that does not currently exist", html, StringComparison.Ordinal);
+        // The generic notice never discloses the scope id or the unresolved subject id.
+        Assert.DoesNotContain("scope-ghost", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("missing-subject", html, StringComparison.Ordinal);
+        // The dangling scope does not break the projection: the resolved node still renders.
+        Assert.Contains("data-node-id=\"org-a\"", html, StringComparison.Ordinal);
     }
 
     [Fact]

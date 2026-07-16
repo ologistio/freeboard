@@ -126,18 +126,18 @@ public static class StatementOfApplicability
         IReadOnlyList<OrganisationRow> organisations,
         IReadOnlyList<ScopeRow> scopes,
         IReadOnlyList<RequirementRow> requirements,
-        IReadOnlyList<RequirementScopeRow> requirementScopes,
         string standardId)
     {
         var byId = organisations.ToDictionary(o => o.Id, StringComparer.Ordinal);
 
+        // Standard-target scopes for this standard, keyed by subject (an org id resolves against a node).
         var explicitByOrg = scopes
             .Where(s => string.Equals(s.Standard, standardId, StringComparison.Ordinal))
-            .GroupBy(s => s.Organisation, StringComparer.Ordinal)
+            .GroupBy(s => s.Subject, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First().Disposition, StringComparer.Ordinal);
 
-        // Requirements of the requested standard, ordered by id, and the requirement-scopes that
-        // bind them. A requirement-scope for a requirement of another standard is excluded here,
+        // Requirements of the requested standard, ordered by id, and the requirement-target scopes that
+        // bind them. A requirement-target scope for a requirement of another standard is excluded here,
         // mirroring how the standard layer filters scopes by standardId.
         var standardRequirementIds = requirements
             .Where(r => string.Equals(r.Standard, standardId, StringComparison.Ordinal))
@@ -146,13 +146,13 @@ public static class StatementOfApplicability
             .ToList();
         var standardRequirementIdSet = standardRequirementIds.ToHashSet(StringComparer.Ordinal);
 
-        // Nearest-ancestor lookup for the requirement layer: (organisation, requirement) -> disposition.
-        var requirementScopeByOrg = requirementScopes
-            .Where(rs => standardRequirementIdSet.Contains(rs.Requirement))
-            .GroupBy(rs => rs.Organisation, StringComparer.Ordinal)
+        // Nearest-ancestor lookup for the requirement layer: (subject, requirement) -> disposition.
+        var requirementScopeByOrg = scopes
+            .Where(s => s.Requirement is not null && standardRequirementIdSet.Contains(s.Requirement))
+            .GroupBy(s => s.Subject, StringComparer.Ordinal)
             .ToDictionary(
                 g => g.Key,
-                g => g.GroupBy(rs => rs.Requirement, StringComparer.Ordinal)
+                g => g.GroupBy(s => s.Requirement!, StringComparer.Ordinal)
                     .ToDictionary(rg => rg.Key, rg => rg.First().Disposition, StringComparer.Ordinal),
                 StringComparer.Ordinal);
 
@@ -196,7 +196,6 @@ public static class StatementOfApplicability
         IReadOnlyList<OrganisationRow> organisations,
         IReadOnlyList<ScopeRow> scopes,
         IReadOnlyList<RequirementRow> requirements,
-        IReadOnlyList<RequirementScopeRow> requirementScopes,
         IReadOnlyList<ControlRow> controls,
         IReadOnlyList<EvidenceCollectorRow> collectors,
         IReadOnlyList<AttestationTemplateRow> templates,
@@ -206,7 +205,7 @@ public static class StatementOfApplicability
         // Org-level disposition/provenance: reuse the flat resolver so the inheritance rule is not
         // duplicated. The full in-scope requirement enumeration below is new: Resolve yields only
         // deviations and never a requirement-level Default.
-        var resolved = Resolve(organisations, scopes, requirements, requirementScopes, standardId);
+        var resolved = Resolve(organisations, scopes, requirements, standardId);
 
         var byId = organisations.ToDictionary(o => o.Id, StringComparer.Ordinal);
 
@@ -216,12 +215,12 @@ public static class StatementOfApplicability
             .ToList();
         var standardRequirementIds = standardRequirements.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
 
-        var requirementScopeByOrg = requirementScopes
-            .Where(rs => standardRequirementIds.Contains(rs.Requirement))
-            .GroupBy(rs => rs.Organisation, StringComparer.Ordinal)
+        var requirementScopeByOrg = scopes
+            .Where(s => s.Requirement is not null && standardRequirementIds.Contains(s.Requirement))
+            .GroupBy(s => s.Subject, StringComparer.Ordinal)
             .ToDictionary(
                 g => g.Key,
-                g => g.GroupBy(rs => rs.Requirement, StringComparer.Ordinal)
+                g => g.GroupBy(s => s.Requirement!, StringComparer.Ordinal)
                     .ToDictionary(rg => rg.Key, rg => rg.First().Disposition, StringComparer.Ordinal),
                 StringComparer.Ordinal);
 
@@ -330,6 +329,17 @@ public static class StatementOfApplicability
         return byRequirement.ToDictionary(
             kv => kv.Key, kv => (IReadOnlyList<SoaControlNode>)kv.Value, StringComparer.Ordinal);
     }
+
+    /// <summary>
+    /// True when any scope of ANY target kind (standard, requirement, or control) names a subject that
+    /// resolves to no live asset (no asset row, or a retired discovered asset; applied via
+    /// <paramref name="resolvableAssetIds"/>).
+    /// Drives the generic page-level dangling-subject notice; the caller must NOT disclose the scope id or
+    /// subject id (an unresolved subject has no authorization anchor to check readability against).
+    /// </summary>
+    public static bool HasDanglingSubject(
+        IReadOnlyList<ScopeRow> scopes, IReadOnlySet<string> resolvableAssetIds) =>
+        scopes.Any(s => !resolvableAssetIds.Contains(s.Subject));
 
     private static void AddCheck(Dictionary<string, List<SoaCheckNode>> checksByControl, string controlId, SoaCheckNode check)
     {

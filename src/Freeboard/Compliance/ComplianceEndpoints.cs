@@ -98,40 +98,30 @@ public static class ComplianceEndpoints
             }
         });
 
+        // One unified scopes read, narrowed by subject readability. Each row carries its subject's resolved
+        // type/owner/parent (server-side only); the response projects only the eight public fields, so no
+        // subject type/state/parent/owner leaks. A subject that resolves to no asset row (or a retired
+        // discovered asset), or whose resolving anchor is outside the accessible set, is omitted
+        // (fail-closed), so neither the scope nor
+        // its Out justification surfaces.
         reads.MapGet("/scopes", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
                 var rows = await store.GetScopesAsync(ct);
-                var accessible = await access.AccessibleOrgIdsAsync(user, await store.GetOrganisationsAsync(ct), ct);
-                return Results.Ok(rows.Where(r => accessible.Contains(r.Organisation)).Select(r => new
+                var organisations = await store.GetOrganisationsAsync(ct);
+                var accessible = await access.AccessibleOrgIdsAsync(user, organisations, ct);
+                var orgsById = organisations.ToDictionary(o => o.Id, StringComparer.Ordinal);
+                return Results.Ok(rows.Where(r => SubjectReadable(r, accessible, orgsById)).Select(r => new
                 {
                     id = r.Id,
                     title = r.Title,
-                    organisation = r.Organisation,
+                    subject = r.Subject,
                     standard = r.Standard,
-                    disposition = r.Disposition,
-                }));
-            }
-            catch (Exception ex) when (IsStoreFailure(ex))
-            {
-                return Unreachable();
-            }
-        });
-
-        reads.MapGet("/requirement-scopes", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            try
-            {
-                var rows = await store.GetRequirementScopesAsync(ct);
-                var accessible = await access.AccessibleOrgIdsAsync(user, await store.GetOrganisationsAsync(ct), ct);
-                return Results.Ok(rows.Where(r => accessible.Contains(r.Organisation)).Select(r => new
-                {
-                    id = r.Id,
-                    title = r.Title,
-                    organisation = r.Organisation,
                     requirement = r.Requirement,
+                    control = r.Control,
                     disposition = r.Disposition,
+                    justification = r.Justification,
                 }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
@@ -142,9 +132,8 @@ public static class ComplianceEndpoints
 
         // A vendor is visible only when its owner (a Company/Department asset) is in the caller's
         // accessible-org set; a vendor with a null or dangling owner is visible to no one (fail-closed).
-        // vendor-scopes narrow the same way, so a hidden vendor leaks neither its id nor its Out exception
-        // justifications. This narrowing covers /vendors and /vendor-scopes only; /evidence-collectors and
-        // /integration-connections still expose a hidden vendor's id.
+        // This narrowing covers /vendors only; /evidence-collectors and /integration-connections still
+        // expose a hidden vendor's id.
         reads.MapGet("/vendors", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
@@ -153,33 +142,6 @@ public static class ComplianceEndpoints
                 var rows = await store.GetVendorsAsync(ct);
                 return Results.Ok(rows.Where(r => r.Owner is not null && accessible.Contains(r.Owner))
                     .Select(r => new { id = r.Id, title = r.Title }));
-            }
-            catch (Exception ex) when (IsStoreFailure(ex))
-            {
-                return Unreachable();
-            }
-        });
-
-        reads.MapGet("/vendor-scopes", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            try
-            {
-                var accessible = await access.AccessibleOrgIdsAsync(user, await store.GetOrganisationsAsync(ct), ct);
-                var visibleVendors = (await store.GetVendorsAsync(ct))
-                    .Where(v => v.Owner is not null && accessible.Contains(v.Owner))
-                    .Select(v => v.Id)
-                    .ToHashSet(StringComparer.Ordinal);
-                var rows = await store.GetVendorScopesAsync(ct);
-                return Results.Ok(rows.Where(r => visibleVendors.Contains(r.Vendor)).Select(r => new
-                {
-                    id = r.Id,
-                    title = r.Title,
-                    vendor = r.Vendor,
-                    requirement = r.Requirement,
-                    control = r.Control,
-                    disposition = r.Disposition,
-                    justification = r.Justification,
-                }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
             {
@@ -283,7 +245,7 @@ public static class ComplianceEndpoints
                     // the node list to the accessible subtree.
                     var accessible = await access.AccessibleOrgIdsAsync(user, inputs.Organisations, ct);
                     var nodes = StatementOfApplicability.Resolve(
-                            inputs.Organisations, inputs.Scopes, inputs.Requirements, inputs.RequirementScopes, standardId)
+                            inputs.Organisations, inputs.Scopes, inputs.Requirements, standardId)
                         .Where(n => accessible.Contains(n.Id))
                         .ToList();
                     return Results.Ok(new
@@ -326,9 +288,7 @@ public static class ComplianceEndpoints
                         requirements = (int?)counts.Requirements,
                         organisations = (int?)counts.Organisations,
                         scopes = (int?)counts.Scopes,
-                        requirementScopes = (int?)counts.RequirementScopes,
                         vendors = (int?)counts.Vendors,
-                        vendorScopes = (int?)counts.VendorScopes,
                         evidenceCollectors = (int?)counts.EvidenceCollectors,
                         attestationTemplates = (int?)counts.AttestationTemplates,
                     },
@@ -346,15 +306,42 @@ public static class ComplianceEndpoints
                         requirements = (int?)null,
                         organisations = (int?)null,
                         scopes = (int?)null,
-                        requirementScopes = (int?)null,
                         vendors = (int?)null,
-                        vendorScopes = (int?)null,
                         evidenceCollectors = (int?)null,
                         attestationTemplates = (int?)null,
                     },
                 });
             }
         });
+    }
+
+    // The unified subject-readability rule with one branch per parent-anchored subject family, fail-closed.
+    // An org subject is readable when it is in the accessible set; a vendor subject when its owner is; a
+    // machine (or other parent-anchored) subject when its parent org's inclusive ancestry intersects the
+    // accessible set (exact parity with the org rule, since the accessible set is a downward closure). A
+    // subject unresolved by the subject-resolution predicate (no asset row, or a retired discovered asset)
+    // is hidden.
+    internal static bool SubjectReadable(
+        ScopeRow row, IReadOnlySet<string> accessible, IReadOnlyDictionary<string, OrganisationRow> orgsById)
+    {
+        if (row.SubjectType is null)
+        {
+            return false;
+        }
+
+        if (string.Equals(row.SubjectSource, "discovered", StringComparison.Ordinal)
+            && string.Equals(row.SubjectState, "Retired", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return row.SubjectType switch
+        {
+            "Company" or "Department" => accessible.Contains(row.Subject),
+            "Vendor" => row.SubjectOwner is not null && accessible.Contains(row.SubjectOwner),
+            _ => row.SubjectParent is not null
+                && OrgAncestry.InclusiveAncestors(row.SubjectParent, orgsById).Any(accessible.Contains),
+        };
     }
 
     private static IResult Unreachable() => Results.Problem(

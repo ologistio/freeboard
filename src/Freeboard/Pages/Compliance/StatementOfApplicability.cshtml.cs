@@ -10,7 +10,7 @@ namespace Freeboard.Pages.Compliance;
 /// organisation and its descendants. GET-only, so the GitOps read-only middleware never blocks it.
 /// Derives its ENTIRE scope from its own store reads and consumes the layout selection resolver for
 /// nothing: it reads standards for the selector and the Statement-of-Applicability drill-down inputs
-/// (organisations, scopes, requirements, requirement-scopes, controls, collectors, templates, vendors)
+/// (organisations, scopes, requirements, controls, collectors, templates, vendors)
 /// in one repeatable-read snapshot through
 /// <see cref="IComplianceStore"/> inside one try/catch that sets <see cref="StoreUnreachable"/>, so a
 /// store outage renders an in-page notice rather than a 500. The projection resolves inheritance over
@@ -41,6 +41,10 @@ public sealed class StatementOfApplicabilityModel(
 
     /// <summary>Set when the requested standard id is not a persisted standard; rendered as an in-page notice.</summary>
     public bool StandardNotFound { get; private set; }
+
+    /// <summary>Set when a scope names a subject that resolves to no live asset; rendered as a generic,
+    /// id-less in-page notice.</summary>
+    public bool HasDanglingScopeSubject { get; private set; }
 
     /// <summary>The active scope shown above the table: the selected organisation's title, or "All Organisations".</summary>
     public string ActiveScope { get; private set; } = "All Organisations";
@@ -79,9 +83,15 @@ public sealed class StatementOfApplicabilityModel(
             // Resolve over the full tree first, then filter: filtering before resolving would drop
             // ancestors above the selection and lose inherited dispositions.
             var resolved = global::Freeboard.Compliance.StatementOfApplicability.ResolveDrilldown(
-                inputs.Organisations, inputs.Scopes, inputs.Requirements, inputs.RequirementScopes,
+                inputs.Organisations, inputs.Scopes, inputs.Requirements,
                 inputs.Controls, inputs.Collectors, inputs.Templates, inputs.Vendors, StandardId);
             Nodes = resolved.Where(n => inScope.Contains(n.Id)).ToList();
+
+            // A generic, non-blocking notice when any scope names a subject that resolves to no live asset
+            // (any target kind). Deliberately id-less: an unresolved subject has no authorization anchor, so
+            // disclosing the scope or subject id to an ordinary viewer would leak.
+            HasDanglingScopeSubject = global::Freeboard.Compliance.StatementOfApplicability.HasDanglingSubject(
+                inputs.Scopes, inputs.ResolvableAssetIds);
 
             // One batched read for every in-scope node so the page never fans out per organisation.
             var nodeIds = Nodes.Select(n => n.Id).ToList();
