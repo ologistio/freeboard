@@ -323,7 +323,7 @@ public sealed class StatementOfApplicabilityTests
         };
         var collectors = new[] { Coll("coll-a", "ctrl-a", vendor: "vendor-x") };
         var templates = new[] { Tmpl("tmpl-a", "ctrl-a") };
-        var vendors = new[] { new VendorRow("vendor-x", "Vendor X") };
+        var vendors = new[] { new VendorRow("vendor-x", "Vendor X", null) };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
             [Company], [], [ReqA, ReqB], [], controls, collectors, templates, vendors, "std");

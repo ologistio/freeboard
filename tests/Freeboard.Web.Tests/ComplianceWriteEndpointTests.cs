@@ -30,6 +30,18 @@ public sealed class ComplianceWriteEndpointTests
     }
 
     [Fact]
+    public async Task DeleteOrganisationAllowedOffReadOnlyMode()
+    {
+        var writes = new FakeComplianceWriteStore();
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.DeleteAsync("/api/v1/freeboard/organisations/org-a");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
     public async Task InvalidWriteReturnsProblemAndDoesNotChangeStore()
     {
         var writes = new FakeComplianceWriteStore
