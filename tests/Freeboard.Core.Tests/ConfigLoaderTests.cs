@@ -212,7 +212,7 @@ public sealed class ConfigLoaderTests
                 owner: org-a
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: IntegrationConnection
+                kind: Integration
                 id: fleet-prod
                 title: Fleet Production
                 provider: fleet

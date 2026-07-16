@@ -8,7 +8,7 @@ using MySqlConnector;
 namespace Freeboard.Persistence.Tests;
 
 /// <summary>
-/// Integration tests for the IntegrationConnection kind and the two integration EvidenceCollector fields
+/// Integration tests for the IntegrationConnection persisted entity and the two integration EvidenceCollector fields
 /// against a real MySQL discovered via FREEBOARD_TEST_DB. Each test SKIPS cleanly (not fails) when the
 /// env var is absent and gets a fresh throwaway database. Covers migration 018 (table, collector columns,
 /// FKs), the connection round-trip through the importer and read model (exposed subset, no token state),

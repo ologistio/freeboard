@@ -158,6 +158,8 @@ public sealed class IntegrationConnectionsTests
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Contains("data-empty", html, StringComparison.Ordinal);
+        Assert.Contains("Integration", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("IntegrationConnection", html, StringComparison.Ordinal);
     }
 
     [Fact]

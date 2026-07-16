@@ -16,7 +16,7 @@ public static class GitOpsSchema
     public const string KindVendorScope = "VendorScope";
     public const string KindEvidenceCollector = "EvidenceCollector";
     public const string KindAttestationTemplate = "AttestationTemplate";
-    public const string KindIntegrationConnection = "IntegrationConnection";
+    public const string KindIntegrationConnection = "Integration";
 }
 
 /// <summary>
