@@ -8,22 +8,19 @@ TBD - created by archiving change add-gitops-config-management. Update Purpose a
 The system SHALL define a YAML config format that describes compliance state as a
 set of standards, the controls under each standard, the requirements published by
 each standard, the assets being assessed (the organisation tree, the vendors in
-use, and the discovered machines), the scopes that map an organisation asset to a
-standard, the requirement-scopes that map an organisation asset to a requirement,
-the vendor-scopes that record whether a requirement or control applies to a vendor
-asset, the integrations that define a provider connection's base URL and
-discovery cadence, the evidence-collectors that attach a data source to a control,
-and the attestation-templates that describe an attestation form for a control. The
-format SHALL be loadable into a typed config model in `Freeboard.Core`.
+use, and the discovered machines), the scopes that map a subject asset to a standard, a
+requirement, or a control with a disposition, the integrations that define a provider
+connection's base URL and discovery cadence, the evidence-collectors that attach a data
+source to a control, and the attestation-templates that describe an attestation form for a
+control. The format SHALL be loadable into a typed config model in `Freeboard.Core`.
 
 A config directory contains one or more `.yaml` files. Each document has a
 top-level `apiVersion` and `kind`. The only valid `apiVersion` value for this
 increment is `freeboard.dev/v1alpha1`. For this increment the valid `kind` values
-are `Standard`, `Control`, `Requirement`, `Asset`, `Scope`, `RequirementScope`,
-`VendorScope`, `Integration`, `EvidenceCollector`, and
-`AttestationTemplate`. Documents of different kinds MAY appear in any file. Every
-resource SHALL have an immutable `id` that is its identity and a mutable `title`
-for display. A `Standard` has an `id`, a `title`, required `version` and
+are `Standard`, `Control`, `Requirement`, `Asset`, `Scope`, `Integration`,
+`EvidenceCollector`, and `AttestationTemplate`. Documents of different kinds MAY appear in
+any file. Every resource SHALL have an immutable `id` that is its identity and a mutable
+`title` for display. A `Standard` has an `id`, a `title`, required `version` and
 `authority`, and optional `publisher` and `source_url` metadata. A `Control` has an
 `id`, a `title`, a `maps_to` field that is a non-empty list of `Requirement` ids,
 and an optional `evaluation` rule (`all`, `any`, or `manual`). A `Requirement` has
@@ -35,17 +32,13 @@ absolute `http`/`https` link). An `Asset` has an `id`, a `title`, a `type`
 `parent` (a `Company`/`Department` asset id) or an `owner` (a `Company`/`Department`
 asset id); its Company/Department/Machine/Vendor value is authored under the YAML
 key `type` so it does not collide with the document discriminator `kind`. A `Scope`
-has an `id`, a `title`, an `organisation` (a `Company`/`Department` asset id), a
-`standard` (a `Standard` id), and a `disposition` (`In` or `Out`). A
-`RequirementScope` has an `id`, a `title`, an `organisation` (a `Company`/
-`Department` asset id), a `requirement` (a `Requirement` id), and a `disposition`
-(`In` or `Out`); it has no `standard` field. A `VendorScope` has an `id`, a
-`title`, a `vendor` (a `Vendor` asset id), exactly one of `requirement` (a
-`Requirement` id) or `control` (a `Control` id), a `disposition` (`In` or `Out`),
-and a `justification` (required when the disposition is `Out`). An
-`Integration` has an `id`, a `title`, a required `provider` (a closed
-token set whose only value in this increment is `fleet`), a required `base_url` (an
-absolute `http`/`https` URL), a required `discovery_cadence` (`continuous`,
+has an `id`, a `title`, a `subject` (an asset id), exactly one of a `standard` (a
+`Standard` id), a `requirement` (a `Requirement` id), or a `control` (a `Control` id), a
+`disposition` (`In` or `Out`), and an optional `justification` (required when the
+disposition is `Out`); a `Scope` whose subject is a `Vendor` asset may target only a
+`requirement` or a `control`. An `Integration` has an `id`, a `title`, a required
+`provider` (a closed token set whose only value in this increment is `fleet`), a required
+`base_url` (an absolute `http`/`https` URL), a required `discovery_cadence` (`continuous`,
 `daily`, `weekly`, `monthly`, `quarterly`, or `annual`), and an optional `vendor`
 (a `Vendor` asset id); its API token is never authored in config. An
 `EvidenceCollector` has an `id`, a `title`, a `control` (a `Control` id), an
@@ -67,13 +60,14 @@ are camelCase.
 #### Scenario: Valid config loads into the typed model
 
 - **WHEN** a directory contains well-formed YAML documents of kinds `Standard`,
-  `Control`, `Requirement`, `Asset`, `Scope`, `RequirementScope`, `VendorScope`,
-  `Integration`, `EvidenceCollector`, and `AttestationTemplate`
+  `Control`, `Requirement`, `Asset`, `Scope`, `Integration`, `EvidenceCollector`, and
+  `AttestationTemplate`
 - **THEN** the loader returns a typed config model containing all standards,
   controls, requirements, assets (with `type`, `source`, and any `parent`/`owner`),
-  scopes, requirement-scopes, vendor-scopes, integrations,
-  evidence-collectors, and attestation-templates with their `id`, `title`, and
-  reference fields populated and no errors
+  scopes (each with its `subject`, one target of `standard`/`requirement`/`control`,
+  `disposition`, and any `justification`), integrations, evidence-collectors, and
+  attestation-templates with their `id`, `title`, and reference fields populated and no
+  errors
 
 #### Scenario: Multiple documents in one file
 
@@ -117,23 +111,21 @@ authors `source: discovered`; a declared config authors any discovered-only fiel
 carries both `parent` and `owner`; an
 `Asset.parent` or `Asset.owner` names an asset that is not a `Company` or
 `Department`; a `parent` is carried by an asset that is not a Company, Department,
-or Machine; an `owner` is carried by an asset that is not a Vendor; a
-`Scope.organisation` references an id that is not a `Company`/`Department` asset; a
-`Scope.standard` references a `Standard` id that does not exist; a
-`RequirementScope.organisation` references an id that is not a `Company`/`Department`
-asset; a `RequirementScope.requirement` references a `Requirement` id that does not
-exist; a `RequirementScope` is missing its `organisation`, `requirement`, or
-`disposition`; a `Scope.disposition` or `RequirementScope.disposition` is not `In`
-or `Out`; a `Standard` is missing or blank on `version` or `authority`; a
-`Standard.source_url` is present and non-empty but not a well-formed absolute
-`http`/`https` URL; two Scopes share the same `(organisation, standard)` pair; two
-RequirementScopes share the same `(organisation, requirement)` pair; the
-`apiVersion` is not exactly `freeboard.dev/v1alpha1`. Optional fields that are
-omitted or whitespace-only are treated as absent. A dangling `Asset.parent` or
-`Asset.owner`, a `parent` cycle among assets, and a missing required edge (a
-declared `Vendor` with no `owner` or a `Machine` with no `parent`) SHALL be reported
-as NON-BLOCKING `Warning` diagnostics that do not fail validation, not as errors.
-Unknown or missing `kind` is reported by the loader, not re-checked here.
+or Machine; an `owner` is carried by an asset that is not a Vendor; a `Scope` is missing
+its `subject` or `disposition`; a `Scope` names none of `standard`/`requirement`/`control`
+or more than one of them; a `Scope.standard`, `Scope.requirement`, or `Scope.control`
+references an id that no document defines; a `Scope.disposition` is not `In` or `Out`; a
+`Scope` whose disposition is `Out` has a missing or whitespace-only `justification`; a
+`Scope` whose `subject` resolves to a `Vendor` asset targets a `standard`; a `Standard` is
+missing or blank on `version` or `authority`; a `Standard.source_url` is present and
+non-empty but not a well-formed absolute `http`/`https` URL; two Scopes share the same
+`(subject, standard)`, `(subject, requirement)`, or `(subject, control)` pair; the
+`apiVersion` is not exactly `freeboard.dev/v1alpha1`. Optional fields that are omitted or
+whitespace-only are treated as absent. A dangling `Asset.parent` or `Asset.owner`, a
+`parent` cycle among assets, a missing required edge (a declared `Vendor` with no `owner`
+or a `Machine` with no `parent`), and a dangling `Scope.subject` SHALL be reported as
+NON-BLOCKING `Warning` diagnostics that do not fail validation, not as errors. Unknown or
+missing `kind` is reported by the loader, not re-checked here.
 
 #### Scenario: Missing required field
 
@@ -153,12 +145,17 @@ Unknown or missing `kind` is reported by the loader, not re-checked here.
 - **THEN** validation fails and the error list names the document and the unknown
   field
 
-#### Scenario: Dangling scope reference
+#### Scenario: Dangling scope target reference
 
-- **WHEN** a `Scope` names an `organisation` or `standard` id that no document
+- **WHEN** a `Scope` names a `standard`, `requirement`, or `control` id that no document
   defines
-- **THEN** validation fails and the error list names the scope and the unknown
-  reference
+- **THEN** validation fails and the error list names the scope and the unknown target
+
+#### Scenario: Dangling scope subject is a warning, not an error
+
+- **WHEN** a `Scope.subject` names an id that no asset defines
+- **THEN** the error list contains no error for it; a non-blocking warning names the
+  dangling subject and validation still passes
 
 #### Scenario: Dangling asset parent is a warning, not an error
 
@@ -168,7 +165,8 @@ Unknown or missing `kind` is reported by the loader, not re-checked here.
 
 #### Scenario: Duplicate scope mapping
 
-- **WHEN** two `Scope` documents name the same `(organisation, standard)` pair
+- **WHEN** two `Scope` documents name the same `(subject, standard)`, `(subject,
+  requirement)`, or `(subject, control)` pair
 - **THEN** validation fails and the error list names the duplicated pair
 
 #### Scenario: All errors reported
@@ -182,8 +180,8 @@ The loader and validator in `Freeboard.Core` SHALL return diagnostics as data an
 SHALL NOT throw exceptions for malformed or invalid input, and SHALL NOT write to
 any output stream. Callers decide how to present results and set exit codes.
 Diagnostics carry a severity (`Error` or `Warning`); a config is valid when it has
-no `Error` diagnostics, so a `Warning` (for example a dangling `parent`/`owner`)
-does not fail loading or validation.
+no `Error` diagnostics, so a `Warning` (for example a dangling `parent`/`owner` or a
+dangling `Scope.subject`) does not fail loading or validation.
 
 #### Scenario: Malformed input returns diagnostics
 
@@ -195,19 +193,18 @@ does not fail loading or validation.
 #### Scenario: Unknown or missing kind reported by the loader
 
 - **WHEN** a document has a `kind` that is missing or not one of `Standard`,
-  `Control`, `Requirement`, `Asset`, `Scope`, `RequirementScope`, `VendorScope`,
-  `Integration`, `EvidenceCollector`, or `AttestationTemplate`
+  `Control`, `Requirement`, `Asset`, `Scope`, `Integration`, `EvidenceCollector`, or
+  `AttestationTemplate`
 - **THEN** the loader returns a diagnostic naming the document and the bad `kind`,
   does not throw, and does not deserialize that document further
 
-#### Scenario: Retired IntegrationConnection kind is now unknown
+#### Scenario: Retired RequirementScope and VendorScope kinds are now unknown
 
-- **WHEN** a document authors `kind: IntegrationConnection`, the pre-ratification wire
-  token
-- **THEN** the loader loads no connection from it and returns an unknown-kind
-  diagnostic naming the document and the bad `kind`; the diagnostic's valid-kinds
-  enumeration lists `Integration` and does NOT contain the substring
-  `IntegrationConnection`
+- **WHEN** a document authors `kind: RequirementScope` or `kind: VendorScope`, the
+  pre-generalization wire tokens
+- **THEN** the loader loads no scope from it and returns an unknown-kind diagnostic naming
+  the document and the bad `kind`; the diagnostic's valid-kinds enumeration lists `Scope`
+  and does NOT contain `RequirementScope` or `VendorScope`
 
 ### Requirement: Config carries no secret material
 
@@ -335,114 +332,6 @@ or whitespace-only.
 - **WHEN** two `Requirement` documents under different standards use different
   `theme` values
 - **THEN** both load without the schema constraining `theme` to any fixed set
-
-### Requirement: RequirementScope authorship
-
-The system SHALL support a `RequirementScope` kind that binds one `Organisation` to
-one `Requirement` with a `disposition`. A `RequirementScope` has an `id`, a `title`,
-an `organisation` (an `Organisation` id), a `requirement` (a `Requirement` id), and a
-`disposition` (`In` or `Out`). It SHALL NOT carry a `standard` field: the owning
-standard is derived from the requirement. `disposition` reuses the `Scope`
-disposition enum (`In` or `Out`). A `RequirementScope` records requirement-level
-scoping layered under the standard-level `Scope`; how it resolves down the
-organisation tree is defined by the statement-of-applicability capability.
-
-#### Scenario: RequirementScope loads with organisation, requirement, and disposition
-
-- **WHEN** a `RequirementScope` document names an `organisation`, a `requirement`,
-  and a `disposition` of `In` or `Out`
-- **THEN** it loads as a `RequirementScope` bound to that organisation and
-  requirement with that disposition, and no `standard` field is expected on it
-
-#### Scenario: RequirementScope naming a standard field is rejected
-
-- **WHEN** a `RequirementScope` document includes a `standard` field
-- **THEN** validation fails and the error names the requirement-scope and the unknown
-  field, because `RequirementScope` derives its standard from the requirement
-
-### Requirement: Vendor and VendorScope authorship
-
-The system SHALL model a vendor as an `Asset` of `type: Vendor` (see the Asset
-authoring requirement); there is no standalone `Vendor` document kind. A vendor
-asset names a piece of software or a platform in use (for example Crowdstrike,
-FleetDM, Google Workspace, an outsourced accountant) and MAY carry an `owner` (a
-`Company`/`Department` asset) that drives its read-access.
-
-The system SHALL support a `VendorScope` kind that records whether one `Requirement`
-or one `Control` applies to one vendor asset, with an exception rationale. A
-`VendorScope` has an `id`, a `title`, a `vendor` (a `Vendor` asset id), exactly one
-of `requirement` (a `Requirement` id) or `control` (a `Control` id), a
-`disposition` (`In` or `Out`), and a `justification`. The `disposition` reuses the
-`Scope` disposition: `In` means the requirement or control applies to the vendor;
-`Out` means it is excepted. A `VendorScope` is a flat per-`(vendor, target)`
-statement and SHALL NOT carry an `organisation` field. At most one `VendorScope`
-SHALL exist per `(vendor, requirement)` pair and at most one per `(vendor, control)`
-pair.
-
-#### Scenario: Vendor is authored as an Asset
-
-- **WHEN** a `kind: Asset` document of `type: Vendor` names an `id` and a `title`
-- **THEN** it loads as a vendor asset with that identity and display title
-
-#### Scenario: VendorScope loads targeting a requirement
-
-- **WHEN** a `VendorScope` document names a `vendor`, a `requirement`, a
-  `disposition`, and (for `Out`) a `justification`
-- **THEN** it loads as a `VendorScope` bound to that vendor asset and requirement
-  with that disposition and justification
-
-#### Scenario: VendorScope loads targeting a control
-
-- **WHEN** a `VendorScope` document names a `vendor`, a `control`, a `disposition`,
-  and (for `Out`) a `justification`
-- **THEN** it loads as a `VendorScope` bound to that vendor asset and control, and no
-  `requirement` field is expected on it
-
-### Requirement: Vendor and VendorScope validation
-
-The system SHALL validate vendor-scopes and report every error as a structured
-diagnostic. Validation SHALL fail when any of the following hold: a `VendorScope`
-is missing or blank on `id` or `title`; a `VendorScope` id is duplicated; an unknown
-field is present on a `VendorScope`; a `VendorScope` is missing its `vendor` or
-`disposition`; a `VendorScope` names neither `requirement` nor `control`, or names
-both; a `VendorScope.vendor` references an id that is not a `Vendor` asset; a
-`VendorScope.requirement` references a `Requirement` id that no document defines; a
-`VendorScope.control` references a `Control` id that no document defines; a
-`VendorScope.disposition` is not `In` or `Out`; two vendor-scopes share the same
-`(vendor, requirement)` pair or the same `(vendor, control)` pair; or a `VendorScope`
-whose disposition is `Out` has a missing or whitespace-only `justification`. A
-`VendorScope` whose disposition is `In` SHALL NOT require a `justification`.
-
-#### Scenario: VendorScope missing required field
-
-- **WHEN** a `VendorScope` document omits its `vendor` or `disposition`
-- **THEN** validation fails and the error list names the vendor-scope and the missing
-  field
-
-#### Scenario: VendorScope must name exactly one target
-
-- **WHEN** a `VendorScope` names both `requirement` and `control`, or names neither
-- **THEN** validation fails and the error list names the vendor-scope and the target
-  problem
-
-#### Scenario: VendorScope references an unknown vendor asset or target
-
-- **WHEN** a `VendorScope` names a `vendor` that is not a `Vendor` asset, or a
-  `requirement`/`control` id that no document defines
-- **THEN** validation fails and the error list names the vendor-scope and the unknown
-  reference
-
-#### Scenario: Out disposition requires a justification
-
-- **WHEN** a `VendorScope` declares `disposition: Out` with no `justification` (or a
-  whitespace-only one)
-- **THEN** validation fails and the error list names the vendor-scope and the missing
-  justification
-
-#### Scenario: In disposition does not require a justification
-
-- **WHEN** a `VendorScope` declares `disposition: In` with no `justification`
-- **THEN** it loads and validates, with `justification` absent
 
 ### Requirement: EvidenceCollector authorship and Control evaluation rule
 
@@ -837,10 +726,12 @@ reserved for ingest and SHALL be rejected when authored in config. A declared
 asset uses an authored slug id; a discovered asset uses a ULID id; both share one
 id space. `parent` and `owner` are scalar references validated at write with no
 foreign key: a reference that does not resolve is tolerated (see Asset validation).
-The `Scope.organisation`, `RequirementScope.organisation`, `VendorScope.vendor`,
-and `EvidenceCollector.vendor` references SHALL name the matching typed asset (a
-`Company`/`Department` asset for an organisation reference, a `Vendor` asset for a
-vendor reference).
+The `Scope.subject` and `EvidenceCollector.vendor` references SHALL name the matching
+asset: `Scope.subject` names any asset (a Company/Department, a Machine, or a Vendor; a Vendor
+subject may not target a standard), and `EvidenceCollector.vendor` names a `Vendor` asset. The
+`Scope.subject` reference is scalar with no foreign key and is dangling-tolerated, while
+the `Scope` target references (`standard`/`requirement`/`control`) keep referential
+integrity.
 
 #### Scenario: Company asset with a department child loads
 
@@ -1060,4 +951,123 @@ an ambiguous or wrong token. These id constraints apply only to the
   two `Integration` ids differ only in letter case
 - **THEN** validation fails and the error list names the connection and the unsafe or
   colliding id, because the id would resolve an ambiguous or wrong out-of-band token
+
+### Requirement: Unified Scope authorship
+
+The system SHALL support one `Scope` kind that records whether a target applies to a
+subject, replacing the previous `Scope`, `RequirementScope`, and `VendorScope` kinds. A
+`Scope` has an immutable `id`, a mutable `title`, a `subject` (an asset id), exactly one
+of a `standard` (a `Standard` id), a `requirement` (a `Requirement` id), or a `control`
+(a `Control` id), a `disposition` (`In` or `Out`), and an optional `justification`. The
+`subject` names the asset the scope is about; the one target names what it scopes the
+subject in or out of. `disposition` `In` means the target applies to the subject; `Out`
+means the subject is excepted from it. A `justification` is REQUIRED on every `Out` scope
+(it records the exception rationale) and optional on `In`.
+
+The `subject` is a scalar asset reference with NO foreign key, validated at write and
+dangling-tolerated (see Unified Scope validation): it MAY name a Company, Department, Machine,
+or Vendor asset (a group later). A `Scope` whose `subject` resolves to a `Vendor` asset MAY
+target only a `requirement` or a `control`, never a `standard`, because a vendor has no
+standard-level disposition; an organisation (Company/Department) subject MAY target a
+standard, a requirement, or a control. At most one `Scope` SHALL exist per `(subject,
+standard)`, per `(subject, requirement)`, and per `(subject, control)` pair.
+
+#### Scenario: Scope targeting a standard loads
+
+- **WHEN** a `kind: Scope` document names a `subject`, a `standard`, and a `disposition`
+- **THEN** it loads as a `Scope` bound to that subject and standard with that disposition,
+  and no `requirement` or `control` field is expected on it
+
+#### Scenario: Scope targeting a requirement loads
+
+- **WHEN** a `kind: Scope` document names a `subject`, a `requirement`, and a `disposition`
+- **THEN** it loads as a `Scope` bound to that subject and requirement, and no `standard`
+  or `control` field is expected on it
+
+#### Scenario: Scope targeting a control loads
+
+- **WHEN** a `kind: Scope` document names a `subject`, a `control`, and a `disposition`
+- **THEN** it loads as a `Scope` bound to that subject and control, and no `standard` or
+  `requirement` field is expected on it
+
+#### Scenario: Out scope carries a justification
+
+- **WHEN** a `kind: Scope` document declares `disposition: Out` with a non-empty
+  `justification`
+- **THEN** it loads with that justification, which the read surfaces always show so an
+  exception is never silent
+
+#### Scenario: Unknown field on a Scope is rejected
+
+- **WHEN** a `kind: Scope` document carries a field not defined for the kind (for example
+  the removed `organisation` or `vendor` field)
+- **THEN** the loader reports the document and the unknown field
+
+### Requirement: Unified Scope validation
+
+The system SHALL validate scopes and report every error as a structured diagnostic.
+Validation SHALL fail (an `Error` diagnostic) when any of the following hold: a `Scope` is
+missing or blank on `id`, `title`, `subject`, or `disposition`; a `Scope` id is
+duplicated; an unknown field is present on a `Scope`; a `Scope` names neither `standard`
+nor `requirement` nor `control`, or names more than one of them (exactly one target is
+required); a `Scope.standard` references a `Standard` id that no document defines; a
+`Scope.requirement` references a `Requirement` id that no document defines; a
+`Scope.control` references a `Control` id that no document defines; a `Scope.disposition`
+is not `In` or `Out`; a `Scope` whose disposition is `Out` has a missing or
+whitespace-only `justification`; a `Scope` whose `subject` resolves to a `Vendor` asset
+targets a `standard`; or two scopes share the same `(subject, standard)`, `(subject,
+requirement)`, or `(subject, control)` pair. A `Scope` whose disposition is `In` SHALL NOT
+require a `justification`.
+
+A `Scope.subject` that names an id absent from the resolved asset set (a dangling subject)
+SHALL NOT be an error: it SHALL be reported as a NON-BLOCKING `Warning` diagnostic that
+does not fail `validate`, `apply`, or `sync`, because the subject is a scalar asset
+reference and an asset may be retired or not-yet-discovered. The three target references
+(`standard`, `requirement`, `control`) keep referential integrity and remain hard errors
+when they do not resolve. The Vendor-subject-targets-a-standard cross-field check is
+evaluated only when the subject resolves to an asset; a dangling subject warns and is not
+additionally checked against the cross-field rule.
+
+#### Scenario: Scope must name exactly one target
+
+- **WHEN** a `Scope` names none of `standard`/`requirement`/`control`, or names more than
+  one
+- **THEN** validation fails and the error list names the scope and the target problem
+
+#### Scenario: Out disposition requires a justification
+
+- **WHEN** a `Scope` declares `disposition: Out` with no `justification` (or a
+  whitespace-only one)
+- **THEN** validation fails and the error list names the scope and the missing
+  justification, for every target kind (standard, requirement, or control)
+
+#### Scenario: In disposition does not require a justification
+
+- **WHEN** a `Scope` declares `disposition: In` with no `justification`
+- **THEN** it loads and validates, with `justification` absent
+
+#### Scenario: Vendor subject may not target a standard
+
+- **WHEN** a `Scope` whose `subject` resolves to a `Vendor` asset names a `standard`
+- **THEN** validation fails and the error list names the scope, because a vendor has no
+  standard-level disposition
+
+#### Scenario: Dangling subject is a non-blocking warning
+
+- **WHEN** a `Scope.subject` names an id that no asset defines
+- **THEN** the error list contains no error for it; a non-blocking `Warning` names the
+  dangling subject and validation still passes
+
+#### Scenario: Dangling target is an error
+
+- **WHEN** a `Scope.standard`, `Scope.requirement`, or `Scope.control` names an id that no
+  document defines
+- **THEN** validation fails and the error list names the scope and the unknown target
+  reference
+
+#### Scenario: Duplicate subject-target pair rejected
+
+- **WHEN** two `Scope` documents name the same `(subject, standard)`, `(subject,
+  requirement)`, or `(subject, control)` pair
+- **THEN** validation fails and the error list names the duplicated pair
 

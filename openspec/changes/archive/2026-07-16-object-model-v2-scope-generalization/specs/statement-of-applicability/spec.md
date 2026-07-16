@@ -1,8 +1,56 @@
-# statement-of-applicability Specification
+## ADDED Requirements
 
-## Purpose
-TBD - created by archiving change redefine-scope-org-standard. Update Purpose after archive.
-## Requirements
+### Requirement: Dangling scope subject surfaces a non-blocking warning at resolution
+
+The Statement of Applicability resolution SHALL treat a scope whose `subject` does not
+resolve to a live asset - no asset row has that id, or the row is a discovered asset in the
+`Retired` state - as a NON-BLOCKING condition: it SHALL surface a warning ("rule
+targets a resource that does not currently exist", covering a retired asset and a
+not-yet-discovered one) on the `/compliance/statement-of-applicability` view page and
+SHALL NOT fail the projection. The unresolved-subject warning scan SHALL cover EVERY unified
+scope regardless of its target kind - standard-target, requirement-target, AND
+control-target - so no target kind is exempt from the warning. Only the disposition
+RESOLUTION stays limited to standard-level and requirement-level org scopes: a control-target
+org scope contributes no node disposition (control-level resolution is a non-goal), but a
+control-target org scope whose subject is unresolved STILL surfaces the same generic warning
+on the SoA page. The page notice SHALL be generic: it SHALL NOT disclose the
+scope id or the unresolved subject id to an ordinary caller, because the unresolved subject
+has no authorization anchor to check readability against; any detailed-id surface would be
+system-admin-only and is out of scope for this change. A scope with a dangling subject does
+not contribute a node disposition (no org node matches its subject) and is otherwise ignored
+by the resolution. The JSON endpoint SHALL keep its shape; the warning is a page-level
+notice. This warning concerns only a subject that resolves to no live asset at all; a scope
+whose subject DOES resolve - a `Vendor` asset or any other non-organisation-tree subject - is
+simply not consulted by the standard-level and requirement-level resolution and is not a
+dangling-subject warning, because its subject exists.
+
+#### Scenario: A scope with a vanished subject warns without failing
+
+- **WHEN** the Statement of Applicability is resolved for a standard while a scope targets
+  that standard (or one of its requirements) with a `subject` id that no asset defines
+- **THEN** the projection is served, the affected node dispositions resolve as if that
+  scope were absent, and the page shows a generic non-blocking warning ("rule targets a
+  resource that does not currently exist") that does NOT name the scope id or the
+  unresolved subject id to an ordinary caller (any detailed-id surface would be
+  system-admin-only and is out of scope here)
+
+#### Scenario: Control-target scope with a vanished subject also warns on the page
+
+- **WHEN** the Statement of Applicability page is rendered while a control-target organisation
+  scope has a `subject` id that no asset defines
+- **THEN** the same generic non-blocking warning ("rule targets a resource that does not
+  currently exist") is shown on the page, even though a control-target scope contributes no
+  node disposition, because the warning scan is not exempted by target kind
+
+#### Scenario: Dangling subject does not block a sync or the projection
+
+- **WHEN** an asset that was a scope subject is removed so the scope's subject dangles
+- **THEN** the sync succeeds (the subject has no foreign key), the Statement of
+  Applicability still resolves, and the dangling subject surfaces only as a non-blocking
+  warning at sync (CLI) and at resolution (page)
+
+## MODIFIED Requirements
+
 ### Requirement: Scope disposition resolves by nearest-ancestor inheritance
 
 The system SHALL resolve an organisation node's disposition for a standard as
@@ -43,36 +91,6 @@ on the path, so the node takes the default `In`) and is distinct from `explicit`
   its own scope `In` for that standard
 - **THEN** the department resolves to `In`, marked `explicit`, overriding the ancestor's
   `Out`, while a sibling department with no scope resolves `Out`, marked `inherited`
-
-### Requirement: Statement of Applicability requires an authenticated user
-
-The Statement of Applicability SHALL require an authenticated user, both on the
-`GET /api/v1/freeboard/statement-of-applicability/{standardId}` endpoint and on the
-`/compliance/statement-of-applicability` read-only view page. Authentication (any
-logged-in user) is sufficient; neither SHALL require the admin role. An anonymous
-request to the endpoint SHALL return HTTP 401; an anonymous browser GET to the page
-SHALL be redirected to `/login` rather than rendering the view. Authentication is
-orthogonal to the GitOps read-only gate: both the endpoint and the page SHALL still
-be served to an authenticated user when the instance is in read-only mode, and both
-remain GET-only.
-
-#### Scenario: Anonymous request to the endpoint is rejected
-
-- **WHEN** an anonymous client requests
-  `GET /api/v1/freeboard/statement-of-applicability/{standardId}`
-- **THEN** the endpoint returns HTTP 401
-
-#### Scenario: Anonymous request to the page redirects to login
-
-- **WHEN** an anonymous browser requests `/compliance/statement-of-applicability`
-- **THEN** the response redirects to `/login` rather than rendering the view
-
-#### Scenario: Authenticated user is served in read-only mode
-
-- **WHEN** GitOps read-only mode is on and an authenticated user requests the
-  Statement of Applicability endpoint or view page
-- **THEN** the request is served normally and is not rejected with the 409
-  read-only response
 
 ### Requirement: Statement of Applicability is a read-only projection
 
@@ -215,85 +233,6 @@ a department MAY re-include (`In`) a requirement its parent excluded (`Out`) com
   requirement-targeting scopes are filtered to the requested standard by their
   requirement's owning standard (`Requirement.standard`)
 
-### Requirement: Statement of Applicability view supports hierarchical drill-down
-
-The `/compliance/statement-of-applicability` view page SHALL present the projection
-as a hierarchical, progressively disclosed tree with four levels in the order
-Organisation -> Requirement -> Control -> Check: an organisation node, its in-scope
-requirements, the controls mapped to each requirement, and the checks configured on
-each control. Each level SHALL be collapsible and expandable independently of the
-others, and SHALL default to collapsed on first load; the page SHALL NOT
-auto-expand the selected organisation.
-
-The disclosure SHALL be rendered server-side: the HTML returned by the initial GET
-SHALL contain all four levels for the rendered nodes, and client script SHALL only
-toggle the visibility of nested rows, never fetch additional data. Toggling a level
-SHALL NOT issue a new request to the server. Selecting a different standard SHALL
-re-render the page with all levels collapsed, so no stale expansion state carries
-across a standard change.
-
-The disclosure SHALL be keyboard operable and accessible: each expand/collapse
-control SHALL be a native button element carrying an `aria-expanded` state that
-reflects whether its section is open, and a text label identifying the row it
-controls. Nested content SHALL remain in the DOM while collapsed (hidden, not
-removed) for server-side rendering, tests, and the no-JavaScript reveal; because it
-is hidden with `display:none`, it is exposed to assistive technology only when its
-section is expanded. With JavaScript disabled the nested levels SHALL be reachable
-rather than permanently hidden.
-
-The JSON endpoint `GET /api/v1/freeboard/statement-of-applicability/{standardId}`
-SHALL be unchanged by this drill-down; the hierarchy is a page-only presentation.
-All existing scoping, authorization-boundary, read-only, and store-unreachable
-behaviours of the page SHALL continue to hold.
-
-#### Scenario: Initial load shows organisation rows collapsed
-
-- **WHEN** an authenticated user first views the Statement of Applicability for a
-  chosen standard
-- **THEN** the page shows the organisation nodes with every disclosure collapsed,
-  including the selected organisation
-
-#### Scenario: Organisation row expands to its requirements
-
-- **WHEN** the user expands an in-scope organisation node
-- **THEN** the page reveals that organisation's requirements, each tagged with its
-  resolved disposition (`In` or `Out`) and provenance, without issuing a new server
-  request
-
-#### Scenario: Requirement row expands to its controls
-
-- **WHEN** the user expands an in-scope requirement that has controls mapped to it
-- **THEN** the page reveals the controls mapped to that requirement
-
-#### Scenario: Control row expands to its checks
-
-- **WHEN** the user expands a control that has checks configured on it
-- **THEN** the page reveals the checks configured on that control, each tagged as a
-  collector or an attestation
-
-#### Scenario: Disclosure is server-rendered and present without JavaScript
-
-- **WHEN** the initial page GET response is inspected before any client script runs
-- **THEN** the HTML already contains the requirement, control, and check rows for
-  the rendered nodes, and they are hidden rather than absent
-
-#### Scenario: Toggle exposes accessible expanded state
-
-- **WHEN** the user activates an expand/collapse control with the keyboard
-- **THEN** the control is a focusable button whose `aria-expanded` value reflects
-  the open or closed state of the section it controls
-
-#### Scenario: Standard change clears stale expansion
-
-- **WHEN** the user has expanded some nodes and then selects a different standard
-- **THEN** the page re-renders with all disclosures collapsed
-
-#### Scenario: Out-of-scope organisation node has no requirement children
-
-- **WHEN** an organisation node resolves `Out` for the standard
-- **THEN** the node exposes no in-scope requirement children to drill into, because
-  no requirement of an out-of-scope standard is in scope
-
 ### Requirement: Statement of Applicability projection carries the requirement-control-check structure per in-scope node
 
 For a chosen standard, a projection that backs the view page SHALL attach to each
@@ -368,104 +307,3 @@ importer commit.
 - **THEN** the controls, evidence-collectors, and attestation-templates are read
   together with the organisations, the unified scopes, and requirements in
   one repeatable-read snapshot
-
-### Requirement: Statement of Applicability surfaces per-collector evidence status
-
-The `/compliance/statement-of-applicability` view page SHALL show, for each collector
-check under a control, that collector's derived evidence status for the organisation node
-it appears under. The status SHALL be read from the evidence read store
-(`IEvidenceStore`) as a per-collector status keyed by `(organisation, requirement,
-collector)`, and the page SHALL batch-read the statuses for all visible organisation
-nodes in one call rather than issuing a read per node. The evidence read MAY use a
-separate snapshot from the drill-down projection read: the status is advisory display and
-is not part of the config-tree consistency guarantee.
-
-The page SHALL render `Stale` distinctly from `Unknown`: `Stale` (the collector's latest
-evidence is older than its cadence window plus grace) SHALL be shown as a "collection
-stopped" state, and `Unknown` SHALL be shown as a separate "not collected" state. A
-collector check that has no status from the store (an expected collector that never
-produced evidence for that organisation and requirement) SHALL be derived as `Unknown` by
-the page. `HardFailure`, `SoftFailure`, and `Passing` SHALL each render distinctly from
-`Stale` and `Unknown`. Only collector checks SHALL carry a status; attestation checks
-carry no evidence status.
-
-The status surfacing SHALL NOT change the drill-down projection or its inputs: the
-existing resolution, scoping, authorization-boundary, read-only, store-unreachable, and
-JSON-endpoint behaviours of the page SHALL continue to hold, and the JSON endpoint SHALL
-remain free of live evidence status.
-
-#### Scenario: A stale collector renders as collection stopped
-
-- **WHEN** a collector check's latest evidence for an in-scope organisation and
-  requirement is older than its cadence window plus grace
-- **THEN** the page shows that collector check with a "collection stopped" status,
-  distinct from a "not collected" status
-
-#### Scenario: A never-collected collector renders as unknown
-
-- **WHEN** a collector check is configured on a control for an in-scope requirement but
-  has produced no evidence for the organisation
-- **THEN** the page shows that collector check with an `Unknown` "not collected" status,
-  distinct from "collection stopped"
-
-#### Scenario: A fresh passing collector renders as passing
-
-- **WHEN** a collector check's latest evidence for an in-scope organisation and
-  requirement is within its cadence window plus grace and has no failing check
-- **THEN** the page shows that collector check with a `Passing` status
-
-#### Scenario: Visible organisation statuses are batch-read
-
-- **WHEN** the page renders collector checks across several in-scope organisation nodes
-- **THEN** the per-collector statuses for those organisations are read from the evidence
-  store in a single batch call rather than one read per organisation
-
-### Requirement: Dangling scope subject surfaces a non-blocking warning at resolution
-
-The Statement of Applicability resolution SHALL treat a scope whose `subject` does not
-resolve to a live asset - no asset row has that id, or the row is a discovered asset in the
-`Retired` state - as a NON-BLOCKING condition: it SHALL surface a warning ("rule
-targets a resource that does not currently exist", covering a retired asset and a
-not-yet-discovered one) on the `/compliance/statement-of-applicability` view page and
-SHALL NOT fail the projection. The unresolved-subject warning scan SHALL cover EVERY unified
-scope regardless of its target kind - standard-target, requirement-target, AND
-control-target - so no target kind is exempt from the warning. Only the disposition
-RESOLUTION stays limited to standard-level and requirement-level org scopes: a control-target
-org scope contributes no node disposition (control-level resolution is a non-goal), but a
-control-target org scope whose subject is unresolved STILL surfaces the same generic warning
-on the SoA page. The page notice SHALL be generic: it SHALL NOT disclose the
-scope id or the unresolved subject id to an ordinary caller, because the unresolved subject
-has no authorization anchor to check readability against; any detailed-id surface would be
-system-admin-only and is out of scope for this change. A scope with a dangling subject does
-not contribute a node disposition (no org node matches its subject) and is otherwise ignored
-by the resolution. The JSON endpoint SHALL keep its shape; the warning is a page-level
-notice. This warning concerns only a subject that resolves to no live asset at all; a scope
-whose subject DOES resolve - a `Vendor` asset or any other non-organisation-tree subject - is
-simply not consulted by the standard-level and requirement-level resolution and is not a
-dangling-subject warning, because its subject exists.
-
-#### Scenario: A scope with a vanished subject warns without failing
-
-- **WHEN** the Statement of Applicability is resolved for a standard while a scope targets
-  that standard (or one of its requirements) with a `subject` id that no asset defines
-- **THEN** the projection is served, the affected node dispositions resolve as if that
-  scope were absent, and the page shows a generic non-blocking warning ("rule targets a
-  resource that does not currently exist") that does NOT name the scope id or the
-  unresolved subject id to an ordinary caller (any detailed-id surface would be
-  system-admin-only and is out of scope here)
-
-#### Scenario: Control-target scope with a vanished subject also warns on the page
-
-- **WHEN** the Statement of Applicability page is rendered while a control-target organisation
-  scope has a `subject` id that no asset defines
-- **THEN** the same generic non-blocking warning ("rule targets a resource that does not
-  currently exist") is shown on the page, even though a control-target scope contributes no
-  node disposition, because the warning scan is not exempted by target kind
-
-#### Scenario: Dangling subject does not block a sync or the projection
-
-- **WHEN** an asset that was a scope subject is removed so the scope's subject dangles
-- **THEN** the sync succeeds (the subject has no foreign key), the Statement of
-  Applicability still resolves, and the dangling subject surfaces only as a non-blocking
-  warning at sync (CLI) and at resolution (page)
-

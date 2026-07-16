@@ -1,8 +1,5 @@
-# organisation-model Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change redefine-scope-org-standard. Update Purpose after archive.
-## Requirements
 ### Requirement: Scope binds one organisation to one standard with a disposition
 
 The system SHALL model a `Scope` as a mapping from one `subject` asset to one target -
@@ -50,3 +47,17 @@ defined by the gitops-config-format capability.
 - **WHEN** two Scopes name the same `(subject, standard)` pair
 - **THEN** validation fails and the error names the duplicated pair
 
+## REMOVED Requirements
+
+### Requirement: RequirementScope binds one organisation to one requirement with a disposition
+
+**Reason**: Folded into the unified `Scope` kind. A requirement-level disposition is now a
+`Scope` whose `subject` is an organisation asset and whose target is a `requirement`; the
+same nearest-ancestor inheritance over the organisation asset's `parent` chain still
+applies (see the statement-of-applicability capability).
+
+**Migration**: A `RequirementScope` becomes a `Scope` with `subject` (the former
+`organisation`) and `requirement` (unchanged); the `(subject, requirement)` unique key
+preserves the old `(organisation, requirement)` uniqueness, and an `Out` now carries a
+`justification`. See the Scope requirement above and the gitops-config-format Unified Scope
+authorship requirement.
