@@ -351,7 +351,7 @@ quiz:
 
 ### Integration
 
-An integration-connection is a provider connection - one base URL and a discovery
+An `Integration` is a provider connection - one base URL and a discovery
 cadence that drive machine discovery and back many integration collectors. `provider`
 is a closed token selecting the runner/adapter; its only value is `fleet`. `provider`
 is not unique: one provider backs many connections, and identity is `id`. `base_url`
