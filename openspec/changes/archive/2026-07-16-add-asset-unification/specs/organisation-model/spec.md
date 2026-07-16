@@ -1,8 +1,32 @@
-# organisation-model Specification
+## REMOVED Requirements
 
-## Purpose
-TBD - created by archiving change redefine-scope-org-standard. Update Purpose after archive.
-## Requirements
+### Requirement: Organisation is a recursive tree with a kind
+
+**Reason**: The `Organisation` document kind is superseded by an `Asset` of
+`type: Company` or `type: Department` with a scalar `parent` edge (object model v2
+asset unification). The recursive-tree-with-a-kind behavior is now the Asset domain
+model.
+
+**Migration**: Author each organisation as `kind: Asset` with `source: declared`
+and `type: Company` or `type: Department`, keeping the same `id`, `title`, and
+`parent`. See the asset-model capability ("Machine asset domain model in Core",
+now the Asset domain model) and gitops-config-format ("Asset authoring, type,
+source, and edges").
+
+### Requirement: Organisation tree is acyclic with resolvable parents
+
+**Reason**: v2 makes `parent` a scalar reference with no foreign key, validated at
+write but dangling-tolerant, so a dangling or cyclic `parent` is a NON-BLOCKING
+warning rather than a hard validation failure. The acyclic-and-resolvable hard
+requirement no longer holds.
+
+**Migration**: Reference integrity for `parent` (and the new `owner` edge) is
+defined by the asset-model capability ("Asset parent and owner edges with tolerated
+dangling references"). Resolution walks cycle-guard, so a cycle is tolerated and
+surfaced as a warning.
+
+## MODIFIED Requirements
+
 ### Requirement: Scope binds one organisation to one standard with a disposition
 
 The system SHALL model a `Scope` as a mapping from one organisation asset (an
@@ -87,4 +111,3 @@ child node re-include (`In`) a requirement its ancestor excluded (`Out`).
   another for requirement B
 - **THEN** both load, because the uniqueness key is the `(organisation, requirement)`
   pair, not the organisation alone
-

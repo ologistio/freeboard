@@ -1,8 +1,5 @@
-# compliance-write Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change redefine-scope-org-standard. Update Purpose after archive.
-## Requirements
 ### Requirement: App-managed writes for organisations and scope dispositions
 
 When the instance is not in GitOps read-only mode, the web app SHALL allow creating,
@@ -137,19 +134,3 @@ remove its children and detach its scopes.
   scope, or a requirement-scope bound to it
 - **THEN** the write is rejected with a problem body and the store is unchanged, rather
   than surfacing the RESTRICT foreign-key error
-
-### Requirement: Writes are blocked in GitOps read-only mode
-
-When the instance is in GitOps read-only mode the compliance write endpoints SHALL
-be rejected by the existing read-only middleware with HTTP 409 and its problem
-body, exactly as other mutating routes are. This SHALL cover the organisation, scope,
-and requirement-scope write endpoints. The write endpoints SHALL NOT be marked as
-auth endpoints and SHALL NOT be exempt.
-
-#### Scenario: Write blocked in read-only mode
-
-- **WHEN** GitOps read-only mode is on and a client posts to a compliance write
-  endpoint (organisation, scope, or requirement-scope)
-- **THEN** the request is rejected with HTTP 409 and the read-only problem body, and
-  the store is not changed
-

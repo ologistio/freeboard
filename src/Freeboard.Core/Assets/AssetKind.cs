@@ -1,9 +1,25 @@
 namespace Freeboard.Core.Assets;
 
-/// <summary>The kind of asset. Asset resolution is machine-scoped, so <see cref="Machine"/> is the only kind.</summary>
+/// <summary>
+/// The kind of asset. One asset model spans the declared estate (<see cref="Company"/>,
+/// <see cref="Department"/>, <see cref="Vendor"/>) and the discovered estate (<see cref="Machine"/>).
+/// </summary>
 public enum AssetKind
 {
+    Company,
+    Department,
     Machine,
+    Vendor,
+}
+
+/// <summary>
+/// How an asset entered the store. <see cref="Declared"/> assets are authored in gitops config and
+/// reconciled by sync; <see cref="Discovered"/> assets are written by ingest and never touched by sync.
+/// </summary>
+public enum AssetSource
+{
+    Declared,
+    Discovered,
 }
 
 /// <summary>

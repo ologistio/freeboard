@@ -1,8 +1,5 @@
-# vendor-register Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-vendor-gitops-kinds. Update Purpose after archive.
-## Requirements
 ### Requirement: Web vendor register page
 
 The web app SHALL serve a read-only vendor register page at `/compliance/vendors`
@@ -102,4 +99,3 @@ server error, or connection failure).
 - **WHEN** the user runs `freeboard vendor list` and the API is unauthorized,
   forbidden, unreachable, or returns a server error
 - **THEN** the command prints an error and exits `3`
-
