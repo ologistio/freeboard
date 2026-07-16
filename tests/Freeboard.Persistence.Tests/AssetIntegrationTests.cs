@@ -8,8 +8,10 @@ using MySqlConnector;
 namespace Freeboard.Persistence.Tests;
 
 /// <summary>
-/// Integration tests for the asset schema (migration 017) and the read/write store pair against a real
-/// MySQL discovered via FREEBOARD_TEST_DB. Each test SKIPS cleanly when the env var is absent.
+/// Integration tests for the unified assets schema (migration 017 creates the discovered-machine tables,
+/// 019 folds them into the shared assets table) and the read/write store pair against a real MySQL
+/// discovered via FREEBOARD_TEST_DB. Discovered machines are the assets rows with source = 'discovered',
+/// scoped to their organisation by the parent column. Each test SKIPS cleanly when the env var is absent.
 /// </summary>
 [Trait("Category", TestCategories.Integration)]
 public sealed class AssetIntegrationTests
@@ -68,14 +70,15 @@ public sealed class AssetIntegrationTests
         var tables = (await conn.QueryAsync<string>(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();"))
             .ToHashSet(StringComparer.Ordinal);
-        Assert.Contains("asset", tables);
+        Assert.Contains("assets", tables);
         Assert.Contains("asset_source", tables);
 
+        // The per-org discovered-machine dedup key is now keyed on parent.
         var identityKey = (await conn.QueryAsync<string>(
             "SELECT column_name FROM information_schema.statistics "
-            + "WHERE table_schema = DATABASE() AND table_name = 'asset' "
-            + "AND index_name = 'uq_asset_org_identity' AND non_unique = 0 ORDER BY seq_in_index;")).ToArray();
-        Assert.Equal(["organisation_id", "identity_kind", "identity_value"], identityKey);
+            + "WHERE table_schema = DATABASE() AND table_name = 'assets' "
+            + "AND index_name = 'uq_assets_parent_identity' AND non_unique = 0 ORDER BY seq_in_index;")).ToArray();
+        Assert.Equal(["parent", "identity_kind", "identity_value"], identityKey);
 
         var sourceKey = (await conn.QueryAsync<string>(
             "SELECT column_name FROM information_schema.statistics "
@@ -83,24 +86,25 @@ public sealed class AssetIntegrationTests
             + "AND index_name = 'uq_asset_source_org_source_external' AND non_unique = 0 ORDER BY seq_in_index;")).ToArray();
         Assert.Equal(["organisation_id", "source", "external_id"], sourceKey);
 
-        // The composite FK binds organisation into the internal reference.
+        // asset_source now has a single-column asset_id FK to assets(id); the old composite
+        // (asset_id, organisation_id) FK is gone with the org-bound reference.
         var fkCols = (await conn.QueryAsync<string>(
             "SELECT column_name FROM information_schema.key_column_usage "
             + "WHERE table_schema = DATABASE() AND table_name = 'asset_source' "
-            + "AND constraint_name = 'fk_asset_source_asset' AND referenced_table_name = 'asset' "
+            + "AND constraint_name = 'fk_asset_source_asset' AND referenced_table_name = 'assets' "
             + "ORDER BY ordinal_position;")).ToArray();
-        Assert.Equal(["asset_id", "organisation_id"], fkCols);
+        Assert.Equal(["asset_id"], fkCols);
 
-        // organisation_id on asset carries no foreign key (scalar reference).
+        // parent and owner on assets carry no foreign key (scalar references).
         var assetFks = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.key_column_usage "
-            + "WHERE table_schema = DATABASE() AND table_name = 'asset' AND referenced_table_name IS NOT NULL;");
+            + "WHERE table_schema = DATABASE() AND table_name = 'assets' AND referenced_table_name IS NOT NULL;");
         Assert.Equal(0, assetFks);
 
         // Mutable tables: no append-only triggers.
         var triggers = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema = DATABASE() "
-            + "AND event_object_table IN ('asset', 'asset_source');");
+            + "AND event_object_table IN ('assets', 'asset_source');");
         Assert.Equal(0, triggers);
     }
 
@@ -125,19 +129,12 @@ public sealed class AssetIntegrationTests
             Assert.Equal("utf8mb4_0900_bin", collation);
         }
 
-        await AssertBinCollation("asset", "identity_kind");
-        await AssertBinCollation("asset", "identity_value");
-        await AssertBinCollation("asset", "kind");
-        await AssertBinCollation("asset", "state");
+        await AssertBinCollation("assets", "identity_kind");
+        await AssertBinCollation("assets", "identity_value");
+        await AssertBinCollation("assets", "type");
+        await AssertBinCollation("assets", "state");
         await AssertBinCollation("asset_source", "source");
         await AssertBinCollation("asset_source", "external_id");
-
-        // The (id, organisation_id) unique key backs the referenced side of the composite foreign key.
-        var idOrgKey = (await conn.QueryAsync<string>(
-            "SELECT column_name FROM information_schema.statistics "
-            + "WHERE table_schema = DATABASE() AND table_name = 'asset' "
-            + "AND index_name = 'uq_asset_id_org' AND non_unique = 0 ORDER BY seq_in_index;")).ToArray();
-        Assert.Equal(["id", "organisation_id"], idOrgKey);
 
         // An asset with attached sources is never hard-deleted, so the foreign key restricts deletes.
         var deleteRule = await conn.ExecuteScalarAsync<string>(
@@ -155,10 +152,10 @@ public sealed class AssetIntegrationTests
             Assert.Equal(6, precision);
         }
 
-        await AssertMicrosecond("asset", "first_seen_at");
-        await AssertMicrosecond("asset", "last_seen_at");
-        await AssertMicrosecond("asset", "retired_at");
-        await AssertMicrosecond("asset", "created_at");
+        await AssertMicrosecond("assets", "first_seen_at");
+        await AssertMicrosecond("assets", "last_seen_at");
+        await AssertMicrosecond("assets", "retired_at");
+        await AssertMicrosecond("assets", "created_at");
         await AssertMicrosecond("asset_source", "first_seen_at");
         await AssertMicrosecond("asset_source", "last_seen_at");
         await AssertMicrosecond("asset_source", "created_at");
@@ -179,7 +176,7 @@ public sealed class AssetIntegrationTests
         var bySource = await store.GetBySourceAsync("org-a", "fleetdm", "host-1");
         Assert.NotNull(bySource);
         Assert.Equal(result.AssetId, bySource!.Id);
-        Assert.Equal("Machine", bySource.Kind);
+        Assert.Equal("Machine", bySource.Type);
         Assert.Equal("Serial", bySource.IdentityKind);
         Assert.Equal("SN-1", bySource.IdentityValue);
         Assert.Equal("Seen", bySource.State);
@@ -433,7 +430,7 @@ public sealed class AssetIntegrationTests
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
         await conn.ExecuteAsync(
-            "UPDATE asset SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY) WHERE id = @Id;",
+            "UPDATE assets SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY) WHERE id = @Id;",
             new { Id = created.AssetId });
 
         Assert.True((await writes.RetireAsync("org-a", created.AssetId!)).Ok);
@@ -444,25 +441,29 @@ public sealed class AssetIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task CrossOrgSourceInsertRejectedByCompositeForeignKey()
+    public async Task CrossOrgSourceRowDoesNotSurfaceMachineThroughStore()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
-        var (_, writes) = Stores(db);
+        var (store, writes) = Stores(db);
 
         var created = await writes.UpsertMachineFromSourceAsync(Obs("org-a", "fleetdm", "host-1", serial: "SN-1"));
 
-        // The store never produces this mismatch, so exercise it by direct SQL: an asset_source in org-b
-        // pointing at an org-a asset must be rejected by the (asset_id, organisation_id) foreign key.
+        // The old composite (asset_id, organisation_id) FK that rejected this is gone; asset_source now
+        // has a single asset_id FK with no org binding, so a source row in org-b CAN point at org-a's
+        // machine at the row level. Cross-org isolation is enforced by the query instead:
+        // GetBySourceAsync joins on s.organisation_id = a.parent and filters on the caller's org, so the
+        // org-a machine never surfaces for an org-b lookup.
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
-        var ex = await Assert.ThrowsAsync<MySqlException>(() => conn.ExecuteAsync(
+        await conn.ExecuteAsync(
             "INSERT INTO asset_source (id, asset_id, organisation_id, source, external_id, "
             + "observed_serial, observed_host_uuid, first_seen_at, last_seen_at, created_at) "
             + "VALUES ('00000000000000000000000009', @AssetId, 'org-b', 'fleetdm', 'x', NULL, NULL, "
             + "NOW(6), NOW(6), NOW(6));",
-            new { created.AssetId }));
-        Assert.Equal(MySqlErrorCode.NoReferencedRow2, ex.ErrorCode);
+            new { created.AssetId });
+
+        Assert.Null(await store.GetBySourceAsync("org-b", "fleetdm", "x"));
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -486,19 +487,19 @@ public sealed class AssetIntegrationTests
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
 
-        // Core folds serial case, so drive the schema key directly: two asset rows differing only in
-        // identity_value case both persist, proving the org-scoped identity unique key compares by exact
-        // bytes rather than colliding case-insensitively.
+        // Core folds serial case, so drive the schema key directly: two discovered assets differing only
+        // in identity_value case both persist, proving uq_assets_parent_identity compares by exact bytes
+        // rather than colliding case-insensitively.
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
         await conn.ExecuteAsync(
-            "INSERT INTO asset (id, organisation_id, kind, identity_kind, identity_value, hostname, state, "
+            "INSERT INTO assets (id, type, source, parent, identity_kind, identity_value, hostname, state, "
             + "first_seen_at, last_seen_at, retired_at, created_at) VALUES "
-            + "('00000000000000000000000001', 'org-a', 'Machine', 'Serial', 'ABC', NULL, 'Seen', NOW(6), NOW(6), NULL, NOW(6)),"
-            + "('00000000000000000000000002', 'org-a', 'Machine', 'Serial', 'abc', NULL, 'Seen', NOW(6), NOW(6), NULL, NOW(6));");
+            + "('00000000000000000000000001', 'Machine', 'discovered', 'org-a', 'Serial', 'ABC', NULL, 'Seen', NOW(6), NOW(6), NULL, NOW(6)),"
+            + "('00000000000000000000000002', 'Machine', 'discovered', 'org-a', 'Serial', 'abc', NULL, 'Seen', NOW(6), NOW(6), NULL, NOW(6));");
 
         var count = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM asset WHERE organisation_id = 'org-a' AND identity_kind = 'Serial';");
+            "SELECT COUNT(*) FROM assets WHERE source = 'discovered' AND parent = 'org-a' AND identity_kind = 'Serial';");
         Assert.Equal(2, count);
     }
 
@@ -524,30 +525,6 @@ public sealed class AssetIntegrationTests
             new { created.AssetId });
 
         Assert.Equal(2, await SourceCountAsync(db, created.AssetId!));
-    }
-
-    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task Migration017ReplayIsIdempotent()
-    {
-        await using var db = await RequireDbAsync();
-        await MigrateAsync(db);
-
-        await using var conn = new MySqlConnection(db.ConnectionString);
-        await conn.OpenAsync();
-
-        // ApplyPendingAsync will not re-run 017, so execute the raw SQL text a second time directly.
-        // CREATE TABLE IF NOT EXISTS makes it re-runnable.
-        var asm = typeof(IMigrationRunner).Assembly;
-        var name = asm.GetManifestResourceNames().Single(n => n.EndsWith("017_assets.sql", StringComparison.Ordinal));
-        await using var stream = asm.GetManifestResourceStream(name)!;
-        using var reader = new StreamReader(stream);
-        await conn.ExecuteAsync(await reader.ReadToEndAsync());
-
-        var tables = (await conn.QueryAsync<string>(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() "
-            + "AND table_name IN ('asset', 'asset_source');")).ToHashSet(StringComparer.Ordinal);
-        Assert.Contains("asset", tables);
-        Assert.Contains("asset_source", tables);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -596,7 +573,7 @@ public sealed class AssetIntegrationTests
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
         await conn.ExecuteAsync(
-            "UPDATE asset SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY), state = 'Retired', "
+            "UPDATE assets SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY), state = 'Retired', "
             + "retired_at = NOW(6) WHERE id = @Id;", new { Id = created.AssetId });
         await conn.ExecuteAsync(
             "UPDATE asset_source SET last_seen_at = DATE_ADD(NOW(6), INTERVAL 1 DAY) WHERE asset_id = @Id;",
@@ -614,7 +591,7 @@ public sealed class AssetIntegrationTests
         Assert.Equal("current", asset.Hostname);
 
         var assetLastSeen = await conn.ExecuteScalarAsync<DateTime>(
-            "SELECT last_seen_at FROM asset WHERE id = @Id;", new { Id = created.AssetId });
+            "SELECT last_seen_at FROM assets WHERE id = @Id;", new { Id = created.AssetId });
         var sourceLastSeen = await conn.ExecuteScalarAsync<DateTime>(
             "SELECT last_seen_at FROM asset_source WHERE asset_id = @Id;", new { Id = created.AssetId });
         Assert.True(assetLastSeen > DateTime.UtcNow, "asset last_seen_at regressed below the stored future value.");

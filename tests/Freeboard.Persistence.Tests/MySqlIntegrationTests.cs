@@ -32,14 +32,16 @@ public sealed class MySqlIntegrationTests
     private static async Task MigrateAsync(MySqlTestDatabase db) =>
         await RealRunner(db).ApplyPendingAsync();
 
+    // Organisations and vendors are now declared Asset rows in one id space; keep the ergonomic
+    // organisations/vendors parameters and fold both into GitOpsConfig.Assets.
     private static GitOpsConfig Config(
         IEnumerable<Standard> standards,
         IEnumerable<Control> controls,
-        IEnumerable<Organisation>? organisations = null,
+        IEnumerable<Asset>? organisations = null,
         IEnumerable<Scope>? scopes = null,
         IEnumerable<Requirement>? requirements = null,
         IEnumerable<RequirementScope>? requirementScopes = null,
-        IEnumerable<Vendor>? vendors = null,
+        IEnumerable<Asset>? vendors = null,
         IEnumerable<VendorScope>? vendorScopes = null,
         IEnumerable<EvidenceCollector>? evidenceCollectors = null,
         IEnumerable<AttestationTemplate>? attestationTemplates = null) => new()
@@ -47,10 +49,9 @@ public sealed class MySqlIntegrationTests
             Standards = standards.ToList(),
             Requirements = requirements?.ToList() ?? [],
             Controls = controls.ToList(),
-            Organisations = organisations?.ToList() ?? [],
+            Assets = [.. organisations ?? [], .. vendors ?? []],
             Scopes = scopes?.ToList() ?? [],
             RequirementScopes = requirementScopes?.ToList() ?? [],
-            Vendors = vendors?.ToList() ?? [],
             VendorScopes = vendorScopes?.ToList() ?? [],
             EvidenceCollectors = evidenceCollectors?.ToList() ?? [],
             AttestationTemplates = attestationTemplates?.ToList() ?? [],
@@ -139,8 +140,8 @@ public sealed class MySqlIntegrationTests
             Quiz = quiz,
         };
 
-    private static Organisation Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
-        new() { Id = id, Title = title, ApiVersion = apiVersion, OrgKind = kind, Parent = parent ?? string.Empty };
+    private static Asset Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
+        new() { Id = id, Title = title, ApiVersion = apiVersion, Type = kind, Source = "declared", Parent = parent ?? string.Empty };
 
     private static Scope Scp(
         string id, string organisation, string standard, string disposition = "In", string title = "T", string apiVersion = "v1") =>
@@ -166,8 +167,8 @@ public sealed class MySqlIntegrationTests
             Disposition = disposition,
         };
 
-    private static Vendor Vnd(string id, string title = "T", string apiVersion = "v1") =>
-        new() { Id = id, Title = title, ApiVersion = apiVersion };
+    private static Asset Vnd(string id, string title = "T", string apiVersion = "v1", string? owner = null) =>
+        new() { Id = id, Title = title, ApiVersion = apiVersion, Type = "Vendor", Source = "declared", Owner = owner ?? string.Empty };
 
     private static VendorScope VscReq(
         string id, string vendor, string requirement, string disposition = "Out", string? justification = "Supports MFA but not SSO.",
@@ -214,15 +215,20 @@ public sealed class MySqlIntegrationTests
 
         foreach (var t in new[]
                  {
-                     "standards", "requirements", "controls", "organisations", "scopes",
+                     "standards", "requirements", "controls", "assets", "scopes",
                      "requirement_scopes", "control_requirements", "schema_migrations",
-                     "vendors", "vendor_scopes", "evidence_collectors",
+                     "vendor_scopes", "evidence_collectors",
                  })
         {
             Assert.Contains(t, tables);
         }
 
-        // controls gains the nullable evaluation column; evidence_collectors FKs to controls and vendors.
+        // Organisations and vendors are merged into the unified assets table by 019.
+        Assert.DoesNotContain("organisations", tables);
+        Assert.DoesNotContain("vendors", tables);
+
+        // controls gains the nullable evaluation column; evidence_collectors FKs to controls and the
+        // vendor assets (retargeted to assets by 019).
         var evaluationColumn = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.columns "
             + "WHERE table_schema = DATABASE() AND table_name = 'controls' AND column_name = 'evaluation';");
@@ -231,7 +237,7 @@ public sealed class MySqlIntegrationTests
         var collectorFks = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.key_column_usage "
             + "WHERE table_schema = DATABASE() AND table_name = 'evidence_collectors' "
-            + "AND referenced_table_name IN ('controls', 'vendors');");
+            + "AND referenced_table_name IN ('controls', 'assets');");
         Assert.Equal(2, collectorFks);
 
         // evidence_collectors carries three RESTRICT FKs: controls, vendors, and integration_connections.
@@ -327,18 +333,12 @@ public sealed class MySqlIntegrationTests
             + "WHERE table_schema = DATABASE() AND table_name = 'requirements' AND index_name = 'ix_requirements_standard_id';");
         Assert.True(reqIndex >= 1);
 
-        // Organisation self-FK on parent_id.
-        var orgSelfFk = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM information_schema.key_column_usage "
-            + "WHERE table_schema = DATABASE() AND table_name = 'organisations' "
-            + "AND column_name = 'parent_id' AND referenced_table_name = 'organisations';");
-        Assert.Equal(1, orgSelfFk);
-
-        // Scope organisation/standard FKs.
+        // Scope organisation/standard FKs. The organisation FK is retargeted to assets by 019;
+        // assets.parent carries no self-FK (the old organisations.parent_id self-FK is gone).
         var scopeFks = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.key_column_usage "
             + "WHERE table_schema = DATABASE() AND table_name = 'scopes' "
-            + "AND referenced_table_name IN ('organisations', 'standards');");
+            + "AND referenced_table_name IN ('assets', 'standards');");
         Assert.Equal(2, scopeFks);
 
         // Unique key on (organisation_id, standard_id).
@@ -358,11 +358,12 @@ public sealed class MySqlIntegrationTests
             Assert.Equal("utf8mb4_bin", col);
         }
 
-        // requirement_scopes FKs to organisations and requirements.
+        // requirement_scopes FKs to the organisation assets and requirements (organisation FK
+        // retargeted to assets by 019).
         var requirementScopeFks = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.key_column_usage "
             + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
-            + "AND referenced_table_name IN ('organisations', 'requirements');");
+            + "AND referenced_table_name IN ('assets', 'requirements');");
         Assert.Equal(2, requirementScopeFks);
 
         // Unique key on (organisation_id, requirement_id) and the requirement_id index.
@@ -404,7 +405,8 @@ public sealed class MySqlIntegrationTests
             + "VALUES ('r', 'v1', 'R', 's', 'T', 'S', 'L', 'https://example.com/r', NOW(6), NOW(6)), "
             + "('R', 'v1', 'R', 's', 'T', 'S', 'L', 'https://example.com/R', NOW(6), NOW(6));");
         await conn.ExecuteAsync(
-            "INSERT INTO organisations (id, api_version, title, kind, created_at, updated_at) VALUES ('o', 'v1', 'O', 'Company', NOW(6), NOW(6));");
+            "INSERT INTO assets (id, type, source, api_version, title, created_at, updated_at) "
+            + "VALUES ('o', 'Company', 'declared', 'v1', 'O', NOW(6), NOW(6));");
         await conn.ExecuteAsync(
             "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
             + "VALUES ('rs-a', 'v1', 'T', 'o', 'r', 'Out', NOW(6), NOW(6)), ('RS-A', 'v1', 'T', 'o', 'R', 'Out', NOW(6), NOW(6));");
