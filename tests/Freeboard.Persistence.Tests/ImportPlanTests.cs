@@ -41,31 +41,26 @@ public sealed class ImportPlanTests
                 Id = "scope-a",
                 ApiVersion = "v1",
                 Title = "Scope A",
-                Organisation = "org-a",
+                Subject = "org-a",
                 Standard = "std-a",
                 Disposition = "In",
             },
-        ],
-        RequirementScopes =
-        [
-            new RequirementScope
+            new Scope
             {
                 Id = "rs-a",
                 ApiVersion = "v1",
-                Title = "RequirementScope A",
-                Organisation = "org-a",
+                Title = "Requirement scope A",
+                Subject = "org-a",
                 Requirement = "req-a",
                 Disposition = "Out",
+                Justification = "Handled by a compensating control.",
             },
-        ],
-        VendorScopes =
-        [
-            new VendorScope
+            new Scope
             {
                 Id = "vs-a",
                 ApiVersion = "v1",
-                Title = "VendorScope A",
-                Vendor = "vendor-a",
+                Title = "Vendor scope A",
+                Subject = "vendor-a",
                 Requirement = "req-a",
                 Disposition = "Out",
                 Justification = "Supports MFA but not SSO.",
@@ -81,8 +76,7 @@ public sealed class ImportPlanTests
         Assert.Equal("std-a", Assert.Single(plan.Standards).Id);
         Assert.Equal("ctrl-a", Assert.Single(plan.Controls).Id);
         Assert.Equal(["org-a", "vendor-a"], plan.Assets.Select(a => a.Id).ToArray());
-        Assert.Equal("scope-a", Assert.Single(plan.Scopes).Id);
-        Assert.Equal("rs-a", Assert.Single(plan.RequirementScopes).Id);
+        Assert.Equal(["scope-a", "rs-a", "vs-a"], plan.Scopes.Select(s => s.Id).ToArray());
     }
 
     [Fact]
@@ -95,73 +89,81 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void ScopeRowCarriesOrganisationStandardAndDisposition()
+    public void StandardTargetScopeRowCarriesSubjectStandardAndNullsOtherTargets()
     {
-        var row = Assert.Single(ImportPlan.From(SampleConfig()).Scopes);
+        var row = ImportPlan.From(SampleConfig()).Scopes.Single(s => s.Id == "scope-a");
 
-        Assert.Equal("org-a", row.Organisation);
+        Assert.Equal("org-a", row.Subject);
         Assert.Equal("std-a", row.Standard);
+        Assert.Null(row.Requirement);
+        Assert.Null(row.Control);
         Assert.Equal("In", row.Disposition);
+        // A blank justification (permitted on an In scope) normalizes to null.
+        Assert.Null(row.Justification);
     }
 
     [Fact]
-    public void RequirementScopeRowCarriesOrganisationRequirementAndDisposition()
+    public void RequirementTargetScopeRowCarriesSubjectRequirementAndJustification()
     {
-        var row = Assert.Single(ImportPlan.From(SampleConfig()).RequirementScopes);
+        var row = ImportPlan.From(SampleConfig()).Scopes.Single(s => s.Id == "rs-a");
 
-        Assert.Equal("org-a", row.Organisation);
+        Assert.Equal("org-a", row.Subject);
         Assert.Equal("req-a", row.Requirement);
+        Assert.Null(row.Standard);
+        Assert.Null(row.Control);
         Assert.Equal("Out", row.Disposition);
+        Assert.Equal("Handled by a compensating control.", row.Justification);
     }
 
     [Fact]
-    public void RequirementScopesFlattenInConfigOrder()
+    public void VendorSubjectScopeRowCarriesTargetDispositionAndJustification()
     {
-        var config = new GitOpsConfig
-        {
-            RequirementScopes =
-            [
-                new RequirementScope { Id = "rs-b", ApiVersion = "v1", Title = "B", Organisation = "org-a", Requirement = "req-b", Disposition = "Out" },
-                new RequirementScope { Id = "rs-a", ApiVersion = "v1", Title = "A", Organisation = "org-a", Requirement = "req-a", Disposition = "In" },
-            ],
-        };
+        var row = ImportPlan.From(SampleConfig()).Scopes.Single(s => s.Id == "vs-a");
 
-        var rows = ImportPlan.From(config).RequirementScopes;
-
-        Assert.Equal(["rs-b", "rs-a"], rows.Select(r => r.Id).ToArray());
-        Assert.Equal(["rs-b", "rs-a"], ImportPlan.From(config).RequirementScopeIds.ToArray());
-    }
-
-    [Fact]
-    public void VendorScopeRowCarriesTargetDispositionAndJustification()
-    {
-        var row = Assert.Single(ImportPlan.From(SampleConfig()).VendorScopes);
-
-        Assert.Equal("vendor-a", row.Vendor);
+        Assert.Equal("vendor-a", row.Subject);
         Assert.Equal("req-a", row.Requirement);
+        Assert.Null(row.Standard);
         Assert.Null(row.Control);
         Assert.Equal("Out", row.Disposition);
         Assert.Equal("Supports MFA but not SSO.", row.Justification);
     }
 
     [Fact]
-    public void VendorScopeControlTargetNullsRequirementAndBlankJustification()
+    public void ScopesFlattenInConfigOrder()
     {
         var config = new GitOpsConfig
         {
-            VendorScopes =
+            Scopes =
             [
-                new VendorScope
+                new Scope { Id = "sc-b", ApiVersion = "v1", Title = "B", Subject = "org-a", Requirement = "req-b", Disposition = "Out", Justification = "r" },
+                new Scope { Id = "sc-a", ApiVersion = "v1", Title = "A", Subject = "org-a", Requirement = "req-a", Disposition = "In" },
+            ],
+        };
+
+        var plan = ImportPlan.From(config);
+
+        Assert.Equal(["sc-b", "sc-a"], plan.Scopes.Select(s => s.Id).ToArray());
+    }
+
+    [Fact]
+    public void ControlTargetScopeNullsRequirementAndBlankJustification()
+    {
+        var config = new GitOpsConfig
+        {
+            Scopes =
+            [
+                new Scope
                 {
-                    Id = "vs-c", ApiVersion = "v1", Title = "T", Vendor = "vendor-a",
+                    Id = "vs-c", ApiVersion = "v1", Title = "T", Subject = "vendor-a",
                     Control = "ctrl-a", Disposition = "In", Justification = "   ",
                 },
             ],
         };
 
-        var row = Assert.Single(ImportPlan.From(config).VendorScopes);
+        var row = Assert.Single(ImportPlan.From(config).Scopes);
 
         Assert.Equal("ctrl-a", row.Control);
+        Assert.Null(row.Standard);
         Assert.Null(row.Requirement);
         // A blank justification (permitted on an In scope) normalizes to null like other optional fields.
         Assert.Null(row.Justification);
@@ -598,8 +600,5 @@ public sealed class ImportPlanTests
         Assert.Equal(["ctrl-a"], plan.ControlIds);
         Assert.Equal(["org-a", "vendor-a"], plan.AssetIds);
         Assert.Equal(["org-a"], plan.OrganisationIds);
-        Assert.Equal(["scope-a"], plan.ScopeIds);
-        Assert.Equal(["rs-a"], plan.RequirementScopeIds);
-        Assert.Equal(["vs-a"], plan.VendorScopeIds);
     }
 }

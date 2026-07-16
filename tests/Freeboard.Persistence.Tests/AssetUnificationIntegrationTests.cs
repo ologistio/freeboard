@@ -28,6 +28,18 @@ public sealed class AssetUnificationIntegrationTests
     private static Task MigrateAsync(MySqlTestDatabase db) =>
         new MySqlMigrationRunner(db.ConnectionFactory, typeof(IMigrationRunner).Assembly).ApplyPendingAsync();
 
+    // Applies every migration up to and including maxOrdinal, in ordinal order, over a raw connection.
+    // A test that asserts an intermediate schema (a table or FK a later migration drops) stops at that
+    // migration's ordinal rather than running the whole chain.
+    private static async Task MigrateThroughOrdinalAsync(MySqlConnection conn, int maxOrdinal)
+    {
+        foreach (var migration in MigrationCatalog.Load(typeof(IMigrationRunner).Assembly)
+            .Where(m => m.Ordinal <= maxOrdinal))
+        {
+            await conn.ExecuteAsync(migration.Sql);
+        }
+    }
+
     private static Asset DeclaredOrg(string id, string type = "Company", string? parent = null) =>
         new() { Id = id, ApiVersion = "v1", Title = id, Type = type, Source = "declared", Parent = parent ?? string.Empty };
 
@@ -37,15 +49,18 @@ public sealed class AssetUnificationIntegrationTests
     private static NewMachineObservation Obs(string org, string source, string externalId, string serial) =>
         new(org, source, externalId, serial, null, null);
 
-    // Migration 019 re-points every downstream FK at assets and drops the old tables.
+    // Migration 019 re-points every downstream FK at assets and drops the old tables. This asserts the
+    // post-019 schema, so it stops at ordinal 019: migration 020 later drops scopes/requirement_scopes/
+    // vendor_scopes (and three of the six FKs below), but the asset-model contract still requires 019 to
+    // repoint all six.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task Migration019RepointsAllForeignKeysAndDropsOldTables()
     {
         await using var db = await RequireDbAsync();
-        await MigrateAsync(db);
 
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
+        await MigrateThroughOrdinalAsync(conn, 19);
 
         var tables = (await conn.QueryAsync<string>(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();"))

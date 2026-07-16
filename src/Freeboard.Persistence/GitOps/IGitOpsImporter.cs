@@ -3,6 +3,18 @@ using Freeboard.Core.GitOps;
 namespace Freeboard.Persistence.GitOps;
 
 /// <summary>
+/// The outcome of an import. <see cref="UnresolvedScopeSubjects"/> is the DB-accurate set of scope
+/// subject ids that do not resolve to a live asset (no asset row, or a retired discovered asset) after all
+/// writes, computed inside the
+/// import transaction before commit. Distinct from the DB-less Core scope-subject warning: only the DB sees
+/// discovered and retired Machine subjects, so this is the authoritative sync-path signal.
+/// </summary>
+public sealed record ImportResult(IReadOnlyList<string> UnresolvedScopeSubjects)
+{
+    public static readonly ImportResult Empty = new([]);
+}
+
+/// <summary>
 /// Imports a git-sourced <see cref="GitOpsConfig"/> into the general compliance
 /// store. One writer into the store.
 /// </summary>
@@ -14,5 +26,5 @@ namespace Freeboard.Persistence.GitOps;
 /// </remarks>
 public interface IGitOpsImporter
 {
-    Task ImportAsync(GitOpsConfig config, CancellationToken cancellationToken = default);
+    Task<ImportResult> ImportAsync(GitOpsConfig config, CancellationToken cancellationToken = default);
 }

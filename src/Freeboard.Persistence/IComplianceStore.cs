@@ -19,11 +19,7 @@ public interface IComplianceStore
 
     Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default);
-
     Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default);
-
-    Task<IReadOnlyList<VendorScopeRow>> GetVendorScopesAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default);
 
@@ -32,15 +28,15 @@ public interface IComplianceStore
     Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads the four Statement of Applicability inputs (organisations, scopes, requirements,
-    /// requirement-scopes) together in one repeatable-read snapshot so they cannot straddle a
+    /// Reads the Statement of Applicability inputs (organisations, the unified scopes, requirements,
+    /// and the resolvable-asset-id set) together in one repeatable-read snapshot so they cannot straddle a
     /// concurrent importer commit.
     /// </summary>
     Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads the Statement of Applicability drill-down inputs (organisations, scopes,
-    /// requirements, requirement-scopes, controls with resolved <c>maps_to</c>, evidence-collectors,
+    /// Reads the Statement of Applicability drill-down inputs (organisations, the unified scopes,
+    /// requirements, the resolvable-asset-id set, controls with resolved <c>maps_to</c>, evidence-collectors,
     /// attestation-templates, vendors) together in one repeatable-read snapshot so the drill-down
     /// hierarchy cannot straddle a concurrent importer commit. Separate from
     /// <see cref="GetStatementOfApplicabilityInputsAsync"/> so evidence ingest and the JSON endpoint

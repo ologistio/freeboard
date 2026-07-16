@@ -33,16 +33,15 @@ public sealed class MySqlIntegrationTests
         await RealRunner(db).ApplyPendingAsync();
 
     // Organisations and vendors are now declared Asset rows in one id space; keep the ergonomic
-    // organisations/vendors parameters and fold both into GitOpsConfig.Assets.
+    // organisations/vendors parameters and fold both into GitOpsConfig.Assets. Every scope kind (org or
+    // vendor subject, standard/requirement/control target) is one unified Scope in the single scopes list.
     private static GitOpsConfig Config(
         IEnumerable<Standard> standards,
         IEnumerable<Control> controls,
         IEnumerable<Asset>? organisations = null,
         IEnumerable<Scope>? scopes = null,
         IEnumerable<Requirement>? requirements = null,
-        IEnumerable<RequirementScope>? requirementScopes = null,
         IEnumerable<Asset>? vendors = null,
-        IEnumerable<VendorScope>? vendorScopes = null,
         IEnumerable<EvidenceCollector>? evidenceCollectors = null,
         IEnumerable<AttestationTemplate>? attestationTemplates = null) => new()
         {
@@ -51,8 +50,6 @@ public sealed class MySqlIntegrationTests
             Controls = controls.ToList(),
             Assets = [.. organisations ?? [], .. vendors ?? []],
             Scopes = scopes?.ToList() ?? [],
-            RequirementScopes = requirementScopes?.ToList() ?? [],
-            VendorScopes = vendorScopes?.ToList() ?? [],
             EvidenceCollectors = evidenceCollectors?.ToList() ?? [],
             AttestationTemplates = attestationTemplates?.ToList() ?? [],
         };
@@ -143,34 +140,42 @@ public sealed class MySqlIntegrationTests
     private static Asset Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, Type = kind, Source = "declared", Parent = parent ?? string.Empty };
 
+    // A standard-target scope (subject -> standard). A blank justification defaults on Out to keep the
+    // hand-built config valid under the generalized Out-requires-justification rule.
     private static Scope Scp(
-        string id, string organisation, string standard, string disposition = "In", string title = "T", string apiVersion = "v1") =>
+        string id, string subject, string standard, string disposition = "In", string? justification = null,
+        string title = "T", string apiVersion = "v1") =>
         new()
         {
             Id = id,
             Title = title,
             ApiVersion = apiVersion,
-            Organisation = organisation,
+            Subject = subject,
             Standard = standard,
             Disposition = disposition,
+            Justification = justification ?? (disposition == "Out" ? "Compensating control in place." : string.Empty),
         };
 
-    private static RequirementScope Rqs(
-        string id, string organisation, string requirement, string disposition = "Out", string title = "T", string apiVersion = "v1") =>
+    // A requirement-target scope (subject -> requirement).
+    private static Scope Rqs(
+        string id, string subject, string requirement, string disposition = "Out", string? justification = null,
+        string title = "T", string apiVersion = "v1") =>
         new()
         {
             Id = id,
             Title = title,
             ApiVersion = apiVersion,
-            Organisation = organisation,
+            Subject = subject,
             Requirement = requirement,
             Disposition = disposition,
+            Justification = justification ?? (disposition == "Out" ? "Compensating control in place." : string.Empty),
         };
 
     private static Asset Vnd(string id, string title = "T", string apiVersion = "v1", string? owner = null) =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, Type = "Vendor", Source = "declared", Owner = owner ?? string.Empty };
 
-    private static VendorScope VscReq(
+    // A vendor-subject scope targeting a requirement.
+    private static Scope VscReq(
         string id, string vendor, string requirement, string disposition = "Out", string? justification = "Supports MFA but not SSO.",
         string title = "T", string apiVersion = "v1") =>
         new()
@@ -178,13 +183,14 @@ public sealed class MySqlIntegrationTests
             Id = id,
             Title = title,
             ApiVersion = apiVersion,
-            Vendor = vendor,
+            Subject = vendor,
             Requirement = requirement,
             Disposition = disposition,
             Justification = justification ?? string.Empty,
         };
 
-    private static VendorScope VscCtrl(
+    // A vendor-subject scope targeting a control.
+    private static Scope VscCtrl(
         string id, string vendor, string control, string disposition = "Out", string? justification = "No logins - N/A.",
         string title = "T", string apiVersion = "v1") =>
         new()
@@ -192,7 +198,7 @@ public sealed class MySqlIntegrationTests
             Id = id,
             Title = title,
             ApiVersion = apiVersion,
-            Vendor = vendor,
+            Subject = vendor,
             Control = control,
             Disposition = disposition,
             Justification = justification ?? string.Empty,
@@ -216,8 +222,7 @@ public sealed class MySqlIntegrationTests
         foreach (var t in new[]
                  {
                      "standards", "requirements", "controls", "assets", "scopes",
-                     "requirement_scopes", "control_requirements", "schema_migrations",
-                     "vendor_scopes", "evidence_collectors",
+                     "control_requirements", "schema_migrations", "evidence_collectors",
                  })
         {
             Assert.Contains(t, tables);
@@ -226,6 +231,10 @@ public sealed class MySqlIntegrationTests
         // Organisations and vendors are merged into the unified assets table by 019.
         Assert.DoesNotContain("organisations", tables);
         Assert.DoesNotContain("vendors", tables);
+
+        // requirement_scopes and vendor_scopes are merged into the one scopes table by 020.
+        Assert.DoesNotContain("requirement_scopes", tables);
+        Assert.DoesNotContain("vendor_scopes", tables);
 
         // controls gains the nullable evaluation column; evidence_collectors FKs to controls and the
         // vendor assets (retargeted to assets by 019).
@@ -333,71 +342,72 @@ public sealed class MySqlIntegrationTests
             + "WHERE table_schema = DATABASE() AND table_name = 'requirements' AND index_name = 'ix_requirements_standard_id';");
         Assert.True(reqIndex >= 1);
 
-        // Scope organisation/standard FKs. The organisation FK is retargeted to assets by 019;
-        // assets.parent carries no self-FK (the old organisations.parent_id self-FK is gone).
+        // The unified scopes table (020): a FK-free subject and three target FKs to standards,
+        // requirements, and controls (all ON DELETE RESTRICT). No FK references assets.
         var scopeFks = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.key_column_usage "
             + "WHERE table_schema = DATABASE() AND table_name = 'scopes' "
-            + "AND referenced_table_name IN ('assets', 'standards');");
-        Assert.Equal(2, scopeFks);
+            + "AND referenced_table_name IN ('standards', 'requirements', 'controls');");
+        Assert.Equal(3, scopeFks);
+        var scopeSubjectFk = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.key_column_usage "
+            + "WHERE table_schema = DATABASE() AND table_name = 'scopes' AND column_name = 'subject_id' "
+            + "AND referenced_table_name IS NOT NULL;");
+        Assert.Equal(0, scopeSubjectFk);
 
-        // Unique key on (organisation_id, standard_id).
-        var uniqueKeyCols = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM information_schema.statistics "
+        // The three target FKs carry the collision-free fk_scopes_v2_* names (RENAME TABLE keeps them).
+        var targetFkNames = (await conn.QueryAsync<string>(
+            "SELECT constraint_name FROM information_schema.referential_constraints "
+            + "WHERE constraint_schema = DATABASE() AND table_name = 'scopes' ORDER BY constraint_name;"))
+            .ToArray();
+        Assert.Equal(
+            ["fk_scopes_v2_control", "fk_scopes_v2_requirement", "fk_scopes_v2_standard"], targetFkNames);
+
+        // All three target FKs are ON DELETE RESTRICT (a targeted catalogue row cannot be dropped while a
+        // scope references it).
+        var scopeDeleteRules = (await conn.QueryAsync<string>(
+            "SELECT delete_rule FROM information_schema.referential_constraints "
+            + "WHERE constraint_schema = DATABASE() AND table_name = 'scopes';"))
+            .ToArray();
+        Assert.Equal(3, scopeDeleteRules.Length);
+        Assert.All(scopeDeleteRules, rule => Assert.Equal("RESTRICT", rule));
+
+        // The three NULL-distinct composite unique keys, one per target.
+        foreach (var (index, columns) in new[]
+                 {
+                     ("uq_scopes_subject_standard", new[] { "subject_id", "standard_id" }),
+                     ("uq_scopes_subject_requirement", new[] { "subject_id", "requirement_id" }),
+                     ("uq_scopes_subject_control", new[] { "subject_id", "control_id" }),
+                 })
+        {
+            var uniqueColumns = (await conn.QueryAsync<string>(
+                "SELECT column_name FROM information_schema.statistics "
+                + "WHERE table_schema = DATABASE() AND table_name = 'scopes' AND index_name = @Index "
+                + "AND non_unique = 0 ORDER BY seq_in_index;",
+                new { Index = index }))
+                .ToArray();
+            Assert.Equal(columns, uniqueColumns);
+        }
+
+        // The single-target CHECK exists.
+        var singleTargetCheck = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.table_constraints "
             + "WHERE table_schema = DATABASE() AND table_name = 'scopes' "
-            + "AND index_name = 'uq_scopes_organisation_standard' AND non_unique = 0;");
-        Assert.Equal(2, uniqueKeyCols);
+            + "AND constraint_type = 'CHECK' AND constraint_name = 'ck_scopes_single_target';");
+        Assert.Equal(1, singleTargetCheck);
 
-        // requirement_scopes id/organisation_id/requirement_id are binary-collated.
-        foreach (var column in new[] { "id", "organisation_id", "requirement_id" })
+        // scopes id/subject_id/target columns are binary-collated.
+        foreach (var column in new[] { "id", "subject_id", "standard_id", "requirement_id", "control_id" })
         {
             var col = await conn.ExecuteScalarAsync<string>(
                 "SELECT collation_name FROM information_schema.columns "
-                + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' AND column_name = @Column;",
+                + "WHERE table_schema = DATABASE() AND table_name = 'scopes' AND column_name = @Column;",
                 new { Column = column });
             Assert.Equal("utf8mb4_bin", col);
         }
 
-        // requirement_scopes FKs to the organisation assets and requirements (organisation FK
-        // retargeted to assets by 019).
-        var requirementScopeFks = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM information_schema.key_column_usage "
-            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
-            + "AND referenced_table_name IN ('assets', 'requirements');");
-        Assert.Equal(2, requirementScopeFks);
-
-        // Unique key on (organisation_id, requirement_id) and the requirement_id index.
-        var requirementScopeUnique = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM information_schema.statistics "
-            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
-            + "AND index_name = 'uq_requirement_scopes_organisation_requirement' AND non_unique = 0;");
-        Assert.Equal(2, requirementScopeUnique);
-        var requirementScopeIndex = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM information_schema.statistics "
-            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
-            + "AND index_name = 'ix_requirement_scopes_requirement_id';");
-        Assert.True(requirementScopeIndex >= 1);
-
-        // Both requirement_scopes FKs are ON DELETE RESTRICT (a referenced organisation or
-        // requirement cannot be dropped while a requirement-scope still binds it).
-        var requirementScopeDeleteRules = (await conn.QueryAsync<string>(
-            "SELECT delete_rule FROM information_schema.referential_constraints "
-            + "WHERE constraint_schema = DATABASE() AND table_name = 'requirement_scopes';"))
-            .ToArray();
-        Assert.Equal(2, requirementScopeDeleteRules.Length);
-        Assert.All(requirementScopeDeleteRules, rule => Assert.Equal("RESTRICT", rule));
-
-        // The unique key spans (organisation_id, requirement_id) in that column order.
-        var requirementScopeUniqueColumns = (await conn.QueryAsync<string>(
-            "SELECT column_name FROM information_schema.statistics "
-            + "WHERE table_schema = DATABASE() AND table_name = 'requirement_scopes' "
-            + "AND index_name = 'uq_requirement_scopes_organisation_requirement' "
-            + "ORDER BY seq_in_index;"))
-            .ToArray();
-        Assert.Equal(["organisation_id", "requirement_id"], requirementScopeUniqueColumns);
-
-        // Two requirement-scope ids differing only in case stay distinct rows under utf8mb4_bin.
-        // Each binds a distinct requirement so the (organisation, requirement) unique key is not hit.
+        // Two scope ids differing only in case stay distinct rows under utf8mb4_bin. Each binds a distinct
+        // requirement so the (subject, requirement) unique key is not hit.
         await conn.ExecuteAsync(
             "INSERT INTO standards (id, api_version, title, created_at, updated_at) VALUES ('s', 'v1', 'S', NOW(6), NOW(6));");
         await conn.ExecuteAsync(
@@ -408,10 +418,10 @@ public sealed class MySqlIntegrationTests
             "INSERT INTO assets (id, type, source, api_version, title, created_at, updated_at) "
             + "VALUES ('o', 'Company', 'declared', 'v1', 'O', NOW(6), NOW(6));");
         await conn.ExecuteAsync(
-            "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
+            "INSERT INTO scopes (id, api_version, title, subject_id, requirement_id, disposition, created_at, updated_at) "
             + "VALUES ('rs-a', 'v1', 'T', 'o', 'r', 'Out', NOW(6), NOW(6)), ('RS-A', 'v1', 'T', 'o', 'R', 'Out', NOW(6), NOW(6));");
         var distinctRows = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM requirement_scopes WHERE id IN ('rs-a', 'RS-A');");
+            "SELECT COUNT(*) FROM scopes WHERE id IN ('rs-a', 'RS-A');");
         Assert.Equal(2, distinctRows);
     }
 
@@ -499,21 +509,25 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a", version: "3.3", authority: "NCSC"), Std("std-b")],
             [Ctrl("ctrl-a", ["req-a", "req-b"])],
-            [Org("org-a"), Org("org-eng", "Department", "org-a")],
-            [Scp("scope-a", "org-a", "std-a")],
-            [Req("req-a", "std-a"), Req("req-b", "std-b")],
-            [Rqs("rs-a", "org-a", "req-a")],
-            [Vnd("vendor-a")],
-            [VscReq("vs-a", "vendor-a", "req-a")]));
+            organisations: [Org("org-a"), Org("org-eng", "Department", "org-a")],
+            scopes: [Scp("scope-a", "org-a", "std-a"), Rqs("rs-a", "org-a", "req-a"), VscReq("vs-a", "vendor-a", "req-a")],
+            requirements: [Req("req-a", "std-a"), Req("req-b", "std-b")],
+            vendors: [Vnd("vendor-a")]));
 
+        // One scopes count folds the three former scope kinds (org standard, org requirement, vendor).
         var counts = await store.GetCountsAsync();
-        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 1, 1, 1, 1, 0, 0), counts);
+        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 3, 1, 0, 0), counts);
 
-        var requirementScope = Assert.Single(await store.GetRequirementScopesAsync());
-        Assert.Equal("rs-a", requirementScope.Id);
-        Assert.Equal("org-a", requirementScope.Organisation);
+        var scopes = await store.GetScopesAsync();
+        var requirementScope = scopes.Single(s => s.Id == "rs-a");
+        Assert.Equal("org-a", requirementScope.Subject);
         Assert.Equal("req-a", requirementScope.Requirement);
+        Assert.Null(requirementScope.Standard);
         Assert.Equal("Out", requirementScope.Disposition);
+
+        var vendorScope = scopes.Single(s => s.Id == "vs-a");
+        Assert.Equal("vendor-a", vendorScope.Subject);
+        Assert.Equal("req-a", vendorScope.Requirement);
 
         var standard = (await store.GetStandardsAsync()).Single(s => s.Id == "std-a");
         Assert.Equal("3.3", standard.Version);
@@ -533,8 +547,8 @@ public sealed class MySqlIntegrationTests
         Assert.Equal("org-a", child.Parent);
         Assert.Null(organisations.Single(o => o.Id == "org-a").Parent);
 
-        var scope = Assert.Single(await store.GetScopesAsync());
-        Assert.Equal("org-a", scope.Organisation);
+        var scope = scopes.Single(s => s.Id == "scope-a");
+        Assert.Equal("org-a", scope.Subject);
         Assert.Equal("std-a", scope.Standard);
         Assert.Equal("In", scope.Disposition);
     }
@@ -549,12 +563,12 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")], [], [Org("org-a")], [Scp("scope-a", "org-a", "std-a")]));
 
-        // A second row for the same (organisation, standard) pair, written directly, is rejected.
+        // A second row for the same (subject, standard) pair, written directly, is rejected.
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
         await Assert.ThrowsAsync<MySqlException>(() => conn.ExecuteAsync(
-            "INSERT INTO scopes (id, api_version, title, organisation_id, standard_id, disposition, created_at, updated_at) "
-            + "VALUES ('scope-b', 'v1', 'T', 'org-a', 'std-a', 'Out', NOW(6), NOW(6));"));
+            "INSERT INTO scopes (id, api_version, title, subject_id, standard_id, disposition, justification, created_at, updated_at) "
+            + "VALUES ('scope-b', 'v1', 'T', 'org-a', 'std-a', 'Out', 'r', NOW(6), NOW(6));"));
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -594,7 +608,7 @@ public sealed class MySqlIntegrationTests
 
         var scope = Assert.Single(await store.GetScopesAsync());
         Assert.Equal("scope-new", scope.Id);
-        Assert.Equal("org-a", scope.Organisation);
+        Assert.Equal("org-a", scope.Subject);
         Assert.Equal("std-a", scope.Standard);
         Assert.Equal("Out", scope.Disposition);
     }
@@ -767,18 +781,18 @@ public sealed class MySqlIntegrationTests
         var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
-        // Old state: rs-a binds org-gone to req-gone (a requirement of std-a). Both FKs RESTRICT.
+        // Old state: rs-a binds org-gone to req-gone (a requirement of std-a). The requirement target FK
+        // is RESTRICT; the subject has no FK.
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
-            [Org("org-keep"), Org("org-gone")],
-            [],
-            [Req("req-keep", "std-a"), Req("req-gone", "std-a")],
-            [Rqs("rs-a", "org-gone", "req-gone")]));
+            organisations: [Org("org-keep"), Org("org-gone")],
+            scopes: [Rqs("rs-a", "org-gone", "req-gone")],
+            requirements: [Req("req-keep", "std-a"), Req("req-gone", "std-a")]));
 
-        // New config drops the organisation and the requirement (and the requirement-scope). The
-        // importer must replace the requirement-scope set before the absent-organisation and
-        // absent-requirement deletes, so neither RESTRICT FK is hit.
+        // New config drops the organisation and the requirement (and the scope). The importer must
+        // replace the scope set before the absent-organisation and absent-requirement deletes, so the
+        // requirement RESTRICT FK is not hit (and the removed org simply leaves a dangling subject).
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
@@ -786,7 +800,7 @@ public sealed class MySqlIntegrationTests
             [],
             [Req("req-keep", "std-a")]));
 
-        Assert.Empty(await store.GetRequirementScopesAsync());
+        Assert.Empty(await store.GetScopesAsync());
         Assert.Equal(["org-keep"], (await store.GetOrganisationsAsync()).Select(o => o.Id).ToArray());
         Assert.Equal(["req-keep"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
     }
@@ -800,20 +814,20 @@ public sealed class MySqlIntegrationTests
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], [Org("org-a")], [],
-            [Req("req-a", "std-a")],
-            [Rqs("rs-old", "org-a", "req-a", "Out")]));
+            [Std("std-a")], [], organisations: [Org("org-a")],
+            scopes: [Rqs("rs-old", "org-a", "req-a", "Out")],
+            requirements: [Req("req-a", "std-a")]));
 
-        // Rename the requirement-scope id while keeping the same (organisation, requirement) pair.
-        // The whole-set replace drops the old row and inserts the new id, so no unique-key collision.
+        // Rename the scope id while keeping the same (subject, requirement) pair. The whole-set replace
+        // drops the old row and inserts the new id, so no unique-key collision.
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], [Org("org-a")], [],
-            [Req("req-a", "std-a")],
-            [Rqs("rs-new", "org-a", "req-a", "Out")]));
+            [Std("std-a")], [], organisations: [Org("org-a")],
+            scopes: [Rqs("rs-new", "org-a", "req-a", "Out")],
+            requirements: [Req("req-a", "std-a")]));
 
-        var requirementScope = Assert.Single(await store.GetRequirementScopesAsync());
+        var requirementScope = Assert.Single(await store.GetScopesAsync());
         Assert.Equal("rs-new", requirementScope.Id);
-        Assert.Equal("org-a", requirementScope.Organisation);
+        Assert.Equal("org-a", requirementScope.Subject);
         Assert.Equal("req-a", requirementScope.Requirement);
         Assert.Equal("Out", requirementScope.Disposition);
     }
@@ -827,23 +841,23 @@ public sealed class MySqlIntegrationTests
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], [Org("org-a"), Org("org-b")], [],
-            [Req("req-x", "std-a"), Req("req-y", "std-a")],
-            [Rqs("rs-1", "org-a", "req-x", "Out"), Rqs("rs-2", "org-b", "req-y", "In")]));
+            [Std("std-a")], [], organisations: [Org("org-a"), Org("org-b")],
+            scopes: [Rqs("rs-1", "org-a", "req-x", "Out"), Rqs("rs-2", "org-b", "req-y", "In")],
+            requirements: [Req("req-x", "std-a"), Req("req-y", "std-a")]));
 
-        // Two requirement-scopes exchange their (organisation, requirement) pairs while keeping
+        // Two requirement-target scopes exchange their (subject, requirement) pairs while keeping
         // their ids. Neither id is absent, so a prune-then-upsert would not free the pairs and the
         // upsert could match the unique pair key instead of the primary key, corrupting the result.
         // The whole-set replace re-inserts both correctly.
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], [Org("org-a"), Org("org-b")], [],
-            [Req("req-x", "std-a"), Req("req-y", "std-a")],
-            [Rqs("rs-1", "org-b", "req-y", "Out"), Rqs("rs-2", "org-a", "req-x", "In")]));
+            [Std("std-a")], [], organisations: [Org("org-a"), Org("org-b")],
+            scopes: [Rqs("rs-1", "org-b", "req-y", "Out"), Rqs("rs-2", "org-a", "req-x", "In")],
+            requirements: [Req("req-x", "std-a"), Req("req-y", "std-a")]));
 
-        var scopes = (await store.GetRequirementScopesAsync()).ToDictionary(r => r.Id);
+        var scopes = (await store.GetScopesAsync()).ToDictionary(r => r.Id);
         Assert.Equal(2, scopes.Count);
-        Assert.Equal(("org-b", "req-y", "Out"), (scopes["rs-1"].Organisation, scopes["rs-1"].Requirement, scopes["rs-1"].Disposition));
-        Assert.Equal(("org-a", "req-x", "In"), (scopes["rs-2"].Organisation, scopes["rs-2"].Requirement, scopes["rs-2"].Disposition));
+        Assert.Equal(("org-b", "req-y", "Out"), (scopes["rs-1"].Subject, scopes["rs-1"].Requirement, scopes["rs-1"].Disposition));
+        Assert.Equal(("org-a", "req-x", "In"), (scopes["rs-2"].Subject, scopes["rs-2"].Requirement, scopes["rs-2"].Disposition));
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -859,7 +873,7 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-a", ["req-a"])],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a", "Vendor A"), Vnd("vendor-b", "Vendor B")],
-            vendorScopes:
+            scopes:
             [
                 VscReq("vs-req", "vendor-a", "req-a", "Out", "Supports MFA but not SSO."),
                 VscCtrl("vs-ctrl", "vendor-a", "ctrl-a", "In", justification: null),
@@ -867,17 +881,18 @@ public sealed class MySqlIntegrationTests
 
         var counts = await store.GetCountsAsync();
         Assert.Equal(2, counts.Vendors);
-        Assert.Equal(2, counts.VendorScopes);
+        Assert.Equal(2, counts.Scopes);
 
         var vendors = await store.GetVendorsAsync();
         Assert.Equal(["vendor-a", "vendor-b"], vendors.Select(v => v.Id).ToArray());
         Assert.Equal("Vendor A", vendors.Single(v => v.Id == "vendor-a").Title);
 
-        var scopes = (await store.GetVendorScopesAsync()).ToDictionary(v => v.Id);
+        // Vendor exceptions read from the one unified scopes list, filtered to the vendor subject.
+        var scopes = (await store.GetScopesAsync()).Where(s => s.Subject == "vendor-a").ToDictionary(v => v.Id);
         Assert.Equal(2, scopes.Count);
 
         var reqScope = scopes["vs-req"];
-        Assert.Equal("vendor-a", reqScope.Vendor);
+        Assert.Equal("vendor-a", reqScope.Subject);
         Assert.Equal("req-a", reqScope.Requirement);
         Assert.Null(reqScope.Control);
         Assert.Equal("Out", reqScope.Disposition);
@@ -892,50 +907,6 @@ public sealed class MySqlIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task VendorScopeWithBothTargetsIsRejectedByCheck()
-    {
-        await using var db = await RequireDbAsync();
-        await MigrateAsync(db);
-        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
-
-        // Seed a valid vendor plus a real requirement and control so both FK targets resolve; the
-        // exactly-one-target CHECK is then the only thing that can reject the row.
-        await importer.ImportAsync(Config(
-            [Std("std-a")],
-            [Ctrl("ctrl-a", ["req-a"])],
-            requirements: [Req("req-a", "std-a")],
-            vendors: [Vnd("vendor-a")]));
-
-        await using var conn = new MySqlConnection(db.ConnectionString);
-        await conn.OpenAsync();
-
-        // Both requirement_id and control_id set: rejected by ck_vendor_scopes_single_target.
-        await Assert.ThrowsAsync<MySqlException>(() => conn.ExecuteAsync(
-            "INSERT INTO vendor_scopes "
-            + "(id, api_version, title, vendor_id, requirement_id, control_id, disposition, created_at, updated_at) "
-            + "VALUES ('vs-both', 'v1', 'T', 'vendor-a', 'req-a', 'ctrl-a', 'Out', NOW(6), NOW(6));"));
-    }
-
-    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task VendorScopeWithNoTargetIsRejectedByCheck()
-    {
-        await using var db = await RequireDbAsync();
-        await MigrateAsync(db);
-        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
-
-        await importer.ImportAsync(Config([Std("std-a")], [], vendors: [Vnd("vendor-a")]));
-
-        await using var conn = new MySqlConnection(db.ConnectionString);
-        await conn.OpenAsync();
-
-        // Neither requirement_id nor control_id set (both default NULL): rejected by
-        // ck_vendor_scopes_single_target.
-        await Assert.ThrowsAsync<MySqlException>(() => conn.ExecuteAsync(
-            "INSERT INTO vendor_scopes (id, api_version, title, vendor_id, disposition, created_at, updated_at) "
-            + "VALUES ('vs-none', 'v1', 'T', 'vendor-a', 'In', NOW(6), NOW(6));"));
-    }
-
-    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task ResyncRemovesVendorThatHadVendorScope()
     {
         await using var db = await RequireDbAsync();
@@ -943,23 +914,24 @@ public sealed class MySqlIntegrationTests
         var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
-        // Old state: vs-a binds vendor-gone to req-a under a RESTRICT FK.
+        // Old state: vs-a binds vendor-gone to req-a. The subject has no FK, so removing the vendor
+        // leaves the scope dangling; the scope is dropped by the whole-set replace before the prune.
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-keep"), Vnd("vendor-gone")],
-            vendorScopes: [VscReq("vs-a", "vendor-gone", "req-a")]));
+            scopes: [VscReq("vs-a", "vendor-gone", "req-a")]));
 
-        // New config drops the vendor (and its vendor-scope). The importer must replace the
-        // vendor-scope set before the absent-vendor delete, so the RESTRICT FK is not hit.
+        // New config drops the vendor (and its scope). The importer replaces the scope set before the
+        // absent-vendor prune.
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-keep")]));
 
-        Assert.Empty(await store.GetVendorScopesAsync());
+        Assert.Empty(await store.GetScopesAsync());
         Assert.Equal(["vendor-keep"], (await store.GetVendorsAsync()).Select(v => v.Id).ToArray());
     }
 
@@ -976,17 +948,17 @@ public sealed class MySqlIntegrationTests
             [],
             requirements: [Req("req-keep", "std-a"), Req("req-gone", "std-a")],
             vendors: [Vnd("vendor-a")],
-            vendorScopes: [VscReq("vs-a", "vendor-a", "req-gone")]));
+            scopes: [VscReq("vs-a", "vendor-a", "req-gone")]));
 
-        // Drop the targeted requirement (and the vendor-scope). The vendor-scope set is replaced
-        // before the absent-requirement delete, so the requirement RESTRICT FK is not hit.
+        // Drop the targeted requirement (and the scope). The scope set is replaced before the
+        // absent-requirement delete, so the requirement RESTRICT FK is not hit.
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
             requirements: [Req("req-keep", "std-a")],
             vendors: [Vnd("vendor-a")]));
 
-        Assert.Empty(await store.GetVendorScopesAsync());
+        Assert.Empty(await store.GetScopesAsync());
         Assert.Equal(["req-keep"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
     }
 
@@ -1003,17 +975,17 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-keep", ["req-a"]), Ctrl("ctrl-gone", ["req-a"])],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a")],
-            vendorScopes: [VscCtrl("vs-a", "vendor-a", "ctrl-gone")]));
+            scopes: [VscCtrl("vs-a", "vendor-a", "ctrl-gone")]));
 
-        // Drop the targeted control (and the vendor-scope). The vendor-scope set is replaced before
-        // the absent-control delete, so the control RESTRICT FK is not hit.
+        // Drop the targeted control (and the scope). The scope set is replaced before the
+        // absent-control delete, so the control RESTRICT FK is not hit.
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [Ctrl("ctrl-keep", ["req-a"])],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a")]));
 
-        Assert.Empty(await store.GetVendorScopesAsync());
+        Assert.Empty(await store.GetScopesAsync());
         Assert.Equal(["ctrl-keep"], (await store.GetControlsAsync()).Select(c => c.Id).ToArray());
     }
 
@@ -1028,18 +1000,18 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")], [], requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a")],
-            vendorScopes: [VscReq("vs-old", "vendor-a", "req-a", "Out", "Reason.")]));
+            scopes: [VscReq("vs-old", "vendor-a", "req-a", "Out", "Reason.")]));
 
-        // Rename the vendor-scope id while keeping the same (vendor, requirement) pair. The whole-set
+        // Rename the scope id while keeping the same (subject, requirement) pair. The whole-set
         // replace drops the old row and inserts the new id, so no unique-key collision.
         await importer.ImportAsync(Config(
             [Std("std-a")], [], requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a")],
-            vendorScopes: [VscReq("vs-new", "vendor-a", "req-a", "Out", "Reason.")]));
+            scopes: [VscReq("vs-new", "vendor-a", "req-a", "Out", "Reason.")]));
 
-        var scope = Assert.Single(await store.GetVendorScopesAsync());
+        var scope = Assert.Single(await store.GetScopesAsync());
         Assert.Equal("vs-new", scope.Id);
-        Assert.Equal("vendor-a", scope.Vendor);
+        Assert.Equal("vendor-a", scope.Subject);
         Assert.Equal("req-a", scope.Requirement);
     }
 
@@ -1054,27 +1026,27 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")], [], requirements: [Req("req-x", "std-a"), Req("req-y", "std-a")],
             vendors: [Vnd("vendor-a"), Vnd("vendor-b")],
-            vendorScopes:
+            scopes:
             [
                 VscReq("vs-1", "vendor-a", "req-x", "Out", "One."),
                 VscReq("vs-2", "vendor-b", "req-y", "In", null),
             ]));
 
-        // Two vendor-scopes exchange their (vendor, requirement) pairs while keeping their ids. A
-        // prune-then-upsert could not free the pairs; the whole-set replace re-inserts both correctly.
+        // Two vendor-subject scopes exchange their (subject, requirement) pairs while keeping their ids.
+        // A prune-then-upsert could not free the pairs; the whole-set replace re-inserts both correctly.
         await importer.ImportAsync(Config(
             [Std("std-a")], [], requirements: [Req("req-x", "std-a"), Req("req-y", "std-a")],
             vendors: [Vnd("vendor-a"), Vnd("vendor-b")],
-            vendorScopes:
+            scopes:
             [
                 VscReq("vs-1", "vendor-b", "req-y", "Out", "One."),
                 VscReq("vs-2", "vendor-a", "req-x", "In", null),
             ]));
 
-        var scopes = (await store.GetVendorScopesAsync()).ToDictionary(v => v.Id);
+        var scopes = (await store.GetScopesAsync()).ToDictionary(v => v.Id);
         Assert.Equal(2, scopes.Count);
-        Assert.Equal(("vendor-b", "req-y", "Out"), (scopes["vs-1"].Vendor, scopes["vs-1"].Requirement, scopes["vs-1"].Disposition));
-        Assert.Equal(("vendor-a", "req-x", "In"), (scopes["vs-2"].Vendor, scopes["vs-2"].Requirement, scopes["vs-2"].Disposition));
+        Assert.Equal(("vendor-b", "req-y", "Out"), (scopes["vs-1"].Subject, scopes["vs-1"].Requirement, scopes["vs-1"].Disposition));
+        Assert.Equal(("vendor-a", "req-x", "In"), (scopes["vs-2"].Subject, scopes["vs-2"].Requirement, scopes["vs-2"].Disposition));
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1288,9 +1260,8 @@ public sealed class MySqlIntegrationTests
             [Std("std-a")],
             [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
             organisations: [Org("org-a")],
-            scopes: [Scp("scope-a", "org-a", "std-a", "In")],
+            scopes: [Scp("scope-a", "org-a", "std-a", "In"), Rqs("rs-a", "org-a", "req-a", "Out")],
             requirements: [Req("req-a", "std-a")],
-            requirementScopes: [Rqs("rs-a", "org-a", "req-a", "Out")],
             vendors: [Vnd("vendor-a")],
             evidenceCollectors:
             [
@@ -1305,9 +1276,9 @@ public sealed class MySqlIntegrationTests
         var inputs = await store.GetStatementOfApplicabilityDrilldownInputsAsync();
 
         Assert.Equal(["org-a"], inputs.Organisations.Select(o => o.Id).ToArray());
-        Assert.Equal(["scope-a"], inputs.Scopes.Select(s => s.Id).ToArray());
+        // The one unified scopes list carries every target kind, ordered by id (rs-a before scope-a).
+        Assert.Equal(["rs-a", "scope-a"], inputs.Scopes.Select(s => s.Id).ToArray());
         Assert.Equal(["req-a"], inputs.Requirements.Select(r => r.Id).ToArray());
-        Assert.Equal(["rs-a"], inputs.RequirementScopes.Select(rs => rs.Id).ToArray());
 
         var control = Assert.Single(inputs.Controls);
         Assert.Equal("ctrl-a", control.Id);
@@ -1366,19 +1337,25 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")], [], [Org("org-a")], [], [Req("req-a", "std-a")]));
 
-        // A valid app-managed upsert persists and reads back through the read store.
-        Assert.True((await writeStore.UpsertRequirementScopeDispositionAsync("rs-a", "T", "org-a", "req-a", "Out")).Ok);
-        var persisted = Assert.Single(await store.GetRequirementScopesAsync());
+        // A valid app-managed upsert persists to the unified table and reads back as a requirement-target
+        // scope. An Out disposition now requires a justification.
+        Assert.True((await writeStore.UpsertRequirementScopeDispositionAsync(
+            "rs-a", "T", "org-a", "req-a", "Out", "Compensating control in place.")).Ok);
+        var persisted = Assert.Single(await store.GetScopesAsync());
         Assert.Equal("rs-a", persisted.Id);
-        Assert.Equal("org-a", persisted.Organisation);
+        Assert.Equal("org-a", persisted.Subject);
         Assert.Equal("req-a", persisted.Requirement);
+        Assert.Null(persisted.Standard);
         Assert.Equal("Out", persisted.Disposition);
+        Assert.Equal("Compensating control in place.", persisted.Justification);
 
-        // Each invariant violation returns WriteResult.Fail (the 422-mapped failure) and writes nothing.
-        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "absent-org", "req-a", "Out")).Ok);
-        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "absent-req", "Out")).Ok);
-        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "req-a", "Sideways")).Ok);
-        Assert.Single(await store.GetRequirementScopesAsync());
+        // Each invariant violation returns WriteResult.Fail (the 422-mapped failure) and writes nothing:
+        // an absent subject, an absent requirement, a bad disposition, and an Out with no justification.
+        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "absent-org", "req-a", "Out", "r")).Ok);
+        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "absent-req", "Out", "r")).Ok);
+        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "req-a", "Sideways", "r")).Ok);
+        Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "req-a", "Out")).Ok);
+        Assert.Single(await store.GetScopesAsync());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1416,25 +1393,23 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
-            [Org("org-a"), Org("org-eng", "Department", "org-a")],
-            [Scp("scope-a", "org-a", "std-a")],
-            [Req("req-a", "std-a"), Req("req-b", "std-a")],
-            [Rqs("rs-a", "org-a", "req-a")]));
+            organisations: [Org("org-a"), Org("org-eng", "Department", "org-a")],
+            scopes: [Scp("scope-a", "org-a", "std-a"), Rqs("rs-a", "org-a", "req-a")],
+            requirements: [Req("req-a", "std-a"), Req("req-b", "std-a")]));
 
         var inputs = await store.GetStatementOfApplicabilityInputsAsync();
 
         Assert.Equal(
             (await store.GetOrganisationsAsync()).Select(o => o.Id).ToArray(),
             inputs.Organisations.Select(o => o.Id).ToArray());
+        // The one unified scopes list feeds both the standard and requirement layers of the SoA.
         Assert.Equal(
             (await store.GetScopesAsync()).Select(s => s.Id).ToArray(),
             inputs.Scopes.Select(s => s.Id).ToArray());
+        Assert.Equal(["rs-a", "scope-a"], inputs.Scopes.Select(s => s.Id).ToArray());
         Assert.Equal(
             (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray(),
             inputs.Requirements.Select(r => r.Id).ToArray());
-        Assert.Equal(
-            (await store.GetRequirementScopesAsync()).Select(r => r.Id).ToArray(),
-            inputs.RequirementScopes.Select(r => r.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
