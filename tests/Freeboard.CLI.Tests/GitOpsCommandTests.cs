@@ -156,6 +156,85 @@ public sealed class GitOpsCommandTests
         }
     }
 
+    // A declared Vendor with no owner is a non-blocking Warning: validation stays valid (exit 0) but the
+    // operator must still see the warning on stderr, not have it silently swallowed.
+    private static string WarningsOnlyConfig() => """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: vendor-a
+        title: Vendor A
+        type: Vendor
+        source: declared
+        """;
+
+    [Fact]
+    public void ValidatePrintsWarningsOnValidPathAndExitsZero()
+    {
+        var dir = WriteTempConfig(WarningsOnlyConfig());
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("warning:", stderr, StringComparison.Ordinal);
+            Assert.Contains("vendor-a", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApplyDryRunPrintsWarningsOnValidPathAndExitsZero()
+    {
+        var dir = WriteTempConfig(WarningsOnlyConfig());
+        try
+        {
+            var (exit, stdout, stderr) = CliRunner.Run("gitops", "apply", dir, "--dry-run");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Planned config state", stdout);
+            Assert.Contains("warning:", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ValidateSummaryCountsDeclaredMachineAsset()
+    {
+        var dir = WriteTempConfig("""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: acme
+            title: Acme
+            type: Company
+            source: declared
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: laptop-1
+            title: Laptop 1
+            type: Machine
+            source: declared
+            parent: acme
+            """);
+        try
+        {
+            var (exit, stdout, _) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("1 machine", stdout, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void ValidateEvidenceCollectorWithUnknownControlExitsOneNamingTheControl()
     {

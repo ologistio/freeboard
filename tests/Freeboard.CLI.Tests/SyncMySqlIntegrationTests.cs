@@ -101,7 +101,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             .ToHashSet(StringComparer.Ordinal);
         foreach (var t in new[]
                  {
-                     "standards", "requirements", "controls", "organisations", "scopes",
+                     "standards", "requirements", "controls", "assets", "scopes",
                      "control_requirements", "schema_migrations",
                  })
         {
@@ -111,7 +111,8 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM standards;"));
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM requirements;"));
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM controls;"));
-        Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM organisations;"));
+        Assert.Equal(2, await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM assets WHERE type IN ('Company', 'Department');"));
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
     }
 
@@ -207,7 +208,8 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
                 "SELECT COUNT(*) FROM attestation_templates WHERE id = 'at-keep';"));
 
             // The FK targets of the dropped rows survive: the vendor, control, and requirement are kept.
-            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM vendors WHERE id = 'vendor-a';"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM assets WHERE id = 'vendor-a' AND type = 'Vendor';"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM controls WHERE id = 'ctrl-a';"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM requirements WHERE id = 'req-a';"));
         }
@@ -247,9 +249,11 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         evaluation: all
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: Vendor
+        kind: Asset
         id: vendor-a
         title: Vendor A
+        type: Vendor
+        source: declared
         ---
         apiVersion: freeboard.dev/v1alpha1
         kind: IntegrationConnection
@@ -341,9 +345,11 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         evaluation: all
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: Vendor
+        kind: Asset
         id: vendor-a
         title: Vendor A
+        type: Vendor
+        source: declared
         ---
         apiVersion: freeboard.dev/v1alpha1
         kind: IntegrationConnection

@@ -27,6 +27,7 @@ public sealed class GitOpsCommands
             return 1;
         }
 
+        PrintWarnings(result);
         PrintSummary(result.Config);
         return 0;
     }
@@ -50,6 +51,7 @@ public sealed class GitOpsCommands
             return 1;
         }
 
+        PrintWarnings(result);
         Console.WriteLine("Planned config state (dry-run, nothing written):");
         PrintPlannedState(result.Config);
         return 0;
@@ -67,6 +69,10 @@ public sealed class GitOpsCommands
             PrintDiagnostics(result);
             return 1;
         }
+
+        // Warnings do not block sync (dangling/missing edges, parent cycles), but the operator must see
+        // them, so print them on the valid path before touching the database.
+        PrintWarnings(result);
 
         var resolved = ConnectionStringResolver.Resolve(connectionString);
         if (resolved is null)
@@ -119,9 +125,9 @@ public sealed class GitOpsCommands
 
         Console.WriteLine(
             $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Requirements.Count} requirement(s), "
-            + $"{result.Config.Controls.Count} control(s), {result.Config.Organisations.Count} organisation(s), "
+            + $"{result.Config.Controls.Count} control(s), {AssetSummary(result.Config)}, "
             + $"{result.Config.Scopes.Count} scope(s), {result.Config.RequirementScopes.Count} requirement-scope(s), "
-            + $"{result.Config.Vendors.Count} vendor(s), {result.Config.VendorScopes.Count} vendor-scope(s), "
+            + $"{result.Config.VendorScopes.Count} vendor-scope(s), "
             + $"{result.Config.EvidenceCollectors.Count} evidence-collector(s), "
             + $"{result.Config.AttestationTemplates.Count} attestation-template(s).");
         return 0;
@@ -135,13 +141,31 @@ public sealed class GitOpsCommands
         }
     }
 
+    private static void PrintWarnings(ConfigResult result)
+    {
+        foreach (var warning in result.Warnings)
+        {
+            Console.Error.WriteLine($"warning: {warning}");
+        }
+    }
+
+    /// <summary>A one-line asset breakdown by type for the summary lines.</summary>
+    private static string AssetSummary(GitOpsConfig config)
+    {
+        var byType = config.Assets.GroupBy(a => a.Type, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        int Count(string type) => byType.TryGetValue(type, out var n) ? n : 0;
+        return $"{config.Assets.Count} asset(s) ({Count("Company")} company, {Count("Department")} department, "
+            + $"{Count("Machine")} machine, {Count("Vendor")} vendor)";
+    }
+
     private static void PrintSummary(GitOpsConfig config)
     {
         Console.WriteLine(
             $"OK: {config.Standards.Count} standard(s), {config.Requirements.Count} requirement(s), "
-            + $"{config.Controls.Count} control(s), {config.Organisations.Count} organisation(s), "
+            + $"{config.Controls.Count} control(s), {AssetSummary(config)}, "
             + $"{config.Scopes.Count} scope(s), {config.RequirementScopes.Count} requirement-scope(s), "
-            + $"{config.Vendors.Count} vendor(s), {config.VendorScopes.Count} vendor-scope(s), "
+            + $"{config.VendorScopes.Count} vendor-scope(s), "
             + $"{config.EvidenceCollectors.Count} evidence-collector(s), "
             + $"{config.AttestationTemplates.Count} attestation-template(s).");
     }
@@ -166,11 +190,13 @@ public sealed class GitOpsCommands
             Console.WriteLine($"  - {control.Id}: {control.Title} -> [{string.Join(", ", control.MapsTo)}]");
         }
 
-        Console.WriteLine($"Organisations ({config.Organisations.Count}):");
-        foreach (var organisation in config.Organisations)
+        Console.WriteLine($"Assets ({config.Assets.Count}):");
+        foreach (var asset in config.Assets)
         {
-            var parent = string.IsNullOrEmpty(organisation.Parent) ? "(root)" : organisation.Parent;
-            Console.WriteLine($"  - {organisation.Id}: {organisation.Title} [{organisation.OrgKind}] parent={parent}");
+            var edge = !string.IsNullOrEmpty(asset.Owner)
+                ? $"owner={asset.Owner}"
+                : $"parent={(string.IsNullOrEmpty(asset.Parent) ? "(root)" : asset.Parent)}";
+            Console.WriteLine($"  - {asset.Id}: {asset.Title} [{asset.Type}] {edge}");
         }
 
         Console.WriteLine($"Scopes ({config.Scopes.Count}):");
@@ -186,12 +212,6 @@ public sealed class GitOpsCommands
             Console.WriteLine(
                 $"  - {requirementScope.Id}: {requirementScope.Title} -> {requirementScope.Organisation} / "
                 + $"{requirementScope.Requirement} = {requirementScope.Disposition}");
-        }
-
-        Console.WriteLine($"Vendors ({config.Vendors.Count}):");
-        foreach (var vendor in config.Vendors)
-        {
-            Console.WriteLine($"  - {vendor.Id}: {vendor.Title}");
         }
 
         Console.WriteLine($"VendorScopes ({config.VendorScopes.Count}):");
