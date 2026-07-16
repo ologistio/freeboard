@@ -115,9 +115,9 @@ An asset is a single kind spanning the whole estate. The document discriminator
 `kind` is always `Asset`; the specific type is authored under `type`, one of
 `Company`, `Department`, `Vendor`, or `Machine`. `source` says how the asset
 entered the store: config authors only `source: declared`. `Machine` assets are
-`discovered` (written by ingest, never authored), so a declared document may not
-carry the discovered-only fields (`identity_kind`, `identity_value`, `state`,
-`first_seen`, `last_seen`); the loader rejects them.
+normally `discovered` (written by ingest), but any declared document - whatever its
+`type` - may not carry the discovered-only fields (`identity_kind`,
+`identity_value`, `state`, `first_seen`, `last_seen`); the loader rejects them.
 
 Two mutually-exclusive edges anchor an asset:
 

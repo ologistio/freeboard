@@ -143,8 +143,8 @@ public static class ComplianceEndpoints
         // A vendor is visible only when its owner (a Company/Department asset) is in the caller's
         // accessible-org set; a vendor with a null or dangling owner is visible to no one (fail-closed).
         // vendor-scopes narrow the same way, so a hidden vendor leaks neither its id nor its Out exception
-        // justifications. (This does not cover /evidence-collectors or /integration-connections, where a
-        // hidden vendor's id is still exposed; narrowing those is deferred to sibling tickets.)
+        // justifications. This narrowing covers /vendors and /vendor-scopes only; /evidence-collectors and
+        // /integration-connections still expose a hidden vendor's id.
         reads.MapGet("/vendors", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try

@@ -106,13 +106,15 @@ public enum OrganisationKind
 }
 
 /// <summary>
-/// A declared asset: a Company, Department, or Vendor authored in gitops config. Identity is
-/// <see cref="Id"/>. <see cref="Type"/> is the asset type authored under the YAML key <c>type</c>
-/// (distinct from the document discriminator <see cref="Kind"/>). <see cref="Parent"/> and
-/// <see cref="Owner"/> are the two mutually-exclusive edges: <see cref="Parent"/> is containment
-/// (a Company/Department id) and <see cref="Owner"/> is accountability (a Company/Department id on a
-/// Vendor); both are empty when absent. Machine assets are discovered, not authored, so a declared
-/// document may not carry the discovered-only fields (the loader rejects them).
+/// A declared asset authored in gitops config - any type (Company, Department, Vendor, or Machine)
+/// with <c>source: declared</c>. Identity is <see cref="Id"/>. <see cref="Type"/> is the asset type
+/// authored under the YAML key <c>type</c> (distinct from the document discriminator
+/// <see cref="Kind"/>). <see cref="Parent"/> and <see cref="Owner"/> are the two mutually-exclusive
+/// edges: <see cref="Parent"/> is containment (a Company/Department id) and <see cref="Owner"/> is
+/// accountability (a Company/Department id on a Vendor); both are empty when absent. Machine assets
+/// are normally discovered (written by ingest), but a Machine may be declared; either way, no
+/// declared document carries the discovered-only fields (identity, state, first/last seen) - those
+/// live on the persistence asset row, and the loader rejects them if authored here.
 /// </summary>
 public sealed record Asset
 {

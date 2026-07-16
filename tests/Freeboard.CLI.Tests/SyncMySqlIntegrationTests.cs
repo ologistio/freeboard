@@ -220,6 +220,55 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         }
     }
 
+    // A non-blocking validation warning (an ownerless declared Vendor) must not fail sync: the command
+    // still exits 0, imports the config, and prints the warning to stderr so the operator sees it. This
+    // proves the success-path warning surface for sync (validate and apply --dry-run are covered by the
+    // in-memory GitOpsCommandTests; sync needs a real DB).
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task SyncPrintsNonBlockingWarningToStderrAndExitsZero()
+    {
+        await using var db = await RequireDbAsync();
+        Environment.SetEnvironmentVariable("FREEBOARD_DB", db.ConnectionString);
+
+        var dir = WriteTempConfig(OwnerlessVendorConfig);
+        try
+        {
+            var (exit, _, err) = Capture(() => new GitOpsCommands().Sync(dir, migrate: true));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("vendor-x", err, StringComparison.Ordinal);
+            Assert.Contains("no owner", err, StringComparison.Ordinal);
+
+            await using var conn = new MySqlConnection(db.ConnectionString);
+            await conn.OpenAsync();
+            // The warning did not block the import: the ownerless vendor was still synced.
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM assets WHERE id = 'vendor-x' AND type = 'Vendor';"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // A Company root and a declared Vendor with no owner. The ownerless vendor is a non-blocking warning
+    // (it is visible to no caller until an owner is set), so sync succeeds and the warning reaches stderr.
+    private const string OwnerlessVendorConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: org-root
+        title: Root Co
+        type: Company
+        source: declared
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: vendor-x
+        title: Vendor X
+        type: Vendor
+        source: declared
+        """;
+
     // Standard/requirement/control plus a vendor, two vendor-scopes, two evidence-collectors, and two
     // attestation-templates. ctrl-a declares evaluation because it has attached collectors.
     private const string FullConfig = """

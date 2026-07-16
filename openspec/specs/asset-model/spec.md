@@ -20,7 +20,11 @@ values `Declared` and `Discovered`, and an `AssetState` enumeration with values
 `type`, and a `source`. `Company`, `Department`, and `Vendor` assets are normally
 `Declared`; `Machine` assets are normally `Discovered`. The discovered-only fields
 `identity_kind`, `identity_value`, `state`, `first_seen`, and `last_seen` apply to
-a discovered machine and are absent on a declared asset.
+a discovered machine and are absent on a declared asset; because a declared
+document cannot author them, they are carried on the persistence asset row (the
+read model), not on the `Freeboard.Core` declared-config asset record. The Core
+domain model provides the `AssetKind`/`AssetSource`/`AssetState` enumerations and
+the machine identity derivation below; persistence carries the full asset row.
 
 For a `Machine` asset the system SHALL derive an integration-agnostic identity:
 given an observed hardware serial and host uuid, identity is the hardware serial
@@ -191,10 +195,13 @@ identity_value)`, and an asset-source SHALL be unique per `(organisation_id,
 source, external_id)`. These uniqueness comparisons SHALL be exact-byte and
 case-sensitive, so two identities or two sources that differ only in letter case
 remain distinct. Every store read SHALL filter by `organisation_id` so no read
-returns an asset from another organisation. Cross-organisation isolation of the
-internal `asset_source` -> `asset` reference SHALL NOT rest on query filtering
-alone: the database SHALL enforce it, so an `asset_source` in one organisation
-cannot reference an `asset` in another even if a caller supplies a mismatched id.
+returns an asset from another organisation. Since the merged `assets` schema
+relaxes the `asset_source` composite foreign key to a simple `asset_id ->
+assets(id)` foreign key (see the schema-and-migration requirement), cross-source-
+organisation isolation of the internal `asset_source` -> `asset` reference is
+enforced by query filtering: every source-filtered read keeps an organisation
+predicate against the machine's `parent`, so an `asset_source` in one organisation
+cannot surface an `asset` in another even if a row supplies a mismatched id.
 
 #### Scenario: Same identity in two organisations yields two assets
 
@@ -208,12 +215,13 @@ cannot reference an `asset` in another even if a caller supplies a mismatched id
   for an organisation that does not own it
 - **THEN** no asset is returned
 
-#### Scenario: A source cannot reference an asset in another organisation
+#### Scenario: A source cannot surface an asset in another organisation
 
-- **WHEN** an `asset_source` row is written whose `organisation_id` differs from
-  the `organisation_id` of the `asset` its `asset_id` names
-- **THEN** the database rejects the write, so no `asset_source` ever points at an
-  `asset` outside its own organisation
+- **WHEN** an `asset_source` row's `organisation_id` differs from the `parent`
+  (owning organisation) of the `asset` its `asset_id` names
+- **THEN** a source-filtered read for that other organisation returns no asset,
+  because every such read keeps an organisation predicate against the machine's
+  `parent`, so no `asset_source` surfaces an `asset` outside its own organisation
 
 #### Scenario: Identity and source keys are case- and whitespace-exact
 
