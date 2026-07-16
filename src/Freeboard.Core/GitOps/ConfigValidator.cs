@@ -1,12 +1,14 @@
 using System.Globalization;
+using Freeboard.Core.Assets;
 
 namespace Freeboard.Core.GitOps;
 
 /// <summary>
 /// Validates a loaded <see cref="GitOpsConfig"/>. Collects every error as a
 /// <see cref="Diagnostic"/>; never throws and never writes output. Owns: required
-/// fields, apiVersion value, unique id per kind, reference resolution, the organisation
-/// tree (acyclic, resolvable parents), the scope mapping (resolvable references,
+/// fields, apiVersion value, unique id per kind, reference resolution, the asset set (type/source
+/// tokens, mutually-exclusive parent/owner edges with their target/carrier-type rules, and dangling
+/// edges, parent cycles, and missing read anchors as non-blocking warnings), the scope mapping (resolvable references,
 /// disposition enum, unique organisation/standard pair), the requirement-scope mapping
 /// (resolvable references, disposition enum, unique organisation/requirement pair), and the
 /// vendor-scope mapping (exactly-one target, resolvable references, disposition enum, unique
@@ -67,10 +69,12 @@ public static class ConfigValidator
         var standardIds = ValidateStandards(config, diagnostics);
         var requirementIds = ValidateRequirements(config, standardIds, diagnostics);
         var controlIds = ValidateControls(config, requirementIds, diagnostics);
-        var organisationIds = ValidateOrganisations(config, diagnostics);
-        ValidateScopes(config, organisationIds, standardIds, diagnostics);
-        ValidateRequirementScopes(config, organisationIds, requirementIds, diagnostics);
-        var vendorIds = ValidateVendors(config, diagnostics);
+        // Assets produce the typed id subsets the reference phases consume: organisation refs resolve
+        // against Company/Department asset ids, vendor refs against Vendor asset ids.
+        var assets = ValidateAssets(config, diagnostics);
+        ValidateScopes(config, assets.OrganisationIds, standardIds, diagnostics);
+        ValidateRequirementScopes(config, assets.OrganisationIds, requirementIds, diagnostics);
+        var vendorIds = assets.VendorIds;
         ValidateVendorScopes(config, vendorIds, requirementIds, controlIds, diagnostics);
         // Integration-connections consume vendor ids (for the optional vendor reference) and produce the
         // connection id set the evidence-collectors then resolve their connection reference against.
@@ -227,74 +231,196 @@ public static class ConfigValidator
         return ids;
     }
 
-    private static HashSet<string> ValidateOrganisations(GitOpsConfig config, List<Diagnostic> diagnostics)
+    /// <summary>The typed id subsets a validated asset set exposes to the reference phases.</summary>
+    private sealed record AssetIdSets(HashSet<string> OrganisationIds, HashSet<string> VendorIds);
+
+    private static AssetIdSets ValidateAssets(GitOpsConfig config, List<Diagnostic> diagnostics)
     {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var allIds = new HashSet<string>(StringComparer.Ordinal);
+        var organisationIds = new HashSet<string>(StringComparer.Ordinal);
+        var vendorIds = new HashSet<string>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        // First-occurrence type per id, for resolving parent/owner target-type rules across rows.
+        var typeById = new Dictionary<string, AssetKind>(StringComparer.Ordinal);
 
-        foreach (var organisation in config.Organisations)
+        foreach (var asset in config.Assets)
         {
-            CheckApiVersion(organisation.ApiVersion, GitOpsSchema.KindOrganisation, organisation.Id, diagnostics);
-            CheckRequired(organisation.Id, GitOpsSchema.KindOrganisation, "id", organisation.Title, diagnostics);
-            CheckRequired(organisation.Title, GitOpsSchema.KindOrganisation, "title", organisation.Id, diagnostics);
-            CheckRequired(organisation.OrgKind, GitOpsSchema.KindOrganisation, "type", organisation.Id, diagnostics);
+            CheckApiVersion(asset.ApiVersion, GitOpsSchema.KindAsset, asset.Id, diagnostics);
+            CheckRequired(asset.Id, GitOpsSchema.KindAsset, "id", asset.Title, diagnostics);
+            CheckRequired(asset.Title, GitOpsSchema.KindAsset, "title", asset.Id, diagnostics);
+            CheckRequired(asset.Type, GitOpsSchema.KindAsset, "type", asset.Id, diagnostics);
+            CheckRequired(asset.Source, GitOpsSchema.KindAsset, "source", asset.Id, diagnostics);
 
-            if (!string.IsNullOrEmpty(organisation.OrgKind) && !TryParseKind(organisation.OrgKind, out _))
+            var typeParsed = TryParseAssetType(asset.Type, out var type);
+            if (!string.IsNullOrEmpty(asset.Type) && !typeParsed)
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindOrganisation} '{Describe(organisation.Id)}' has unknown kind "
-                        + $"'{organisation.OrgKind}'. Expected '{nameof(OrganisationKind.Company)}' or "
-                        + $"'{nameof(OrganisationKind.Department)}'.",
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has unknown type '{asset.Type}'. "
+                        + $"Expected '{nameof(AssetKind.Company)}', '{nameof(AssetKind.Department)}', "
+                        + $"'{nameof(AssetKind.Machine)}', or '{nameof(AssetKind.Vendor)}'.",
                 });
             }
 
-            if (!string.IsNullOrEmpty(organisation.Id))
+            ValidateAssetSource(asset, diagnostics);
+
+            // parent and owner are mutually exclusive: parent is containment, owner is accountability.
+            // A whitespace-only value is absent, matching the spec and the import path's null-if-blank.
+            var hasParent = !string.IsNullOrWhiteSpace(asset.Parent);
+            var hasOwner = !string.IsNullOrWhiteSpace(asset.Owner);
+            if (hasParent && hasOwner)
             {
-                if (!seen.Add(organisation.Id))
+                diagnostics.Add(new Diagnostic
                 {
-                    diagnostics.Add(Dup(GitOpsSchema.KindOrganisation, organisation.Id));
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' sets both 'parent' and 'owner'; "
+                        + "an asset has at most one edge.",
+                });
+            }
+
+            // Carrier-type rules: parent lives on a contained asset (Company/Department/Machine), owner
+            // only on a Vendor. These compare the carrier's own type, so they run here in the first pass.
+            if (typeParsed && hasParent && type == AssetKind.Vendor)
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' is a Vendor and cannot set 'parent'; "
+                        + "a vendor uses 'owner'.",
+                });
+            }
+
+            if (typeParsed && hasOwner && type != AssetKind.Vendor)
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' sets 'owner' but is not a Vendor; "
+                        + "only a vendor has an owner.",
+                });
+            }
+
+            if (!string.IsNullOrEmpty(asset.Id))
+            {
+                if (!seen.Add(asset.Id))
+                {
+                    diagnostics.Add(Dup(GitOpsSchema.KindAsset, asset.Id));
                 }
 
-                ids.Add(organisation.Id);
+                allIds.Add(asset.Id);
+                if (typeParsed && !typeById.ContainsKey(asset.Id))
+                {
+                    typeById[asset.Id] = type;
+                    if (type is AssetKind.Company or AssetKind.Department)
+                    {
+                        organisationIds.Add(asset.Id);
+                    }
+                    else if (type == AssetKind.Vendor)
+                    {
+                        vendorIds.Add(asset.Id);
+                    }
+                }
             }
         }
 
-        ValidateOrganisationParents(config, ids, diagnostics);
-        return ids;
+        ValidateAssetEdges(config, allIds, typeById, diagnostics);
+        return new AssetIdSets(organisationIds, vendorIds);
     }
 
-    private static void ValidateOrganisationParents(
-        GitOpsConfig config,
-        HashSet<string> organisationIds,
-        List<Diagnostic> diagnostics)
+    private static void ValidateAssetSource(Asset asset, List<Diagnostic> diagnostics)
     {
-        // Resolve dangling parents first: a parent naming an id no organisation defines.
-        var danglingParents = config.Organisations.Where(organisation =>
-            !string.IsNullOrEmpty(organisation.Parent) && !organisationIds.Contains(organisation.Parent));
-        foreach (var organisation in danglingParents)
+        if (string.IsNullOrEmpty(asset.Source))
+        {
+            return;
+        }
+
+        if (!TryParseAssetSource(asset.Source, out var source))
         {
             diagnostics.Add(new Diagnostic
             {
-                Message = $"{GitOpsSchema.KindOrganisation} '{Describe(organisation.Id)}' has unknown parent "
-                    + $"'{organisation.Parent}'.",
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has unknown source '{asset.Source}'. "
+                    + "Expected 'declared'.",
             });
+            return;
         }
 
-        // Cycle detection over the parent edges. Only follow edges to defined parents so a
-        // dangling-parent diagnostic is not double-reported as a cycle. An organisation that
-        // names itself is a self-cycle.
-        var parentOf = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var organisation in config.Organisations)
+        // A discovered asset is owned by ingest, never authored: reject 'source: discovered' in config.
+        if (source == AssetSource.Discovered)
         {
-            if (string.IsNullOrEmpty(organisation.Id) || parentOf.ContainsKey(organisation.Id))
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has source 'discovered', which cannot be "
+                    + "authored in config; discovered assets come from ingest.",
+            });
+        }
+    }
+
+    private static void ValidateAssetEdges(
+        GitOpsConfig config,
+        HashSet<string> allIds,
+        IReadOnlyDictionary<string, AssetKind> typeById,
+        List<Diagnostic> diagnostics)
+    {
+        foreach (var asset in config.Assets)
+        {
+            CheckEdgeTarget(asset.Id, asset.Parent, "parent", allIds, typeById, diagnostics);
+            CheckEdgeTarget(asset.Id, asset.Owner, "owner", allIds, typeById, diagnostics);
+        }
+
+        WarnAssetParentCycles(config, allIds, diagnostics);
+        WarnMissingRequiredEdges(config, typeById, diagnostics);
+    }
+
+    // A parent/owner edge target must be a Company/Department asset. A dangling edge (naming an id no
+    // asset defines) is tolerated as a Warning: a discovered child can name a declared parent a later
+    // sync removes, and one uncoordinated writer must not wedge the whole config.
+    private static void CheckEdgeTarget(
+        string id,
+        string target,
+        string edge,
+        HashSet<string> allIds,
+        IReadOnlyDictionary<string, AssetKind> typeById,
+        List<Diagnostic> diagnostics)
+    {
+        // A whitespace-only edge is absent, matching the spec and the import path's null-if-blank.
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return;
+        }
+
+        if (!allIds.Contains(target))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Severity = DiagnosticSeverity.Warning,
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(id)}' has unknown {edge} '{target}'.",
+            });
+            return;
+        }
+
+        if (typeById.TryGetValue(target, out var targetType)
+            && targetType is not (AssetKind.Company or AssetKind.Department))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(id)}' {edge} '{target}' must be a Company or "
+                    + "Department asset.",
+            });
+        }
+    }
+
+    // A parent cycle among declared assets is tolerated as a Warning: the read-access and inheritance
+    // walks carry a visited-set cycle guard, so a cycle degrades gracefully rather than crashing.
+    private static void WarnAssetParentCycles(GitOpsConfig config, HashSet<string> allIds, List<Diagnostic> diagnostics)
+    {
+        var parentOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var asset in config.Assets)
+        {
+            if (string.IsNullOrEmpty(asset.Id) || parentOf.ContainsKey(asset.Id))
             {
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(organisation.Parent) && organisationIds.Contains(organisation.Parent))
+            if (!string.IsNullOrWhiteSpace(asset.Parent) && allIds.Contains(asset.Parent))
             {
-                parentOf[organisation.Id] = organisation.Parent;
+                parentOf[asset.Id] = asset.Parent;
             }
         }
 
@@ -311,17 +437,50 @@ public static class ConfigValidator
 
                 if (parent == start)
                 {
-                    // start's parent chain loops back to itself. A multi-node cycle yields one
-                    // diagnostic per member, since each member is a distinct start in this loop.
                     diagnostics.Add(new Diagnostic
                     {
-                        Message = $"{GitOpsSchema.KindOrganisation} '{Describe(start)}' is part of a parent cycle.",
+                        Severity = DiagnosticSeverity.Warning,
+                        Message = $"{GitOpsSchema.KindAsset} '{Describe(start)}' is part of a parent cycle.",
                     });
-
                     break;
                 }
 
                 node = parent;
+            }
+        }
+    }
+
+    // A required read anchor missing entirely is a Warning, not an Error (a stronger version of the
+    // dangling-edge tolerance): a Vendor with no owner and a Machine with no parent are visible to no
+    // caller under the fail-closed read model, but blocking sync on it would wedge on one writer. Not
+    // emitted for a parent-less Company/Department, which is a legitimate root.
+    private static void WarnMissingRequiredEdges(
+        GitOpsConfig config, IReadOnlyDictionary<string, AssetKind> typeById, List<Diagnostic> diagnostics)
+    {
+        foreach (var asset in config.Assets)
+        {
+            if (string.IsNullOrEmpty(asset.Id) || !typeById.TryGetValue(asset.Id, out var type))
+            {
+                continue;
+            }
+
+            if (type == AssetKind.Vendor && string.IsNullOrWhiteSpace(asset.Owner))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Severity = DiagnosticSeverity.Warning,
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' is a Vendor with no owner; it is "
+                        + "visible to no caller until an owner is set.",
+                });
+            }
+            else if (type == AssetKind.Machine && string.IsNullOrWhiteSpace(asset.Parent))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Severity = DiagnosticSeverity.Warning,
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' is a Machine with no parent; it is "
+                        + "visible to no caller until a parent is set.",
+                });
             }
         }
     }
@@ -452,31 +611,6 @@ public static class ConfigValidator
                 });
             }
         }
-    }
-
-    private static HashSet<string> ValidateVendors(GitOpsConfig config, List<Diagnostic> diagnostics)
-    {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var vendor in config.Vendors)
-        {
-            CheckApiVersion(vendor.ApiVersion, GitOpsSchema.KindVendor, vendor.Id, diagnostics);
-            CheckRequired(vendor.Id, GitOpsSchema.KindVendor, "id", vendor.Title, diagnostics);
-            CheckRequired(vendor.Title, GitOpsSchema.KindVendor, "title", vendor.Id, diagnostics);
-
-            if (!string.IsNullOrEmpty(vendor.Id))
-            {
-                if (!seen.Add(vendor.Id))
-                {
-                    diagnostics.Add(Dup(GitOpsSchema.KindVendor, vendor.Id));
-                }
-
-                ids.Add(vendor.Id);
-            }
-        }
-
-        return ids;
     }
 
     private static void ValidateVendorScopes(
@@ -1081,6 +1215,46 @@ public static class ConfigValidator
                 Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(templateId)}' {ownerKind} '{Describe(ownerId)}' has "
                     + $"duplicate option '{duplicate}'.",
             });
+        }
+    }
+
+    /// <summary>Parses an asset type case-sensitively (identity is exact-byte).</summary>
+    public static bool TryParseAssetType(string value, out AssetKind type)
+    {
+        switch (value)
+        {
+            case nameof(AssetKind.Company):
+                type = AssetKind.Company;
+                return true;
+            case nameof(AssetKind.Department):
+                type = AssetKind.Department;
+                return true;
+            case nameof(AssetKind.Machine):
+                type = AssetKind.Machine;
+                return true;
+            case nameof(AssetKind.Vendor):
+                type = AssetKind.Vendor;
+                return true;
+            default:
+                type = default;
+                return false;
+        }
+    }
+
+    /// <summary>Parses an asset source token (<c>declared</c>/<c>discovered</c>, exact-byte lowercase).</summary>
+    public static bool TryParseAssetSource(string value, out AssetSource source)
+    {
+        switch (value)
+        {
+            case "declared":
+                source = AssetSource.Declared;
+                return true;
+            case "discovered":
+                source = AssetSource.Discovered;
+                return true;
+            default:
+                source = default;
+                return false;
         }
     }
 

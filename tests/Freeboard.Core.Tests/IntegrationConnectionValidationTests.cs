@@ -42,11 +42,23 @@ public sealed class IntegrationConnectionValidationTests
         evaluation: all
         """;
 
+    private const string ValidOwnerCompany = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: org-a
+        title: Org A
+        type: Company
+        source: declared
+        """;
+
     private const string ValidVendor = """
         apiVersion: freeboard.dev/v1alpha1
-        kind: Vendor
+        kind: Asset
         id: vendor-a
         title: Vendor A
+        type: Vendor
+        source: declared
+        owner: org-a
         """;
 
     private const string ValidConnection = """
@@ -62,7 +74,7 @@ public sealed class IntegrationConnectionValidationTests
 
     /// <summary>Base set plus a connection; the collector under test is appended.</summary>
     private static string ValidSet(string collector, string connection = ValidConnection) =>
-        $"{ValidStandard}\n---\n{ValidRequirement}\n---\n{ControlWithEvaluation}\n---\n{ValidVendor}\n---\n{connection}\n---\n{collector}";
+        $"{ValidStandard}\n---\n{ValidRequirement}\n---\n{ControlWithEvaluation}\n---\n{ValidOwnerCompany}\n---\n{ValidVendor}\n---\n{connection}\n---\n{collector}";
 
     private const string IntegrationCollector = """
         apiVersion: freeboard.dev/v1alpha1

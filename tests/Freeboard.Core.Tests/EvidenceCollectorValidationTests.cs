@@ -42,15 +42,27 @@ public sealed class EvidenceCollectorValidationTests
         evaluation: all
         """;
 
+    private const string ValidOwnerCompany = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: org-a
+        title: Org A
+        type: Company
+        source: declared
+        """;
+
     private const string ValidVendor = """
         apiVersion: freeboard.dev/v1alpha1
-        kind: Vendor
+        kind: Asset
         id: vendor-a
         title: Vendor A
+        type: Vendor
+        source: declared
+        owner: org-a
         """;
 
     private static string ValidSet(string collector, string control = ControlWithEvaluation) =>
-        $"{ValidStandard}\n---\n{ValidRequirement}\n---\n{control}\n---\n{ValidVendor}\n---\n{collector}";
+        $"{ValidStandard}\n---\n{ValidRequirement}\n---\n{control}\n---\n{ValidOwnerCompany}\n---\n{ValidVendor}\n---\n{collector}";
 
     [Fact]
     public void EvidenceCollectorLoadsAttachedToControlWithOptionalFields()

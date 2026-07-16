@@ -41,15 +41,27 @@ public sealed class VendorScopeValidationTests
           - req-a
         """;
 
+    private const string ValidOwnerCompany = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: org-a
+        title: Org A
+        type: Company
+        source: declared
+        """;
+
     private const string ValidVendor = """
         apiVersion: freeboard.dev/v1alpha1
-        kind: Vendor
+        kind: Asset
         id: vendor-a
         title: Vendor A
+        type: Vendor
+        source: declared
+        owner: org-a
         """;
 
     private static string ValidSet(string vendorScope) =>
-        $"{ValidStandard}\n---\n{ValidRequirement}\n---\n{ValidControl}\n---\n{ValidVendor}\n---\n{vendorScope}";
+        $"{ValidStandard}\n---\n{ValidRequirement}\n---\n{ValidControl}\n---\n{ValidOwnerCompany}\n---\n{ValidVendor}\n---\n{vendorScope}";
 
     [Fact]
     public void VendorLoadsWithIdAndTitle()
@@ -59,9 +71,10 @@ public sealed class VendorScopeValidationTests
         var result = ConfigLoader.Load(dir.Path);
 
         Assert.Empty(result.Diagnostics);
-        var vendor = Assert.Single(result.Config.Vendors);
+        var vendor = Assert.Single(result.Config.Assets);
         Assert.Equal("vendor-a", vendor.Id);
         Assert.Equal("Vendor A", vendor.Title);
+        Assert.Equal("Vendor", vendor.Type);
     }
 
     [Fact]
@@ -311,6 +324,8 @@ public sealed class VendorScopeValidationTests
             ---
             {ValidControl}
             ---
+            {ValidOwnerCompany}
+            ---
             {ValidVendor}
             ---
             apiVersion: freeboard.dev/v1alpha1
@@ -345,6 +360,8 @@ public sealed class VendorScopeValidationTests
             {ValidRequirement}
             ---
             {ValidControl}
+            ---
+            {ValidOwnerCompany}
             ---
             {ValidVendor}
             ---
@@ -383,6 +400,8 @@ public sealed class VendorScopeValidationTests
             {ValidRequirement}
             ---
             {ValidControl}
+            ---
+            {ValidOwnerCompany}
             ---
             {ValidVendor}
             ---
@@ -492,18 +511,23 @@ public sealed class VendorScopeValidationTests
     public void DuplicateVendorIdFails()
     {
         using var dir = TempConfig.Create(("all.yaml", $"""
+            {ValidOwnerCompany}
+            ---
             {ValidVendor}
             ---
             apiVersion: freeboard.dev/v1alpha1
-            kind: Vendor
+            kind: Asset
             id: vendor-a
             title: Vendor A duplicate
+            type: Vendor
+            source: declared
+            owner: org-a
             """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Duplicate Vendor id 'vendor-a'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Duplicate Asset id 'vendor-a'"));
     }
 
     [Fact]
@@ -514,7 +538,7 @@ public sealed class VendorScopeValidationTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
-        Assert.Empty(result.Config.Vendors);
+        Assert.Empty(result.Config.Assets);
         Assert.Empty(result.Config.VendorScopes);
     }
 }
