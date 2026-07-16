@@ -1,9 +1,12 @@
 # KeyVault (invented) - the company password manager. Backs the account and
 # credential hygiene side of user access control.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-keyvault
 title: KeyVault Password Manager (example)
+type: Vendor
+source: declared
+owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: VendorScope

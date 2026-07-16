@@ -2,7 +2,7 @@
 
 Freeboard manages compliance state as declarative YAML in git, FleetDM-style. The
 git files are the source of truth: standards, the requirements each standard
-publishes, the controls that satisfy those requirements, the organisations being
+publishes, the controls that satisfy those requirements, the assets being
 assessed, and the scopes that map an organisation to a standard. A CLI validates
 and previews the config, and the web app can run read-only so changes flow through
 git rather than the UI.
@@ -19,24 +19,22 @@ Freeboard borrows Fleet's structure but renames the nouns for compliance:
 
 | Fleet    | Freeboard               | Meaning                                                                    |
 | -------- | ----------------------- | -------------------------------------------------------------------------- |
-| (n/a)    | organisations           | the tree of entities being assessed (company/department)                   |
-| labels   | scopes                  | maps an organisation to a standard with a disposition                      |
-| (n/a)    | requirement-scopes      | maps an organisation to a requirement with a disposition                   |
+| (n/a)    | assets                  | the estate being assessed: companies, departments, vendors, and machines   |
+| labels   | scopes                  | maps a company/department asset to a standard with a disposition           |
+| (n/a)    | requirement-scopes      | maps a company/department asset to a requirement with a disposition        |
 | policies | checks                  | conformance checks; authored per integration collector, execution deferred |
 | (n/a)    | controls                | an implemented control mapped to one or more requirements                  |
 | (n/a)    | requirements            | a standard's published normative statements                                |
 | (n/a)    | standards               | a compliance standard in scope                                             |
-| (n/a)    | vendors                 | a piece of software or platform in use                                     |
-| (n/a)    | vendor-scopes           | maps a vendor to one requirement or control with a disposition             |
+| (n/a)    | vendor-scopes           | maps a vendor asset to one requirement or control with a disposition       |
 | (n/a)    | evidence-collectors     | attaches a data source to a control                                        |
 | (n/a)    | attestation-templates   | a form or quiz attached to a control                                       |
 | (n/a)    | integration-connections | a provider connection driving discovery and integration collectors         |
 
-This increment ships `standards`, `requirements`, `controls`, `organisations`,
-`scopes`, `requirement-scopes`, `vendors`, `vendor-scopes`, `evidence-collectors`,
-`attestation-templates`, and `integration-connections`. `checks` are authored per
-integration collector (the tracked-check list) but their execution runner is not
-yet built.
+This increment ships `standards`, `requirements`, `controls`, `assets`, `scopes`,
+`requirement-scopes`, `vendor-scopes`, `evidence-collectors`, `attestation-templates`,
+and `integration-connections`. `checks` are authored per integration collector (the
+tracked-check list) but their execution runner is not yet built.
 
 ## Format
 
@@ -44,8 +42,8 @@ A config directory holds one or more `.yaml` files. Each file is a stream of one
 or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.dev/v1alpha1`.
-- `kind` - one of `Standard`, `Requirement`, `Control`, `Organisation`, `Scope`,
-  `RequirementScope`, `Vendor`, `VendorScope`, `EvidenceCollector`,
+- `kind` - one of `Standard`, `Requirement`, `Control`, `Asset`, `Scope`,
+  `RequirementScope`, `VendorScope`, `EvidenceCollector`,
   `AttestationTemplate`, or `IntegrationConnection`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
@@ -111,33 +109,54 @@ maps_to:
   - req-ce-plus-user-access-control-04
 ```
 
-### Organisation
+### Asset
 
-An organisation is a node in a tree. `type` is `Company` or `Department`.
-`parent` is another `Organisation` id (omit it for a root). The document
-discriminator `kind` names `Organisation`; the Company/Department distinction is
-authored under `type` so the two do not collide. It persists and reads back as
-the organisation's `kind`.
+An asset is a single kind spanning the whole estate. The document discriminator
+`kind` is always `Asset`; the specific type is authored under `type`, one of
+`Company`, `Department`, `Vendor`, or `Machine`. `source` says how the asset
+entered the store: config authors only `source: declared`. `Machine` assets are
+`discovered` (written by ingest, never authored), so a declared document may not
+carry the discovered-only fields (`identity_kind`, `identity_value`, `state`,
+`first_seen`, `last_seen`); the loader rejects them.
+
+Two mutually-exclusive edges anchor an asset:
+
+- `parent` - containment. A `Company`, `Department`, or `Machine` may name a
+  `parent` that is another `Company`/`Department` asset (omit it for a root
+  company). `parent` drives read-access and scope inheritance.
+- `owner` - accountability. Only a `Vendor` names an `owner`, which must be a
+  `Company`/`Department` asset. `owner` drives vendor read-access.
+
+An asset sets at most one of `parent` or `owner`. A missing or dangling
+`parent`/`owner` is a non-blocking warning, not an error: the asset is simply
+visible to no caller until the edge resolves, and one uncoordinated writer cannot
+wedge a `sync`. A `parent` cycle among declared assets is likewise a warning. A
+declared `Vendor` with no `owner` and a `Machine` with no `parent` each warn (they
+would be visible to nobody); a parent-less `Company`/`Department` root does not.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
-kind: Organisation
+kind: Asset
 id: ologist-products
 title: Ologist Products Ltd
 type: Company
+source: declared
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: Organisation
+kind: Asset
 id: ologist-products-eng
 title: Engineering
 type: Department
+source: declared
 parent: ologist-products
 ```
 
 ### Scope
 
-A scope maps one `Organisation` to one `Standard` with a `disposition` (`In` or
-`Out`). At most one scope may exist per `(organisation, standard)` pair.
+A scope maps one Company/Department asset (named under `organisation`) to one
+`Standard` with a `disposition` (`In` or `Out`). At most one scope may exist per
+`(organisation, standard)` pair. The field is still named `organisation`; it now
+names a typed asset id.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
@@ -164,10 +183,10 @@ and may be deleted.
 
 ### RequirementScope
 
-A requirement-scope maps one `Organisation` to one `Requirement` with a
-`disposition` (`In` or `Out`). At most one requirement-scope may exist per
-`(organisation, requirement)` pair. There is no `standard` field: the requirement
-fixes the standard.
+A requirement-scope maps one Company/Department asset (named under `organisation`)
+to one `Requirement` with a `disposition` (`In` or `Out`). At most one
+requirement-scope may exist per `(organisation, requirement)` pair. There is no
+`standard` field: the requirement fixes the standard.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
@@ -187,16 +206,21 @@ an `In` standard, requirement-scopes inherit by the same nearest-ancestor rule a
 scopes, and a child re-includes (`In`) a requirement an ancestor excluded (`Out`).
 A requirement-level `In` cannot re-include a requirement whose standard is `Out`.
 
-### Vendor
+### Vendor asset
 
-A vendor names a piece of software or platform in use. It carries only identity
-and display text (`id`, `title`); there is no scoring or further structure.
+A vendor is an `Asset` with `type: Vendor`. It names a piece of software or
+platform in use. `owner` (a Company/Department asset) makes the vendor visible to
+that org's readers; a vendor with no owner is visible to no caller (a non-blocking
+warning). See [Asset](#asset) above.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-okta
 title: Okta
+type: Vendor
+source: declared
+owner: ologist-products
 ```
 
 ### VendorScope
@@ -366,9 +390,13 @@ Validation collects every error in one pass (not just the first). It fails when:
 - a `Requirement.citation_url` is not an absolute `http`/`https` URL;
 - a `Control.maps_to` entry names a `Requirement` id that does not exist;
 - a `Control.maps_to` lists the same `Requirement` id more than once;
-- an `Organisation.parent` names an `Organisation` id that does not exist;
-- the organisations form a cycle through `parent`;
-- an `Organisation`'s kind is not `Company` or `Department`;
+- an `Asset.type` is not one of `Company`, `Department`, `Vendor`, or `Machine`;
+- an `Asset.source` is not `declared`, or is `discovered` (which cannot be authored);
+- an `Asset` sets both `parent` and `owner`, or sets an edge to the wrong carrier
+  type (a `Vendor` with `parent`, or a non-`Vendor` with `owner`);
+- an `Asset.parent` or `Asset.owner` names an asset that is not a `Company`/`Department`;
+- a declared `Asset` carries a discovered-only field (`identity_kind`,
+  `identity_value`, `state`, `first_seen`, `last_seen`);
 - a `Scope.organisation` or `Scope.standard` names an id that does not exist;
 - a `Scope.disposition` is not `In` or `Out`;
 - two scopes name the same `(organisation, standard)` pair;
@@ -426,6 +454,14 @@ Validation collects every error in one pass (not just the first). It fails when:
 
 A missing or unknown `kind`, and malformed YAML, are reported as diagnostics by
 the loader rather than throwing.
+
+Some conditions are non-blocking warnings, not errors: they are printed to stderr
+but `validate`, `apply --dry-run`, and `sync` still succeed (exit 0). These are a
+dangling or missing `Asset.parent`/`owner`, a `parent` cycle among declared
+assets, a declared `Vendor` with no `owner`, and a `Machine` with no `parent`. The
+rationale is that one uncoordinated writer (for example a discovered machine naming
+a declared parent a later `sync` removes) must not be able to wedge the whole
+config; the asset is simply invisible to readers until the edge resolves.
 
 ## Commands
 

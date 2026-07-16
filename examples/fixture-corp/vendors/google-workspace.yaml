@@ -1,9 +1,12 @@
 # Google Workspace - identity provider and email. Enforces MFA and is the
 # system of record for user accounts.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-google-workspace
 title: Google Workspace
+type: Vendor
+source: declared
+owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: VendorScope

@@ -1,37 +1,55 @@
-# Sample vendors: the software, platforms, and external parties the
-# organisation relies on. Collectors, evidence, and per-vendor exceptions map to
-# these ids. A Vendor is a plain identity record (id + title); richer metadata is
-# not modelled yet. CrowdStrike, Fleet, and Google Workspace are real named
-# integrations; the remaining vendors are invented for illustration.
+# Sample vendors as declared assets: the software, platforms, and external parties
+# the organisation relies on. Collectors, evidence, and per-vendor exceptions map to
+# these ids. Each vendor names an owner (a Company/Department asset) that makes it
+# visible to that org's readers. CrowdStrike, Fleet, and Google Workspace are real
+# named integrations; the remaining vendors are invented for illustration.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-crowdstrike
 title: CrowdStrike Falcon
+type: Vendor
+source: declared
+owner: ologist-products
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-fleetdm
 title: Fleet
+type: Vendor
+source: declared
+owner: ologist-products
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-google-workspace
 title: Google Workspace
+type: Vendor
+source: declared
+owner: ologist-products
 ---
 # Invented: a SaaS accounting package that supports MFA but not SSO.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-ledgerleaf
 title: LedgerLeaf Accounting (example)
+type: Vendor
+source: declared
+owner: ologist-products
 ---
 # Invented: an external accountancy firm with no logins to our systems.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-quill-accountancy
 title: Quill Accountancy Ltd (example)
+type: Vendor
+source: declared
+owner: ologist-products
 ---
 # Invented: a managed VPN appliance configured by the vendor under contract.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-sentinel-vpn
 title: Sentinel VPN (example)
+type: Vendor
+source: declared
+owner: ologist-products

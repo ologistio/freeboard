@@ -2,9 +2,12 @@
 # logins to Fixture Corp's systems, so the MFA control does not apply to it; an
 # Out scope with a justification records why.
 apiVersion: freeboard.dev/v1alpha1
-kind: Vendor
+kind: Asset
 id: vendor-quill-accountancy
 title: Quill Accountancy Ltd (example)
+type: Vendor
+source: declared
+owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: VendorScope
