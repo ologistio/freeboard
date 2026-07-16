@@ -157,11 +157,11 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM standards;"));
     }
 
-    // A full config persists the new-kind rows; re-syncing a config that drops one vendor-scope, one
+    // A full config persists the new-kind rows; re-syncing a config that drops one scope, one
     // evidence-collector, and one attestation-template hard-removes exactly those rows while keeping their
-    // FK targets (the vendor, control, and requirement they referenced) and the other retained rows. This
-    // covers the "drop only the resource, keep its FK target" case at the command surface and exercises both
-    // removal paths: the whole-set ReplaceVendorScopes and the DeleteAbsent collector/template prunes.
+    // FK targets (the vendor subject, control, and requirement they referenced) and the other retained rows.
+    // This covers the "drop only the resource, keep its FK target" case at the command surface and exercises
+    // both removal paths: the whole-set scope replace and the DeleteAbsent collector/template prunes.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncRoundTripThenDropRemovesDroppedNewKindRowsKeepingTargets()
     {
@@ -178,7 +178,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             await using var conn = new MySqlConnection(db.ConnectionString);
             await conn.OpenAsync();
 
-            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM vendor_scopes;"));
+            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
             Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_collectors;"));
             Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM attestation_templates;"));
 
@@ -191,17 +191,17 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             Assert.Equal(0, dropExit);
 
             // The dropped rows are gone; the retained ones remain.
-            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM vendor_scopes;"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_collectors;"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM attestation_templates;"));
             Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM vendor_scopes WHERE id = 'vs-drop';"));
+                "SELECT COUNT(*) FROM scopes WHERE id = 'vs-drop';"));
             Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM evidence_collectors WHERE id = 'ec-drop';"));
             Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM attestation_templates WHERE id = 'at-drop';"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM vendor_scopes WHERE id = 'vs-keep';"));
+                "SELECT COUNT(*) FROM scopes WHERE id = 'vs-keep';"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM evidence_collectors WHERE id = 'ec-keep';"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
@@ -269,7 +269,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         source: declared
         """;
 
-    // Standard/requirement/control plus a vendor, two vendor-scopes, two evidence-collectors, and two
+    // Standard/requirement/control plus a vendor, two vendor-subject scopes, two evidence-collectors, and two
     // attestation-templates. ctrl-a declares evaluation because it has attached collectors.
     private const string FullConfig = """
         apiVersion: freeboard.dev/v1alpha1
@@ -313,18 +313,18 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         discovery_cadence: daily
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: VendorScope
+        kind: Scope
         id: vs-keep
         title: Keep scope
-        vendor: vendor-a
+        subject: vendor-a
         control: ctrl-a
         disposition: In
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: VendorScope
+        kind: Scope
         id: vs-drop
         title: Drop scope
-        vendor: vendor-a
+        subject: vendor-a
         requirement: req-a
         disposition: In
         ---
@@ -409,10 +409,10 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         discovery_cadence: daily
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: VendorScope
+        kind: Scope
         id: vs-keep
         title: Keep scope
-        vendor: vendor-a
+        subject: vendor-a
         control: ctrl-a
         disposition: In
         ---

@@ -4,18 +4,24 @@ using Freeboard.Persistence.System;
 
 namespace Freeboard.CLI.Tests;
 
-/// <summary>Records ImportAsync calls for assertions.</summary>
+/// <summary>
+/// Records ImportAsync calls for assertions and returns a configurable <see cref="ImportResult"/>.
+/// <see cref="Result"/> drives the sync-path DB-accurate unresolved-subject warnings; it defaults to
+/// <see cref="ImportResult.Empty"/> (no unresolved subjects).
+/// </summary>
 internal sealed class FakeImporter : IGitOpsImporter
 {
     public int Calls { get; private set; }
 
     public GitOpsConfig? LastConfig { get; private set; }
 
-    public Task ImportAsync(GitOpsConfig config, CancellationToken cancellationToken = default)
+    public ImportResult Result { get; init; } = ImportResult.Empty;
+
+    public Task<ImportResult> ImportAsync(GitOpsConfig config, CancellationToken cancellationToken = default)
     {
         Calls++;
         LastConfig = config;
-        return Task.CompletedTask;
+        return Task.FromResult(Result);
     }
 }
 
@@ -94,7 +100,7 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public int VendorListCalls { get; private set; }
 
-    public int VendorScopeListCalls { get; private set; }
+    public int ScopeListCalls { get; private set; }
 
     public int ControlListCalls { get; private set; }
 
@@ -138,8 +144,8 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public ApiResult<IReadOnlyList<ApiVendor>> VendorListResult { get; init; } =
         ApiResult<IReadOnlyList<ApiVendor>>.Success([SampleVendor]);
 
-    public ApiResult<IReadOnlyList<ApiVendorScope>> VendorScopeListResult { get; init; } =
-        ApiResult<IReadOnlyList<ApiVendorScope>>.Success([SampleVendorScope]);
+    public ApiResult<IReadOnlyList<ApiScope>> ScopeListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiScope>>.Success([SampleScope]);
 
     public ApiResult<IReadOnlyList<ApiControl>> ControlListResult { get; init; } =
         ApiResult<IReadOnlyList<ApiControl>>.Success([SampleControl]);
@@ -158,8 +164,8 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public static ApiVendor SampleVendor { get; } = new("vendor-a", "Vendor A");
 
-    public static ApiVendorScope SampleVendorScope { get; } =
-        new("vs-a", "Except req-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO.");
+    public static ApiScope SampleScope { get; } =
+        new("vs-a", "Except req-a", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO.");
 
     public static ApiControl SampleControl { get; } = new("ctrl-a", "Control A", ["req-a"], "all");
 
@@ -224,10 +230,10 @@ internal sealed class FakeApiClient : IFreeboardApiClient
         return Task.FromResult(VendorListResult);
     }
 
-    public Task<ApiResult<IReadOnlyList<ApiVendorScope>>> ListVendorScopesAsync(CancellationToken ct)
+    public Task<ApiResult<IReadOnlyList<ApiScope>>> ListScopesAsync(CancellationToken ct)
     {
-        VendorScopeListCalls++;
-        return Task.FromResult(VendorScopeListResult);
+        ScopeListCalls++;
+        return Task.FromResult(ScopeListResult);
     }
 
     public Task<ApiResult<IReadOnlyList<ApiControl>>> ListControlsAsync(CancellationToken ct)

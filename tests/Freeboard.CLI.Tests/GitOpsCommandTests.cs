@@ -114,8 +114,11 @@ public sealed class GitOpsCommandTests
         Assert.DoesNotContain("Planned config state", stdout);
     }
 
+    // A unified Scope whose subject is a Vendor asset cannot target a standard (a Vendor scopes at the
+    // requirement/control level only). This is a scope-specific validation error naming the subject and
+    // exits 1. (kind: VendorScope is now an unknown kind, so this replaces the old vendor-scope case.)
     [Fact]
-    public void ValidateVendorScopeWithUnknownVendorExitsOneNamingTheVendor()
+    public void ValidateScopeWithVendorSubjectTargetingStandardExitsOneNamingTheSubject()
     {
         var dir = WriteTempConfig("""
             apiVersion: freeboard.dev/v1alpha1
@@ -126,21 +129,26 @@ public sealed class GitOpsCommandTests
             authority: Example Authority
             ---
             apiVersion: freeboard.dev/v1alpha1
-            kind: Requirement
-            id: req-a
-            title: Requirement A
-            standard: std-a
-            theme: Theme A
-            statement: Do the thing.
-            citation_label: Source A
-            citation_url: https://example.com/a
+            kind: Asset
+            id: org-a
+            title: Org A
+            type: Company
+            source: declared
             ---
             apiVersion: freeboard.dev/v1alpha1
-            kind: VendorScope
-            id: vs-a
+            kind: Asset
+            id: vendor-a
+            title: Vendor A
+            type: Vendor
+            source: declared
+            owner: org-a
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Scope
+            id: scope-a
             title: Scope A
-            vendor: vendor-missing
-            requirement: req-a
+            subject: vendor-a
+            standard: std-a
             disposition: In
             """);
         try
@@ -148,7 +156,7 @@ public sealed class GitOpsCommandTests
             var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
 
             Assert.Equal(1, exit);
-            Assert.Contains("vendor-missing", stderr, StringComparison.Ordinal);
+            Assert.Contains("vendor-a", stderr, StringComparison.Ordinal);
         }
         finally
         {
@@ -166,6 +174,77 @@ public sealed class GitOpsCommandTests
         type: Vendor
         source: declared
         """;
+
+    // A Scope whose subject names no asset is a non-blocking, DB-less Core Warning: validation stays valid
+    // (exit 0), but the operator must see the warning. On validate/apply --dry-run there is no database, so
+    // this Core scope-subject warning prints (it is only suppressed on the sync path, in favour of the
+    // importer's DB-accurate result).
+    private static string DanglingScopeSubjectConfig() => """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Standard
+        id: std-a
+        title: Standard A
+        version: "1.0"
+        authority: Example Authority
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Requirement
+        id: req-a
+        title: Requirement A
+        standard: std-a
+        theme: Theme A
+        statement: Do the thing.
+        citation_label: Source A
+        citation_url: https://example.com/a
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Scope
+        id: scope-a
+        title: Scope A
+        subject: ghost-x
+        requirement: req-a
+        disposition: In
+        """;
+
+    [Fact]
+    public void ValidatePrintsScopeSubjectWarningOnValidPathAndExitsZero()
+    {
+        var dir = WriteTempConfig(DanglingScopeSubjectConfig());
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("warning:", stderr, StringComparison.Ordinal);
+            Assert.Contains("ghost-x", stderr, StringComparison.Ordinal);
+            Assert.Contains("resolves to no asset", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApplyDryRunPrintsScopeSubjectWarningOnValidPathAndExitsZero()
+    {
+        var dir = WriteTempConfig(DanglingScopeSubjectConfig());
+        try
+        {
+            var (exit, stdout, stderr) = CliRunner.Run("gitops", "apply", dir, "--dry-run");
+
+            Assert.Equal(0, exit);
+            // The planned state lists the unified scope with its subject and target.
+            Assert.Contains("Scopes (1):", stdout, StringComparison.Ordinal);
+            Assert.Contains("scope-a", stdout, StringComparison.Ordinal);
+            Assert.Contains("ghost-x", stdout, StringComparison.Ordinal);
+            Assert.Contains("resolves to no asset", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 
     [Fact]
     public void ValidatePrintsWarningsOnValidPathAndExitsZero()

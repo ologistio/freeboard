@@ -70,6 +70,156 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Single(importer.LastConfig!.Standards);
     }
 
+    private static string WriteTempConfig(string content)
+    {
+        var dir = Directory.CreateTempSubdirectory("fb-gitops-sync-warn-");
+        File.WriteAllText(Path.Join(dir.FullName, "config.yaml"), content);
+        return dir.FullName;
+    }
+
+    private static int Occurrences(string haystack, string needle)
+    {
+        var count = 0;
+        var i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            i += needle.Length;
+        }
+
+        return count;
+    }
+
+    // A valid config with a Scope whose subject names no asset. Core flags the subject as a dangling-subject
+    // Warning (discriminable by DiagnosticCode.ScopeSubjectUnresolved); validation stays valid.
+    private const string DanglingScopeSubjectConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Standard
+        id: std-a
+        title: Standard A
+        version: "1.0"
+        authority: Example Authority
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Requirement
+        id: req-a
+        title: Requirement A
+        standard: std-a
+        theme: Theme A
+        statement: Do the thing.
+        citation_label: Source A
+        citation_url: https://example.com/a
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Scope
+        id: scope-a
+        title: Scope A
+        subject: ghost-x
+        requirement: req-a
+        disposition: In
+        """;
+
+    // A declared Vendor asset with no owner yields a non-scope Core Warning ("no owner").
+    private const string OwnerlessVendorConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: vendor-a
+        title: Vendor A
+        type: Vendor
+        source: declared
+        """;
+
+    // (a) On the sync path the DB-less Core scope-subject-dangling Warning is suppressed in favour of the
+    // importer's DB-accurate result; an EMPTY importer result means no scope-subject warning is printed.
+    [Fact]
+    public void SyncEmptyImportResultSuppressesCoreScopeSubjectWarning()
+    {
+        var importer = new FakeImporter { Result = ImportResult.Empty };
+        PersistenceFactory.CreateImporter = _ => importer;
+        PersistenceFactory.CreateMigrationRunner = _ => new FakeMigrationRunner { Current = true };
+
+        var dir = WriteTempConfig(DanglingScopeSubjectConfig);
+        try
+        {
+            var (exit, _, err) = Capture(() => new GitOpsCommands().Sync(dir, "Server=x;Database=y;"));
+
+            Assert.Equal(0, exit);
+            Assert.Equal(1, importer.Calls);
+            // Neither the Core message ("resolves to no asset.") nor the importer message
+            // ("resolves to no live asset.") is present.
+            Assert.DoesNotContain("resolves to no", err, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // (b) One unresolved importer subject prints EXACTLY one DB-accurate warning line.
+    [Fact]
+    public void SyncPrintsExactlyOneImporterUnresolvedSubjectWarning()
+    {
+        var importer = new FakeImporter { Result = new ImportResult(["ghost-1"]) };
+        PersistenceFactory.CreateImporter = _ => importer;
+        PersistenceFactory.CreateMigrationRunner = _ => new FakeMigrationRunner { Current = true };
+
+        var (exit, _, err) = Capture(() => new GitOpsCommands().Sync(FixtureDir("valid"), "Server=x;Database=y;"));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            1, Occurrences(err, "warning: scope subject 'ghost-1' resolves to no live asset."));
+    }
+
+    // (c) A non-scope Core Warning (an ownerless declared Vendor) still prints on the sync path.
+    [Fact]
+    public void SyncPrintsNonScopeCoreWarning()
+    {
+        var importer = new FakeImporter { Result = ImportResult.Empty };
+        PersistenceFactory.CreateImporter = _ => importer;
+        PersistenceFactory.CreateMigrationRunner = _ => new FakeMigrationRunner { Current = true };
+
+        var dir = WriteTempConfig(OwnerlessVendorConfig);
+        try
+        {
+            var (exit, _, err) = Capture(() => new GitOpsCommands().Sync(dir, "Server=x;Database=y;"));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("warning:", err, StringComparison.Ordinal);
+            Assert.Contains("vendor-a", err, StringComparison.Ordinal);
+            Assert.Contains("no owner", err, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // (d) The importer's configured unresolved subjects print on the sync path without double-printing the
+    // suppressed Core scope-subject Warning: the same subject id appears exactly once (the importer line).
+    [Fact]
+    public void SyncPrintsImporterUnresolvedSubjectsWithoutDoublePrintingCoreWarning()
+    {
+        var importer = new FakeImporter { Result = new ImportResult(["ghost-x"]) };
+        PersistenceFactory.CreateImporter = _ => importer;
+        PersistenceFactory.CreateMigrationRunner = _ => new FakeMigrationRunner { Current = true };
+
+        var dir = WriteTempConfig(DanglingScopeSubjectConfig);
+        try
+        {
+            var (exit, _, err) = Capture(() => new GitOpsCommands().Sync(dir, "Server=x;Database=y;"));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "warning: scope subject 'ghost-x' resolves to no live asset.", err, StringComparison.Ordinal);
+            // The subject id appears once (importer line only); the suppressed Core warning would repeat it.
+            Assert.Equal(1, Occurrences(err, "ghost-x"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void SyncUnmigratedWithoutMigrateExitsThreeAndWritesNothing()
     {
