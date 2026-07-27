@@ -65,8 +65,14 @@ public sealed class ScopeGeneralizationIntegrationTests
     private static Requirement Req(string id, string standard) =>
         new()
         {
-            Id = id, Title = "T", ApiVersion = "v1", Standard = standard, Theme = "Theme",
-            Statement = "Do the thing.", CitationLabel = "Source", CitationUrl = "https://example.com/" + id,
+            Id = id,
+            Title = "T",
+            ApiVersion = "v1",
+            Standard = standard,
+            Theme = "Theme",
+            Statement = "Do the thing.",
+            CitationLabel = "Source",
+            CitationUrl = "https://example.com/" + id,
         };
 
     private static Control Ctrl(string id, string[] mapsTo) =>

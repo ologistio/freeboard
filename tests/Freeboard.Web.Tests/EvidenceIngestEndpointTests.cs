@@ -303,7 +303,7 @@ public sealed class EvidenceIngestEndpointTests
         factory.Compliance.Organisations =
             [.. factory.Compliance.Organisations, new OrganisationRow("org-out", "Out", "Company", null)];
         factory.Compliance.Scopes =
-            [.. factory.Compliance.Scopes, new ScopeRow("scope-out", "Out", "org-out", Standard, null, null, "Out", null)];
+            [.. factory.Compliance.Scopes, new ScopeRow("scope-out", "Out", "org-out", Standard, null, null, "Out", "org-out is excluded from the standard.")];
 
         var response = await client.PostAsync(Route, Body(Valid(organisationId: "org-out")));
 
