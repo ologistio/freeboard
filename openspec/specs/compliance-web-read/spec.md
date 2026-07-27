@@ -367,8 +367,8 @@ include its `id`, `title`, `control` id, `vendor` id (null when unset), `type`,
 map, an empty object when unset). The endpoint SHALL read through the
 `IComplianceStore` abstraction, SHALL be GET-only and unaffected by GitOps read-only
 mode, and SHALL return the RFC 7807 / HTTP 503 unreachable-store response when the
-store is unavailable. Unlike the per-org resource endpoints (`/organisations`,
-`/scopes`, `/requirement-scopes`), which narrow rows to the caller's accessible
+store is unavailable. Unlike the per-org resource endpoints (`/organisations`
+and `/scopes`), which narrow rows to the caller's accessible
 organisation set via `IOrgAccess`, this endpoint intentionally does NOT filter:
 evidence-collectors are org-independent reference data (they carry no `organisation`
 dimension), so any authenticated user - including one with zero org access - may read
@@ -418,8 +418,8 @@ appears in the endpoint response even though every authenticated user may read t
 endpoint. The endpoint SHALL read through the
 `IComplianceStore` abstraction, SHALL be GET-only and unaffected by GitOps read-only
 mode, and SHALL return the RFC 7807 / HTTP 503 unreachable-store response when the
-store is unavailable. Unlike the per-org resource endpoints (`/organisations`,
-`/scopes`, `/requirement-scopes`), which narrow rows to the caller's accessible
+store is unavailable. Unlike the per-org resource endpoints (`/organisations`
+and `/scopes`), which narrow rows to the caller's accessible
 organisation set via `IOrgAccess`, this endpoint intentionally does NOT filter:
 attestation-templates are org-independent reference data (they carry no
 `organisation` dimension), so any authenticated user - including one with zero org

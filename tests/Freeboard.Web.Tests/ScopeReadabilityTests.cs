@@ -6,11 +6,8 @@ using Freeboard.Persistence;
 namespace Freeboard.Web.Tests;
 
 /// <summary>
-/// The unified /scopes subject-readability rule: an org subject narrows by the accessible set, a
-/// vendor subject by its owner, and a machine (or other parent-anchored) subject by its parent org's
-/// inclusive ancestry into that set. A subject that resolves to no live asset fails closed. The machine
-/// branch is exercised both through the endpoint (under Enforce narrowing) and directly against the
-/// internal <see cref="ComplianceEndpoints.SubjectReadable"/> predicate.
+/// Subject-readability narrowing on the unified /scopes read: every subject kind resolves to an
+/// anchoring organisation, and a subject that resolves to none fails closed.
 /// </summary>
 public sealed class ScopeReadabilityTests
 {

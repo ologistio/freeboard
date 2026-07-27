@@ -89,8 +89,8 @@ on `title`.
 
 #### Scenario: References resolve by id
 
-- **WHEN** a `Control.maps_to`, an `Organisation.parent`, or a `Scope.organisation`
-  or `Scope.standard` entry names an id
+- **WHEN** a `Control.maps_to`, an `Asset.parent`, an `Asset.owner`, a `Scope.subject`,
+  or a `Scope.standard`, `Scope.requirement`, or `Scope.control` entry names an id
 - **THEN** resolution matches on that `id` only, never on any resource `title`
 
 ### Requirement: Config validation
@@ -224,9 +224,8 @@ from every broad read surface (the read API, CLI, and web register).
 
 #### Scenario: No credential fields exist
 
-- **WHEN** the schema for `Standard`, `Control`, `Requirement`, `Organisation`,
-  `Scope`, `RequirementScope`, `Vendor`, `VendorScope`, `Integration`,
-  `EvidenceCollector`, and `AttestationTemplate` is inspected
+- **WHEN** the schema for `Standard`, `Control`, `Requirement`, `Asset`, `Scope`,
+  `Integration`, `EvidenceCollector`, and `AttestationTemplate` is inspected
 - **THEN** it contains no field intended to hold credential material, and an
   `Integration` in particular declares no token field
 
@@ -270,7 +269,7 @@ Optional string fields (`Requirement.guidance`, `Standard.publisher`,
 `Standard.source_url`) SHALL normalize omitted-or-whitespace-only to absent: an
 absent value is stored and read as NULL, and the non-empty and URI-format checks
 SHALL run only when such a field is present and non-empty (the same treatment
-`Organisation.parent` gives an empty value). Required fields (`Standard.version`,
+`Asset.parent` gives an empty value). Required fields (`Standard.version`,
 `Standard.authority`) keep the non-empty rule and SHALL fail validation when empty
 or whitespace-only.
 
