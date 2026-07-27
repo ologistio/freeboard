@@ -114,6 +114,13 @@ key on `title`.
 - **THEN** its `created_at` is unchanged and its `updated_at` is advanced to the
   time of the new write
 
+#### Scenario: A scope is replaced rather than upserted
+
+- **WHEN** an existing `Scope` is written again (same `id`) by a sync
+- **THEN** the whole-set replace gives it a new `created_at`, so the preserved-`created_at`
+  rule above does NOT hold for the `scopes` table; the replace is required for foreign-key
+  safety and neither timestamp is read
+
 ### Requirement: General read store and GitOps importer abstractions
 
 The system SHALL expose separate abstractions for reading the store and for
@@ -662,8 +669,12 @@ The store SHALL persist the unified `Scope` kind in one `scopes` table, created 
 the previous `scopes`, `requirement_scopes`, and `vendor_scopes` tables in migration `020`.
 Each scope row SHALL hold `id`, `api_version`, `title`, a `subject_id`, a nullable
 `standard_id`, a nullable `requirement_id`, a nullable `control_id`, a `disposition`, a
-nullable `justification`, a `created_at` set on first insert, and an `updated_at` set on
-every write. The `id`, `subject_id`, `standard_id`, `requirement_id`, and `control_id`
+nullable `justification`, and a `created_at` and `updated_at` both set on every write.
+Unlike every other entity kind, a scope's `created_at` is NOT a provenance record: the
+importer replaces the whole set on each sync (see below), so both timestamps carry the
+time of the last sync, not the time the scope was first declared. No read surface exposes
+either column. The authoring history for a scope lives in the config repository.
+The `id`, `subject_id`, `standard_id`, `requirement_id`, and `control_id`
 columns SHALL use binary collation (`utf8mb4_bin`) so identity is exact-byte, consistent
 with `Freeboard.Core`.
 
