@@ -37,39 +37,56 @@ public sealed record ControlRow(string Id, string Title, IReadOnlyList<string> M
 public sealed record OrganisationRow(string Id, string Title, string Kind, string? Parent);
 
 /// <summary>
-/// A persisted scope mapping one organisation to one standard with a disposition
-/// (<c>In</c> or <c>Out</c>).
+/// A persisted scope mapping one asset <see cref="Subject"/> to exactly one target - a standard,
+/// requirement, or control (the other two null) - with a disposition (<c>In</c> or <c>Out</c>) and an
+/// optional <see cref="Justification"/> (null when unset; always present for an <c>Out</c>). The first
+/// eight fields are the public/wire (<c>ApiScope</c>) shape. The trailing five subject-narrowing fields are
+/// populated by the <c>GetScopesAsync</c> <c>LEFT JOIN assets</c> on <see cref="Subject"/>, are
+/// server-side only (used for the read-visibility branches and the resolution predicate), and are NEVER
+/// serialized: the <c>/scopes</c> endpoint projects only the eight public fields. They are null when the
+/// subject resolves to no asset row.
 /// </summary>
-public sealed record ScopeRow(string Id, string Title, string Organisation, string Standard, string Disposition);
+public sealed record ScopeRow(
+    string Id,
+    string Title,
+    string Subject,
+    string? Standard,
+    string? Requirement,
+    string? Control,
+    string Disposition,
+    string? Justification,
+    string? SubjectType = null,
+    string? SubjectSource = null,
+    string? SubjectState = null,
+    string? SubjectParent = null,
+    string? SubjectOwner = null);
 
 /// <summary>
-/// A persisted requirement-scope mapping one organisation to one requirement with a disposition
-/// (<c>In</c> or <c>Out</c>). The owning standard is derived from the requirement.
-/// </summary>
-public sealed record RequirementScopeRow(string Id, string Title, string Organisation, string Requirement, string Disposition);
-
-/// <summary>
-/// The four inputs the Statement of Applicability projection needs, read together in one
-/// repeatable-read snapshot so they cannot straddle a concurrent importer commit.
+/// The inputs the Statement of Applicability projection needs, read together in one
+/// repeatable-read snapshot so they cannot straddle a concurrent importer commit. The requirement layer
+/// comes from the one unified <see cref="Scopes"/> list (requirement-target rows). <see cref="ResolvableAssetIds"/>
+/// is the set of subject-resolving asset ids (present, and not a retired discovered asset) for the
+/// dangling-subject notice.
 /// </summary>
 public sealed record SoaInputs(
     IReadOnlyList<OrganisationRow> Organisations,
     IReadOnlyList<ScopeRow> Scopes,
     IReadOnlyList<RequirementRow> Requirements,
-    IReadOnlyList<RequirementScopeRow> RequirementScopes);
+    IReadOnlySet<string> ResolvableAssetIds);
 
 /// <summary>
 /// The inputs the Statement of Applicability drill-down projection needs, read together in one
 /// repeatable-read snapshot so they cannot straddle a concurrent importer commit. Extends the flat
 /// <see cref="SoaInputs"/> with controls (resolved <c>maps_to</c>), evidence-collectors,
 /// attestation-templates, and vendors so the requirement -> control -> check hierarchy resolves from one
-/// consistent read and a collector's vendor id maps to a vendor title.
+/// consistent read and a collector's vendor id maps to a vendor title. The requirement layer comes from
+/// the one unified <see cref="Scopes"/> list.
 /// </summary>
 public sealed record SoaDrilldownInputs(
     IReadOnlyList<OrganisationRow> Organisations,
     IReadOnlyList<ScopeRow> Scopes,
     IReadOnlyList<RequirementRow> Requirements,
-    IReadOnlyList<RequirementScopeRow> RequirementScopes,
+    IReadOnlySet<string> ResolvableAssetIds,
     IReadOnlyList<ControlRow> Controls,
     IReadOnlyList<EvidenceCollectorRow> Collectors,
     IReadOnlyList<AttestationTemplateRow> Templates,
@@ -81,14 +98,6 @@ public sealed record SoaDrilldownInputs(
 /// unset (a vendor with a null or dangling owner is visible to no caller, fail-closed).
 /// </summary>
 public sealed record VendorRow(string Id, string Title, string? Owner);
-
-/// <summary>
-/// A persisted vendor-scope binding one vendor to exactly one target (a requirement or a control,
-/// the other null) with a disposition (<c>In</c> or <c>Out</c>). <see cref="Justification"/> is null
-/// when unset; it is always present for an <c>Out</c> exception.
-/// </summary>
-public sealed record VendorScopeRow(
-    string Id, string Title, string Vendor, string? Requirement, string? Control, string Disposition, string? Justification);
 
 /// <summary>
 /// A persisted evidence-collector attached to one control. Identity is <see cref="Id"/>.
@@ -147,8 +156,6 @@ public sealed record ComplianceCounts(
     int Requirements,
     int Organisations,
     int Scopes,
-    int RequirementScopes,
     int Vendors,
-    int VendorScopes,
     int EvidenceCollectors,
     int AttestationTemplates);

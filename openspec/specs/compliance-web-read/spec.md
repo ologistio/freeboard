@@ -9,31 +9,44 @@ The web app SHALL expose read-only HTTP endpoints that return the persisted
 compliance domain from the store, not the YAML on disk. These endpoints live under
 the single `/api/v1/freeboard/` API namespace and require an authenticated user. It
 SHALL provide `GET /api/v1/freeboard/standards`, `GET /api/v1/freeboard/controls`,
-`GET /api/v1/freeboard/requirements`, `GET /api/v1/freeboard/organisations`,
-`GET /api/v1/freeboard/scopes`, and `GET /api/v1/freeboard/requirement-scopes`.
-Standards SHALL include their `version`, `authority`, optional `publisher`, and
-optional `source_url` metadata (null when unset). Controls SHALL include their
-`maps_to` `Requirement` ids, resolved from the `control_requirements` join, and their
-`evaluation` rule (null when unset). Requirements SHALL include their owning
+`GET /api/v1/freeboard/requirements`, `GET /api/v1/freeboard/organisations`, and
+`GET /api/v1/freeboard/scopes`. Standards SHALL include their `version`, `authority`,
+optional `publisher`, and optional `source_url` metadata (null when unset). Controls SHALL
+include their `maps_to` `Requirement` ids, resolved from the `control_requirements` join,
+and their `evaluation` rule (null when unset). Requirements SHALL include their owning
 `standard` id, `theme`, `statement`, `guidance` (null when unset), and a `citation`
 object of `{ label, url }` composed from the stored `citation_label` and
 `citation_url`. Organisations SHALL include their `kind` and resolved `parent` id
-(null for a root). Scopes SHALL include their `organisation` id, `standard` id, and
-`disposition`, resolved from the store. Requirement-scopes SHALL include their
-`organisation` id, `requirement` id, and `disposition`, resolved from the store. The
-web app SHALL read through the `IComplianceStore` abstraction; its read-path
-dependency-injection registration SHALL register `IComplianceStore` and SHALL NOT
-register the GitOps import or the migration runner abstractions.
+(null for a root). Scopes SHALL include their `subject` id, exactly one target
+(`standard`, `requirement`, or `control` id, whichever is set, the others null),
+`disposition`, and `justification` (null when unset), resolved from the store. The single
+`/scopes` endpoint replaces the previous separate `/scopes`, `/requirement-scopes`, and
+`/vendor-scopes` endpoints, which are removed. The web app SHALL read through the
+`IComplianceStore` abstraction; its read-path dependency-injection registration SHALL
+register `IComplianceStore` and SHALL NOT register the GitOps import or the migration
+runner abstractions.
 
 The org-scoped reads SHALL be narrowed to the caller's accessible organisation set
 (as defined by the authorization enforcement capability): `organisations` filtered
-by id, and `scopes` and `requirement-scopes` filtered by owning organisation. When a
-returned organisation's `parent` is not in the caller's accessible set, its `parent`
-id SHALL be nulled in the response, so the read does not disclose the existence of an
-inaccessible ancestor; such a node reads as a root, consistent with how the selector
-already treats it. The non-tenant catalog reads `standards`, `controls`, and
-`requirements` are shared reference data with no confidentiality boundary and SHALL
-NOT be narrowed; they remain authenticated-only.
+by id, and `scopes` filtered by subject readability. A scope is readable when its
+`subject` is readable, with a branch per parent-anchored subject family: a
+Company/Department subject is readable when it is in the caller's accessible-organisation
+set; a Vendor subject is readable when its `owner` (a Company/Department asset) is in that
+set; and a Machine (or other parent-anchored asset) subject is readable when its `parent`
+ancestry resolves into that set (walking the asset's `parent` chain to the org node it hangs
+under, the same ancestry walk the Statement of Applicability uses). A scope whose subject is
+missing, dangling, or otherwise unreadable - an `owner` or resolved parent-org outside the
+accessible set, or a subject that resolves to no live asset (no asset row, or a retired
+discovered asset) - SHALL be omitted from the response, so neither the subject id nor an `Out`
+`justification` leaks; this fail-closed rule preserves the prior `/scopes` org-narrowing and
+the prior `/vendor-scopes` owner-narrowing and adds the machine parent-ancestry branch in one
+predicate, so a Machine-subject scope is visible to a caller who can see its parent org and
+hidden from one who cannot. When a returned organisation's `parent` is not in the
+caller's accessible set, its `parent` id SHALL be nulled in the response, so the read does
+not disclose the existence of an inaccessible ancestor; such a node reads as a root,
+consistent with how the selector already treats it. The non-tenant catalog reads
+`standards`, `controls`, and `requirements` are shared reference data with no
+confidentiality boundary and SHALL NOT be narrowed; they remain authenticated-only.
 
 Responses SHALL be deterministically ordered: resources SHALL be ordered by `id`
 and each relation id array SHALL be ordered by id, using ordinal/binary order
@@ -67,26 +80,36 @@ consistent with the identifier identity semantics.
   accessible set with `id`, `title`, `kind`, and resolved `parent` id (null for a
   root)
 
-#### Scenario: Inaccessible parent id is not disclosed
-
-- **WHEN** a caller reads `GET /api/v1/freeboard/organisations` and an accessible
-  organisation's parent is not in the caller's accessible set
-- **THEN** that organisation's `parent` id is null in the response rather than
-  disclosing the inaccessible ancestor
-
-#### Scenario: Scopes endpoint returns the accessible mapping
+#### Scenario: Scopes endpoint returns the readable unified mapping
 
 - **WHEN** a client requests `GET /api/v1/freeboard/scopes`
-- **THEN** the response lists the scopes owned by organisations in the caller's
-  accessible set with `id`, `title`, `organisation` id, `standard` id, and
-  `disposition`
+- **THEN** the response lists the scopes whose subject is readable with `id`, `title`,
+  `subject` id, the one set target (`standard`, `requirement`, or `control` id), the
+  others null, `disposition`, and `justification` (null when unset), ordered by `id`
 
-#### Scenario: Requirement-scopes endpoint returns the accessible mapping
+#### Scenario: Removed requirement-scope and vendor-scope endpoints are gone
 
-- **WHEN** a client requests `GET /api/v1/freeboard/requirement-scopes`
-- **THEN** the response lists the requirement-scopes owned by organisations in the
-  caller's accessible set with `id`, `title`, `organisation` id, `requirement` id,
-  and `disposition`, ordered by `id`
+- **WHEN** a client requests `GET /api/v1/freeboard/requirement-scopes` or
+  `GET /api/v1/freeboard/vendor-scopes`
+- **THEN** the endpoint does not exist (their data is served by the unified `/scopes`
+  endpoint)
+
+#### Scenario: Unreadable subject hides the scope and its justification
+
+- **WHEN** a caller reads `GET /api/v1/freeboard/scopes` and a scope's subject is outside
+  the caller's accessible set (an organisation subject not accessible, a vendor subject
+  whose `owner` is missing, dangling, or outside the accessible set, or a machine subject
+  whose `parent` ancestry resolves to an org node outside the accessible set)
+- **THEN** that scope is omitted from the response, so neither its subject id nor its `Out`
+  `justification` is disclosed
+
+#### Scenario: Machine-subject scope follows its parent-org accessibility
+
+- **WHEN** a caller reads `GET /api/v1/freeboard/scopes` and a scope's subject is a `Machine`
+  asset whose `parent` ancestry resolves to an org node in the caller's accessible set
+- **THEN** that scope is returned; and the same scope is omitted for a caller whose accessible
+  set does not include that parent-org node, so a Machine-subject scope is visible only through
+  its parent-org accessibility
 
 #### Scenario: Read responses are ordered by id
 
@@ -109,12 +132,13 @@ endpoint SHALL return a clear error response (an RFC 7807 problem body, HTTP 503
 rather than an unhandled exception, and the `GET /api/v1/freeboard/compliance/status`
 endpoint's `persisted` summary SHALL degrade to all-null per-kind values rather
 than failing the whole status response. The `persisted` object SHALL remain
-present with every per-kind key, each set to `null`. The per-kind key set includes
-`vendors`, `vendorScopes`, `evidenceCollectors`, and `attestationTemplates` alongside
-the pre-existing kinds:
+present with every per-kind key, each set to `null`. The per-kind key set includes one
+unified `scopes` key (the previous separate `requirementScopes` and `vendorScopes` keys
+are removed with their read endpoints), and `vendors`, `evidenceCollectors`, and
+`attestationTemplates` alongside the pre-existing kinds:
 
 ```json
-{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null, "evidenceCollectors": null, "attestationTemplates": null } }
+{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "vendors": null, "evidenceCollectors": null, "attestationTemplates": null } }
 ```
 
 `null` (not omitted, not `{}`, not `0`) marks each count as unknown rather than
@@ -129,8 +153,7 @@ first as an authentication failure (HTTP 401) - the request never reaches the
 compliance handler - not as these compliance degradation responses.
 
 The vendor, evidence-collector, and attestation-template read endpoints
-(`GET /api/v1/freeboard/vendors`, `GET /api/v1/freeboard/vendor-scopes`,
-`GET /api/v1/freeboard/evidence-collectors`, and
+(`GET /api/v1/freeboard/vendors`, `GET /api/v1/freeboard/evidence-collectors`, and
 `GET /api/v1/freeboard/attestation-templates`) tolerate the unreachable store the
 same way as the other resource reads: HTTP 503 with an RFC 7807 problem body, never
 an unhandled exception.
@@ -140,7 +163,7 @@ an unhandled exception.
 - **WHEN** the store is unreachable and an authenticated user requests
   `GET /api/v1/freeboard/compliance/status`
 - **THEN** the response returns HTTP 200 with `persisted` equal to
-  `{ "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null, "evidenceCollectors": null, "attestationTemplates": null }`
+  `{ "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "vendors": null, "evidenceCollectors": null, "attestationTemplates": null }`
   rather than the request failing
 
 #### Scenario: Unreachable store returns 503 from the read endpoints
@@ -148,8 +171,7 @@ an unhandled exception.
 - **WHEN** the store is unreachable and an authenticated user requests
   `GET /api/v1/freeboard/standards`, `/api/v1/freeboard/controls`,
   `/api/v1/freeboard/requirements`, `/api/v1/freeboard/organisations`,
-  `/api/v1/freeboard/scopes`, `/api/v1/freeboard/requirement-scopes`,
-  `/api/v1/freeboard/vendors`, `/api/v1/freeboard/vendor-scopes`,
+  `/api/v1/freeboard/scopes`, `/api/v1/freeboard/vendors`,
   `/api/v1/freeboard/evidence-collectors`, or
   `/api/v1/freeboard/attestation-templates`
 - **THEN** the endpoint returns HTTP 503 with an RFC 7807 problem body rather than
@@ -195,15 +217,15 @@ read-only mode is on.
 
 The web app SHALL provide `GET /api/v1/freeboard/compliance/status` returning a
 summary of how many standards, controls, requirements, organisations, scopes,
-requirement-scopes, vendors, vendor-scopes, evidence-collectors, and
-attestation-templates are currently persisted in the store. This is the general
-compliance read surface; the persisted counts live here, NOT on
+vendors, evidence-collectors, and attestation-templates are currently persisted in the
+store. This is the general compliance read surface; the persisted counts live here, NOT on
 `GET /api/v1/freeboard/gitops/status` (which stays a GitOps concern reporting
 read-only mode and repository URL). The summary SHALL be a `persisted` object with
-per-kind counts:
+per-kind counts, including one unified `scopes` count (the separate `requirementScopes`
+and `vendorScopes` counts are removed with the merged tables):
 
 ```json
-{ "persisted": { "standards": 3, "controls": 12, "requirements": 35, "organisations": 4, "scopes": 2, "requirementScopes": 3, "vendors": 5, "vendorScopes": 4, "evidenceCollectors": 8, "attestationTemplates": 6 } }
+{ "persisted": { "standards": 3, "controls": 12, "requirements": 35, "organisations": 4, "scopes": 5, "vendors": 5, "evidenceCollectors": 8, "attestationTemplates": 6 } }
 ```
 
 The `persisted` object SHALL always be present: integer counts when the store is
@@ -215,8 +237,8 @@ read-path tolerance requirement).
 - **WHEN** a client requests `GET /api/v1/freeboard/compliance/status` with a
   reachable store
 - **THEN** the response includes a `persisted` object with the count of persisted
-  standards, controls, requirements, organisations, scopes, requirement-scopes,
-  vendors, vendor-scopes, evidence-collectors, and attestation-templates
+  standards, controls, requirements, organisations, one unified scopes count,
+  vendors, evidence-collectors, and attestation-templates
 
 ### Requirement: GitOps status endpoint is unchanged and store-independent
 
@@ -245,7 +267,7 @@ registered. (Its path moves under the `/api/v1/freeboard/` namespace.)
 Every compliance read endpoint SHALL require an authenticated user: the resource
 reads `GET /api/v1/freeboard/standards`, `GET /api/v1/freeboard/controls`,
 `GET /api/v1/freeboard/requirements`, `GET /api/v1/freeboard/organisations`,
-`GET /api/v1/freeboard/scopes`, `GET /api/v1/freeboard/requirement-scopes`,
+`GET /api/v1/freeboard/scopes`,
 `GET /api/v1/freeboard/statement-of-applicability/{standardId}`, and
 `GET /api/v1/freeboard/compliance/status`. Authentication (any logged-in user) is
 sufficient; these reads SHALL NOT require the admin role. An anonymous request to
@@ -256,7 +278,7 @@ user when the instance is in read-only mode.
 #### Scenario: Anonymous read is rejected
 
 - **WHEN** an anonymous client requests any compliance read endpoint (the resource
-  reads including `requirements` and `requirement-scopes`, the
+  reads including `requirements` and the unified `scopes`, the
   statement-of-applicability endpoint, or `compliance/status`)
 - **THEN** the endpoint returns HTTP 401
 
@@ -276,32 +298,27 @@ user when the instance is in read-only mode.
 
 ### Requirement: Vendor read endpoints serve the persisted vendor register
 
-The web app SHALL expose read-only HTTP endpoints that return the persisted vendors
-and vendor-scopes THE CALLER MAY READ from the store, under the single
-`/api/v1/freeboard/` API namespace, requiring an authenticated user (any logged-in
-user; no admin role). It SHALL provide `GET /api/v1/freeboard/vendors` and
-`GET /api/v1/freeboard/vendor-scopes`. Vendors are `Asset` rows of `type: Vendor`
-and SHALL include their `id` and `title`. Vendor-scopes SHALL include their `id`,
-`title`, `vendor` id, the target (`requirement` id or `control` id, whichever is set,
-with the other null), `disposition`, and `justification` (null when unset). The
-`justification` SHALL always be present in the payload for every readable `Out`
-vendor-scope, so an exception is never silent. Both endpoints SHALL read through the
-`IComplianceStore` abstraction, SHALL be GET-only and unaffected by GitOps read-only
-mode, and SHALL return the RFC 7807 / HTTP 503 unreachable-store response when the
-store is unavailable. Responses SHALL be deterministically ordered by `id`.
+The web app SHALL expose a read-only HTTP endpoint that returns the persisted vendors THE
+CALLER MAY READ from the store, under the single `/api/v1/freeboard/` API namespace,
+requiring an authenticated user (any logged-in user; no admin role). It SHALL provide
+`GET /api/v1/freeboard/vendors`. Vendors are `Asset` rows of `type: Vendor` and SHALL
+include their `id` and `title`. A vendor's per-requirement and per-control exceptions are
+served by the unified `GET /api/v1/freeboard/scopes` endpoint as scopes whose `subject` is
+that vendor (there is no separate `/vendor-scopes` endpoint); those scopes carry the
+target, `disposition`, and `justification` (always present for a readable `Out` scope, so
+an exception is never silent). The `/vendors` endpoint SHALL read through the
+`IComplianceStore` abstraction, SHALL be GET-only and unaffected by GitOps read-only mode,
+and SHALL return the RFC 7807 / HTTP 503 unreachable-store response when the store is
+unavailable. Responses SHALL be deterministically ordered by `id`.
 
-Both endpoints SHALL narrow their rows to the caller's accessible organisation set
-through the vendor `owner` edge, replacing the prior global-readability behavior. A
-vendor is readable only when its `owner` (a `Company`/`Department` asset) is in the
-caller's accessible-organisation set (as defined by the authorization enforcement
-capability); a vendor-scope is readable only when its vendor is readable. The prior
-behavior - every authenticated user, including a zero-grant caller, reading every
-vendor and every vendor-scope regardless of grants - SHALL NOT apply. Read-access is
-fail-closed: a vendor with a missing or dangling `owner`, or an `owner` outside the
-caller's accessible set, SHALL have BOTH its vendor row AND its vendor-scopes (target,
-disposition, and `Out` justification) hidden from that caller, so neither the vendor
-id nor its exception rationale leaks through the vendor-scope list even though the
-vendor row is suppressed.
+The `/vendors` endpoint SHALL narrow its rows to the caller's accessible organisation set
+through the vendor `owner` edge, and the unified `/scopes` endpoint SHALL narrow
+vendor-subject scopes the same way (a vendor scope is readable only when the vendor's
+`owner` is in the caller's accessible set). Read-access is fail-closed: a vendor with a
+missing or dangling `owner`, or an `owner` outside the caller's accessible set, SHALL have
+BOTH its vendor row (on `/vendors`) AND its vendor-subject scopes (on `/scopes`) hidden
+from that caller, so neither the vendor id nor its exception rationale leaks even though
+the vendor row is suppressed.
 
 #### Scenario: Vendors endpoint returns the readable vendors
 
@@ -311,36 +328,33 @@ vendor row is suppressed.
   `id`, and omits any vendor whose `owner` is missing, dangling, or outside the
   accessible set
 
-#### Scenario: Vendor-scopes endpoint returns readable exceptions with justifications
+#### Scenario: Vendor exceptions are served by the unified scopes endpoint
 
-- **WHEN** an authenticated client requests `GET /api/v1/freeboard/vendor-scopes`
-- **THEN** the response lists each vendor-scope whose vendor is readable (its `owner`
-  in the caller's accessible set) with its `vendor` id, target (`requirement` or
-  `control` id), `disposition`, and `justification`, with the justification present
-  for every readable `Out` row, and omits every vendor-scope whose vendor is hidden
+- **WHEN** an authenticated client requests `GET /api/v1/freeboard/scopes` and a readable
+  vendor has a scope with a requirement or control target
+- **THEN** the response includes that scope with its `subject` (the vendor id), its target,
+  `disposition`, and `justification` (present for every readable `Out` scope)
 
 #### Scenario: Anonymous request is rejected
 
-- **WHEN** an anonymous client requests `GET /api/v1/freeboard/vendors` or
-  `GET /api/v1/freeboard/vendor-scopes`
+- **WHEN** an anonymous client requests `GET /api/v1/freeboard/vendors`
 - **THEN** the endpoint returns HTTP 401
 
 #### Scenario: Served in read-only mode
 
-- **WHEN** GitOps read-only mode is on and an authenticated client requests either
-  vendor endpoint
+- **WHEN** GitOps read-only mode is on and an authenticated client requests the
+  vendors endpoint
 - **THEN** the request is served normally and is not rejected with the 409 read-only
   response
 
-#### Scenario: Owner-excluded caller sees neither the vendor nor its vendor-scopes
+#### Scenario: Owner-excluded caller sees neither the vendor nor its scopes
 
 - **WHEN** an authenticated caller with no grant reaching a vendor's `owner` (or the
-  vendor has a missing or dangling `owner`) requests `GET /api/v1/freeboard/vendors`
-  or `GET /api/v1/freeboard/vendor-scopes`
-- **THEN** neither the vendor row nor any of that vendor's vendor-scopes or `Out`
-  justifications appear in either response, because vendor readability follows the
-  `owner` edge and is not global, so the hidden vendor's id and exception rationale do
-  not leak through the vendor-scope list
+  vendor has a missing or dangling `owner`) requests `GET /api/v1/freeboard/vendors` or
+  `GET /api/v1/freeboard/scopes`
+- **THEN** neither the vendor row nor any of that vendor's vendor-subject scopes or `Out`
+  justifications appear in either response, because vendor readability follows the `owner`
+  edge and is not global, so the hidden vendor's id and exception rationale do not leak
 
 ### Requirement: Evidence-collector read endpoint serves the persisted collectors
 
@@ -353,8 +367,8 @@ include its `id`, `title`, `control` id, `vendor` id (null when unset), `type`,
 map, an empty object when unset). The endpoint SHALL read through the
 `IComplianceStore` abstraction, SHALL be GET-only and unaffected by GitOps read-only
 mode, and SHALL return the RFC 7807 / HTTP 503 unreachable-store response when the
-store is unavailable. Unlike the per-org resource endpoints (`/organisations`,
-`/scopes`, `/requirement-scopes`), which narrow rows to the caller's accessible
+store is unavailable. Unlike the per-org resource endpoints (`/organisations`
+and `/scopes`), which narrow rows to the caller's accessible
 organisation set via `IOrgAccess`, this endpoint intentionally does NOT filter:
 evidence-collectors are org-independent reference data (they carry no `organisation`
 dimension), so any authenticated user - including one with zero org access - may read
@@ -404,8 +418,8 @@ appears in the endpoint response even though every authenticated user may read t
 endpoint. The endpoint SHALL read through the
 `IComplianceStore` abstraction, SHALL be GET-only and unaffected by GitOps read-only
 mode, and SHALL return the RFC 7807 / HTTP 503 unreachable-store response when the
-store is unavailable. Unlike the per-org resource endpoints (`/organisations`,
-`/scopes`, `/requirement-scopes`), which narrow rows to the caller's accessible
+store is unavailable. Unlike the per-org resource endpoints (`/organisations`
+and `/scopes`), which narrow rows to the caller's accessible
 organisation set via `IOrgAccess`, this endpoint intentionally does NOT filter:
 attestation-templates are org-independent reference data (they carry no
 `organisation` dimension), so any authenticated user - including one with zero org

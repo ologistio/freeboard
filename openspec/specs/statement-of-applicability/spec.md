@@ -6,41 +6,43 @@ TBD - created by archiving change redefine-scope-org-standard. Update Purpose af
 ### Requirement: Scope disposition resolves by nearest-ancestor inheritance
 
 The system SHALL resolve an organisation node's disposition for a standard as
-follows: if a Scope exists for that `(organisation, standard)` pair, its
-disposition is the resolved value and is `explicit`; otherwise, if an ancestor has a
-Scope for that standard, the resolved value is the nearest such ancestor's disposition
-and is `inherited`; if the node has no ancestor with a Scope for that standard, the
-resolved value is `In` and is `default`. Standards are in scope by default: a node with
-no Scope on the path from it to the root resolves `In`. A user opts a standard `Out` by
-authoring a Scope with disposition `Out`; a descendant MAY override an opted-out ancestor
-by authoring its own Scope `In`. The resolved standard disposition SHALL always be `In`
-or `Out` and SHALL NOT be null; `default` is a provenance marker (no Scope on the path,
-so the node takes the default `In`) and is distinct from `explicit` and `inherited`.
+follows: if a standard-level scope exists for that node (a `Scope` whose `subject` is that
+organisation node and whose target is that standard), its disposition is the resolved
+value and is `explicit`; otherwise, if an ancestor has such a scope for that standard, the
+resolved value is the nearest such ancestor's disposition and is `inherited`; if the node
+has no ancestor with a scope for that standard, the resolved value is `In` and is
+`default`. Standards are in scope by default: a node with no scope on the path from it to
+the root resolves `In`. A user opts a standard `Out` by authoring a `Scope` targeting that
+standard with disposition `Out`; a descendant MAY override an opted-out ancestor by
+authoring its own standard-level `Scope` `In`. The resolved standard disposition SHALL
+always be `In` or `Out` and SHALL NOT be null; `default` is a provenance marker (no scope
+on the path, so the node takes the default `In`) and is distinct from `explicit` and
+`inherited`.
 
 #### Scenario: Explicit disposition wins
 
-- **WHEN** a node has a Scope of disposition `Out` for a standard
+- **WHEN** a node has a scope of disposition `Out` targeting a standard
 - **THEN** the node resolves to `Out`, marked `explicit`, regardless of its
   ancestors
 
 #### Scenario: Child inherits nearest ancestor
 
 - **WHEN** a company has disposition `Out` for a standard and its department has no
-  Scope for that standard
+  scope for that standard
 - **THEN** the department resolves to `Out`, marked `inherited`
 
 #### Scenario: No ancestor disposition defaults to In
 
-- **WHEN** neither a node nor any ancestor has a Scope for a standard
+- **WHEN** neither a node nor any ancestor has a scope for a standard
 - **THEN** the node resolves to `In`, marked `default`, and the resolved disposition
   is not null
 
 #### Scenario: Descendant overrides an opted-out ancestor
 
 - **WHEN** a company has disposition `Out` for a standard and a department under it has
-  its own Scope `In` for that standard
+  its own scope `In` for that standard
 - **THEN** the department resolves to `In`, marked `explicit`, overriding the ancestor's
-  `Out`, while a sibling department with no Scope resolves `Out`, marked `inherited`
+  `Out`, while a sibling department with no scope resolves `Out`, marked `inherited`
 
 ### Requirement: Statement of Applicability requires an authenticated user
 
@@ -76,19 +78,23 @@ remain GET-only.
 
 The web app SHALL serve a Statement of Applicability for a standard as a read-only
 projection over the organisation tree, computed from the persisted organisations,
-scopes, requirements, and requirement-scopes and stored nowhere. For the given
-standard the projection SHALL include every organisation node with its resolved
+scopes, and requirements and stored nowhere. Its scope inputs SHALL come from the unified
+`scopes` table: a standard-level disposition is a scope targeting the standard, and a
+requirement-level disposition is a scope targeting one of the standard's requirements. For
+the given standard the projection SHALL include every organisation node with its resolved
 standard disposition (always `In` or `Out`, never null) and whether that value is
 `explicit`, `inherited`, or `default`. Each node whose standard resolves `In` SHALL
 additionally report its per-requirement exclusions: the requirements of that standard
-whose `(organisation, requirement)` nearest-ancestor resolution finds a
-`RequirementScope`, each with its resolved disposition (`In` or `Out`) and whether that
-value is `explicit` or `inherited`. A requirement of the standard that is not listed for
-a node follows that node's standard disposition (`In`). A node whose standard resolves
-`Out` SHALL report no per-requirement exclusions, because requirement scopes are not
-applied under an out-of-scope standard. The endpoint SHALL be GET-only and SHALL NOT be
-blocked by GitOps read-only mode. Node output SHALL be deterministically ordered by
-`id`, and each node's per-requirement list SHALL be ordered by requirement `id`.
+whose `(subject, requirement)` nearest-ancestor resolution finds a requirement-targeting
+scope, each with its resolved disposition (`In` or `Out`) and whether that value is
+`explicit` or `inherited`. A requirement of the standard that is not listed for a node
+follows that node's standard disposition (`In`). A node whose standard resolves `Out` SHALL
+report no per-requirement exclusions, because requirement scopes are not applied under an
+out-of-scope standard. The endpoint SHALL be GET-only and SHALL NOT be blocked by GitOps
+read-only mode. Node output SHALL be deterministically ordered by `id`, and each node's
+per-requirement list SHALL be ordered by requirement `id`. A scope whose `subject` does
+not resolve to any asset SHALL NOT fail the projection and SHALL surface a non-blocking
+warning on the view page (see the dangling-subject requirement).
 
 The projection SHALL always be computed over the full organisation tree so that
 nearest-ancestor inheritance is correct, then filtered to the caller's accessible
@@ -127,7 +133,7 @@ authentication failure (HTTP 401 for the endpoint, a `/login` redirect for the p
 #### Scenario: Unscoped node defaults to In
 
 - **WHEN** an authenticated user requests the Statement of Applicability for a standard
-  for which no organisation node has a Scope
+  for which no organisation node has a scope
 - **THEN** every node resolves `In`, marked `default`, with a non-null disposition
 
 #### Scenario: Projection reports per-requirement exclusions on in-scope nodes
@@ -137,15 +143,6 @@ authentication failure (HTTP 401 for the endpoint, a `/login` redirect for the p
 - **THEN** the company node lists that requirement with disposition `Out` marked
   `explicit`, and requirements it does not exclude are absent from the list (they
   follow the node's `In` standard disposition), the list ordered by requirement `id`
-
-#### Scenario: Defaulted-in node reports per-requirement exclusions
-
-- **WHEN** an authenticated user requests the Statement of Applicability for a standard
-  where a company has no Scope (so it resolves `In` marked `default`) but marks one
-  requirement `Out`
-- **THEN** the company node resolves `In` `default` and lists that requirement with
-  disposition `Out`, because requirement scopes are applied under any `In` standard
-  regardless of whether the `In` is explicit, inherited, or default
 
 #### Scenario: Out-of-scope node reports no per-requirement exclusions
 
@@ -174,26 +171,25 @@ disposition for the requirement's standard by the standard-level nearest-ancesto
 which defaults `In`. Then:
 
 - If the standard resolves `Out` at the node, the requirement resolves `Out`, and
-  requirement-scopes SHALL NOT be consulted: the whole standard, and thus every
+  requirement-targeting scopes SHALL NOT be consulted: the whole standard, and thus every
   requirement, is out of scope.
 - If the standard resolves `In` at the node - whether `explicit`, `inherited`, or
   `default` - the system SHALL consult the requirement layer by nearest-ancestor
-  inheritance keyed by `(organisation, requirement)`: if a `RequirementScope` exists for
-  that node and requirement, its disposition is the resolved value and is `explicit`;
-  otherwise the resolved value is the nearest ancestor's `RequirementScope` disposition
-  for that requirement and is `inherited`; if no ancestor has a `RequirementScope` for
+  inheritance keyed by `(subject, requirement)`: if a scope targeting that requirement
+  exists for that node, its disposition is the resolved value and is `explicit`;
+  otherwise the resolved value is the nearest ancestor's requirement-targeting scope
+  disposition for that requirement and is `inherited`; if no ancestor has a scope for
   that requirement, the requirement follows the standard and resolves `In`.
 
 A requirement-level `In` SHALL NOT re-include a requirement whose standard resolves
 `Out` at the node; the standard-level result dominates. Within an `In` standard, a child
-node's explicit `RequirementScope` SHALL override an ancestor's inherited one, so a
-department MAY re-include (`In`) a requirement its parent excluded (`Out`) company-wide.
+node's explicit requirement-targeting scope SHALL override an ancestor's inherited one, so
+a department MAY re-include (`In`) a requirement its parent excluded (`Out`) company-wide.
 
 #### Scenario: Company-wide exclusion is inherited by departments
 
 - **WHEN** a company resolves `In` for a standard and marks a requirement `Out`
-  company-wide, and a department under it has no `RequirementScope` for that
-  requirement
+  company-wide, and a department under it has no scope targeting that requirement
 - **THEN** the department resolves that requirement `Out`, marked `inherited`, while
   requirements it does not exclude follow the standard and resolve `In`
 
@@ -206,29 +202,18 @@ department MAY re-include (`In`) a requirement its parent excluded (`Out`) compa
 
 #### Scenario: Requirement scopes ignored when the standard is out
 
-- **WHEN** a node resolves `Out` for a standard and a `RequirementScope` marks one of
-  that standard's requirements `In` at or above the node
+- **WHEN** a node resolves `Out` for a standard and a scope marks one of that standard's
+  requirements `In` at or above the node
 - **THEN** the requirement resolves `Out` (following the standard) and the `In`
-  requirement-scope is not applied
+  requirement scope is not applied
 
-#### Scenario: Requirement-scope of another standard is excluded from the projection
+#### Scenario: Requirement scope of another standard is excluded from the projection
 
-- **WHEN** the Statement of Applicability is resolved for one standard while a
-  `RequirementScope` binds an organisation to a requirement of a different standard
-- **THEN** that requirement-scope does not appear in the requested standard's
-  projection, because requirement-scopes are filtered to the requested standard by
-  their requirement's owning standard (`Requirement.standard`)
-
-#### Scenario: Child re-including the standard inherits the parent's requirement-scope
-
-- **WHEN** a parent node resolves the standard `Out`, a child under it explicitly
-  scopes the standard `In`, and the parent carries a `RequirementScope` marking one of
-  the standard's requirements `Out`
-- **THEN** the parent reports no per-requirement exclusions (requirement-scopes are not
-  applied under its `Out` standard), while the child, whose standard now resolves `In`,
-  resolves that requirement `Out` marked `inherited` from the parent's requirement-scope
-  (the requirement-layer nearest-ancestor walk ignores the intermediate standard `Out`
-  at the parent)
+- **WHEN** the Statement of Applicability is resolved for one standard while a scope
+  targets a requirement of a different standard
+- **THEN** that scope does not appear in the requested standard's projection, because
+  requirement-targeting scopes are filtered to the requested standard by their
+  requirement's owning standard (`Requirement.standard`)
 
 ### Requirement: Statement of Applicability view supports hierarchical drill-down
 
@@ -327,13 +312,14 @@ requirement SHALL be a leaf: it carries no controls. A node whose standard resol
 A check SHALL expose configuration and metadata only. Attestation quiz answers SHALL
 NOT be surfaced. Vendors SHALL NOT affect applicability; a collector's optional
 vendor is metadata only, and this projection SHALL NOT read live evidence
-(`evidence_checks`) or vendor-scopes.
+(`evidence_checks`) or vendor-subject scopes.
 
 This projection SHALL be added alongside the existing flat resolver, which SHALL be
 left unchanged. The controls, evidence-collectors, and attestation-templates that
 populate the structure SHALL be read in the same repeatable-read snapshot as the
-organisations, scopes, requirements, and requirement-scopes, so the rendered tree
-cannot straddle a concurrent importer commit.
+organisations, the unified scopes, and requirements (one unified `scopes` read, not a
+separate requirement-scopes input), so the rendered tree cannot straddle a concurrent
+importer commit.
 
 #### Scenario: In-scope node lists every requirement tagged In or Out
 
@@ -380,7 +366,7 @@ cannot straddle a concurrent importer commit.
 
 - **WHEN** the page reads the inputs needed to build the drill-down
 - **THEN** the controls, evidence-collectors, and attestation-templates are read
-  together with the organisations, scopes, requirements, and requirement-scopes in
+  together with the organisations, the unified scopes, and requirements in
   one repeatable-read snapshot
 
 ### Requirement: Statement of Applicability surfaces per-collector evidence status
@@ -433,4 +419,53 @@ remain free of live evidence status.
 - **WHEN** the page renders collector checks across several in-scope organisation nodes
 - **THEN** the per-collector statuses for those organisations are read from the evidence
   store in a single batch call rather than one read per organisation
+
+### Requirement: Dangling scope subject surfaces a non-blocking warning at resolution
+
+The Statement of Applicability resolution SHALL treat a scope whose `subject` does not
+resolve to a live asset - no asset row has that id, or the row is a discovered asset in the
+`Retired` state - as a NON-BLOCKING condition: it SHALL surface a warning ("rule
+targets a resource that does not currently exist", covering a retired asset and a
+not-yet-discovered one) on the `/compliance/statement-of-applicability` view page and
+SHALL NOT fail the projection. The unresolved-subject warning scan SHALL cover EVERY unified
+scope regardless of its target kind - standard-target, requirement-target, AND
+control-target - so no target kind is exempt from the warning. Only the disposition
+RESOLUTION stays limited to standard-level and requirement-level org scopes: a control-target
+org scope contributes no node disposition (control-level resolution is a non-goal), but a
+control-target org scope whose subject is unresolved STILL surfaces the same generic warning
+on the SoA page. The page notice SHALL be generic: it SHALL NOT disclose the
+scope id or the unresolved subject id to an ordinary caller, because the unresolved subject
+has no authorization anchor to check readability against; any detailed-id surface would be
+system-admin-only and is out of scope for this change. A scope with a dangling subject does
+not contribute a node disposition (no org node matches its subject) and is otherwise ignored
+by the resolution. The JSON endpoint SHALL keep its shape; the warning is a page-level
+notice. This warning concerns only a subject that resolves to no live asset at all; a scope
+whose subject DOES resolve - a `Vendor` asset or any other non-organisation-tree subject - is
+simply not consulted by the standard-level and requirement-level resolution and is not a
+dangling-subject warning, because its subject exists.
+
+#### Scenario: A scope with a vanished subject warns without failing
+
+- **WHEN** the Statement of Applicability is resolved for a standard while a scope targets
+  that standard (or one of its requirements) with a `subject` id that no asset defines
+- **THEN** the projection is served, the affected node dispositions resolve as if that
+  scope were absent, and the page shows a generic non-blocking warning ("rule targets a
+  resource that does not currently exist") that does NOT name the scope id or the
+  unresolved subject id to an ordinary caller (any detailed-id surface would be
+  system-admin-only and is out of scope here)
+
+#### Scenario: Control-target scope with a vanished subject also warns on the page
+
+- **WHEN** the Statement of Applicability page is rendered while a control-target organisation
+  scope has a `subject` id that no asset defines
+- **THEN** the same generic non-blocking warning ("rule targets a resource that does not
+  currently exist") is shown on the page, even though a control-target scope contributes no
+  node disposition, because the warning scan is not exempted by target kind
+
+#### Scenario: Dangling subject does not block a sync or the projection
+
+- **WHEN** an asset that was a scope subject is removed so the scope's subject dangles
+- **THEN** the sync succeeds (the subject has no foreign key), the Statement of
+  Applicability still resolves, and the dangling subject surfaces only as a non-blocking
+  warning at sync (CLI) and at resolution (page)
 

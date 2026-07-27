@@ -9,17 +9,17 @@ source: declared
 owner: fixture-corp
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-google-workspace-mfa-in
 title: Google Workspace enforces multi-factor authentication
-vendor: vendor-google-workspace
+subject: vendor-google-workspace
 control: ctrl-fc-mfa
 disposition: In
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
+kind: Scope
 id: vs-google-workspace-user-access-in
 title: Google Workspace is the account system of record
-vendor: vendor-google-workspace
+subject: vendor-google-workspace
 requirement: req-ce-plus-user-access-control-01
 disposition: In

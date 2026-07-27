@@ -29,8 +29,8 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
         ];
         App.Compliance.Scopes =
         [
-            new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In"),
-            new ScopeRow("scope-b", "Scope B", "org-b", "std-a", "In"),
+            new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null),
+            new ScopeRow("scope-b", "Scope B", "org-b", "std-a", null, null, "In", null),
         ];
 
         var soaUrl = $"{App.BaseUrl}/compliance/statement-of-applicability?standard=std-a";
@@ -73,7 +73,7 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
         enforce.EnsureStarted();
         enforce.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
         enforce.Compliance.Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)];
-        enforce.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")];
+        enforce.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
 
         var user = E2EAppFixture.MakeUser("no-grant");
         var token = enforce.SeedSessionWithSudo(user); // no GrantComplianceReader: a zero-grant caller

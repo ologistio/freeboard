@@ -41,6 +41,6 @@ apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-a
 title: Scope A
-organisation: org-a
+subject: org-a
 standard: std-a
 disposition: In

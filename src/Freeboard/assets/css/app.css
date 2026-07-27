@@ -298,6 +298,11 @@ html[data-theme="light"] {
         @apply rounded-md border border-fail/40 bg-panel px-4 py-3 text-sm text-fail-ink;
     }
 
+    /* Warning panel (a non-blocking advisory, e.g. a scope targeting a missing resource). */
+    .notice-warning {
+        @apply rounded-md border border-warn/40 bg-warn-soft px-4 py-3 text-sm text-warn-ink;
+    }
+
     /* Status pills: a coloured border plus an accessible word on a panel ground. */
     .badge {
         @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium;

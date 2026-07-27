@@ -1,4 +1,8 @@
-# Standard-level scope. Fixture Corp is pursuing Cyber Essentials Plus across the
+# Scopes. Each maps one subject (an asset id) to exactly one target - a Standard,
+# a Requirement, or a Control - with a disposition (In or Out). An Out scope MUST
+# carry a non-empty justification; an In scope may omit it.
+#
+# Standard-target scope: Fixture Corp is pursuing Cyber Essentials Plus across the
 # whole company, so a single In scope on the root organisation covers every
 # department by inheritance. Departments need no scope of their own unless they
 # diverge.
@@ -6,6 +10,34 @@ apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-fixture-corp-ce-plus
 title: Fixture Corp - Cyber Essentials Plus
-organisation: fixture-corp
+subject: fixture-corp
 standard: std-cyber-essentials-plus
+disposition: In
+---
+# Requirement-target exceptions within the CE+ scope. These layer under the
+# company-wide In scope and follow nearest-ancestor inheritance with child
+# override.
+#
+# Engineering runs a legacy build server on a frozen image and excludes the
+# 14-day patch requirement while it is decommissioned; the Platform team, which
+# owns the modern build infrastructure, re-includes it. This shows an exclusion
+# at a parent department overridden by a child department.
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: rs-fixture-corp-eng-updates-05-out
+title: Exclude 14-day patch requirement for Engineering legacy build server
+subject: fixture-corp-eng
+requirement: req-ce-plus-security-update-management-05
+disposition: Out
+justification: >-
+  The legacy build server runs a frozen image and is being decommissioned; it is
+  air-gapped from production, so the 14-day patch requirement is excepted until it
+  is retired.
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: rs-fixture-corp-eng-platform-updates-05-in
+title: Re-include 14-day patch requirement for the Platform team
+subject: fixture-corp-eng-platform
+requirement: req-ce-plus-security-update-management-05
 disposition: In

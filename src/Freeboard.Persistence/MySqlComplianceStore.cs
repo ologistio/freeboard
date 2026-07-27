@@ -77,23 +77,27 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         return rows.ToList();
     }
 
+    // The unified scope read joins the subject asset so each row carries the subject's resolved
+    // type/source/state/parent/owner, which the web /scopes endpoint uses for the subject-readability
+    // branches and the fail-closed check on an unresolved subject. These five narrowing fields are
+    // server-side only and are never serialized: the endpoint projects only the eight public fields.
+    private const string ScopeSelect =
+        "SELECT s.id AS Id, s.title AS Title, s.subject_id AS Subject, s.standard_id AS Standard, "
+        + "s.requirement_id AS Requirement, s.control_id AS Control, s.disposition AS Disposition, "
+        + "s.justification AS Justification, a.type AS SubjectType, a.source AS SubjectSource, "
+        + "a.state AS SubjectState, a.parent AS SubjectParent, a.owner AS SubjectOwner "
+        + "FROM scopes s LEFT JOIN assets a ON a.id = s.subject_id ORDER BY s.id;";
+
+    // The subject-resolution predicate as a set: every asset id that is a live authorization anchor
+    // (present and not a retired discovered asset). A subject resolves iff its id is in this set.
+    private const string ResolvableAssetIdsSelect =
+        "SELECT id FROM assets WHERE NOT (source = 'discovered' AND state = 'Retired');";
+
     public async Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var rows = await connection.QueryAsync<ScopeRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, standard_id AS Standard, "
-            + "disposition AS Disposition FROM scopes ORDER BY id;",
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return rows.ToList();
-    }
-
-    public async Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<RequirementScopeRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, requirement_id AS Requirement, "
-            + "disposition AS Disposition FROM requirement_scopes ORDER BY id;",
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+            ScopeSelect, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
 
@@ -102,17 +106,6 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var rows = await connection.QueryAsync<VendorRow>(new CommandDefinition(
             "SELECT id AS Id, title AS Title, owner AS Owner FROM assets WHERE type = 'Vendor' ORDER BY id;",
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return rows.ToList();
-    }
-
-    public async Task<IReadOnlyList<VendorScopeRow>> GetVendorScopesAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<VendorScopeRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, vendor_id AS Vendor, requirement_id AS Requirement, "
-            + "control_id AS Control, disposition AS Disposition, justification AS Justification "
-            + "FROM vendor_scopes ORDER BY id;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
@@ -188,7 +181,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         // One consistent snapshot so the four SoA inputs cannot straddle a concurrent gitops sync
-        // commit and pair, say, old organisations with new requirement-scopes.
+        // commit and pair, say, old organisations with new scopes.
         await using var transaction = await connection
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
@@ -199,8 +192,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
         var scopes = (await connection.QueryAsync<ScopeRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, standard_id AS Standard, "
-            + "disposition AS Disposition FROM scopes ORDER BY id;",
+            ScopeSelect,
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -211,15 +203,14 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
-        var requirementScopes = (await connection.QueryAsync<RequirementScopeRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, requirement_id AS Requirement, "
-            + "disposition AS Disposition FROM requirement_scopes ORDER BY id;",
+        var resolvableAssetIds = (await connection.QueryAsync<string>(new CommandDefinition(
+            ResolvableAssetIdsSelect,
             transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new SoaInputs(organisations, scopes, requirements, requirementScopes);
+        return new SoaInputs(organisations, scopes, requirements, resolvableAssetIds);
     }
 
     public async Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
@@ -237,8 +228,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
         var scopes = (await connection.QueryAsync<ScopeRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, standard_id AS Standard, "
-            + "disposition AS Disposition FROM scopes ORDER BY id;",
+            ScopeSelect,
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -249,11 +239,10 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
-        var requirementScopes = (await connection.QueryAsync<RequirementScopeRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, organisation_id AS Organisation, requirement_id AS Requirement, "
-            + "disposition AS Disposition FROM requirement_scopes ORDER BY id;",
+        var resolvableAssetIds = (await connection.QueryAsync<string>(new CommandDefinition(
+            ResolvableAssetIdsSelect,
             transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
 
         var controlRows = (await connection.QueryAsync<(string Id, string Title, string? Evaluation)>(new CommandDefinition(
             "SELECT id AS Id, title AS Title, evaluation AS Evaluation FROM controls ORDER BY id;",
@@ -306,7 +295,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new SoaDrilldownInputs(organisations, scopes, requirements, requirementScopes, controls, collectors, templates, vendors);
+        return new SoaDrilldownInputs(organisations, scopes, requirements, resolvableAssetIds, controls, collectors, templates, vendors);
     }
 
     public async Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default)
@@ -317,22 +306,19 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int RequirementScopes, int Vendors, int VendorScopes, int EvidenceCollectors, int AttestationTemplates)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int Vendors, int EvidenceCollectors, int AttestationTemplates)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
             + "(SELECT COUNT(*) FROM requirements) AS Requirements, "
             + "(SELECT COUNT(*) FROM assets WHERE type IN ('Company', 'Department')) AS Organisations, "
             + "(SELECT COUNT(*) FROM scopes) AS Scopes, "
-            + "(SELECT COUNT(*) FROM requirement_scopes) AS RequirementScopes, "
             + "(SELECT COUNT(*) FROM assets WHERE type = 'Vendor') AS Vendors, "
-            + "(SELECT COUNT(*) FROM vendor_scopes) AS VendorScopes, "
             + "(SELECT COUNT(*) FROM evidence_collectors) AS EvidenceCollectors, "
             + "(SELECT COUNT(*) FROM attestation_templates) AS AttestationTemplates;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return new ComplianceCounts(
             counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes,
-            counts.RequirementScopes, counts.Vendors, counts.VendorScopes, counts.EvidenceCollectors,
-            counts.AttestationTemplates);
+            counts.Vendors, counts.EvidenceCollectors, counts.AttestationTemplates);
     }
 }

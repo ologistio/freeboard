@@ -224,11 +224,13 @@ public sealed class AuthzIntegrationTests
         // The caller authorized "org-b" as the current owner, but the row is actually owned by org-a
         // (a concurrent move would produce this mismatch). The FOR UPDATE re-check rejects it as a
         // conflict rather than blindly overwriting a row whose owner changed under authorization.
-        var stale = await writes.UpsertScopeDispositionAsync("s1", "T2", "org-a", "std-a", "Out", expectedCurrentOrganisation: "org-b");
+        var stale = await writes.UpsertScopeDispositionAsync(
+            "s1", "T2", "org-a", "std-a", "Out", "Compensating control in place.", expectedCurrentOrganisation: "org-b");
         Assert.True(stale.IsConflict);
 
         // The matching authorized owner passes: the current owner is unchanged under the lock.
-        var ok = await writes.UpsertScopeDispositionAsync("s1", "T2", "org-a", "std-a", "Out", expectedCurrentOrganisation: "org-a");
+        var ok = await writes.UpsertScopeDispositionAsync(
+            "s1", "T2", "org-a", "std-a", "Out", "Compensating control in place.", expectedCurrentOrganisation: "org-a");
         Assert.True(ok.Ok, ok.Error);
     }
 
@@ -301,7 +303,6 @@ public sealed class AuthzIntegrationTests
             Controls = [],
             Assets = [],
             Scopes = [],
-            RequirementScopes = [],
         });
 
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM assets WHERE id = 'gone';"));

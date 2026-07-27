@@ -3,7 +3,8 @@
 Freeboard manages compliance state as declarative YAML in git, FleetDM-style. The
 git files are the source of truth: standards, the requirements each standard
 publishes, the controls that satisfy those requirements, the assets being
-assessed, and the scopes that map an organisation to a standard. A CLI validates
+assessed, and the scopes that map a subject asset to a standard, requirement, or
+control. A CLI validates
 and previews the config, and the web app can run read-only so changes flow through
 git rather than the UI.
 
@@ -17,24 +18,22 @@ reconciling apply, soft-delete on removal, and drift detection are not built yet
 
 Freeboard borrows Fleet's structure but renames the nouns for compliance:
 
-| Fleet    | Freeboard               | Meaning                                                                    |
-| -------- | ----------------------- | -------------------------------------------------------------------------- |
-| (n/a)    | assets                  | the estate being assessed: companies, departments, vendors, and machines   |
-| labels   | scopes                  | maps a company/department asset to a standard with a disposition           |
-| (n/a)    | requirement-scopes      | maps a company/department asset to a requirement with a disposition        |
-| policies | checks                  | conformance checks; authored per integration collector, execution deferred |
-| (n/a)    | controls                | an implemented control mapped to one or more requirements                  |
-| (n/a)    | requirements            | a standard's published normative statements                                |
-| (n/a)    | standards               | a compliance standard in scope                                             |
-| (n/a)    | vendor-scopes           | maps a vendor asset to one requirement or control with a disposition       |
-| (n/a)    | evidence-collectors     | attaches a data source to a control                                        |
-| (n/a)    | attestation-templates   | a form or quiz attached to a control                                       |
-| (n/a)    | integration-connections | a provider connection driving discovery and integration collectors         |
+| Fleet    | Freeboard               | Meaning                                                                     |
+| -------- | ----------------------- | --------------------------------------------------------------------------- |
+| (n/a)    | assets                  | the estate being assessed: companies, departments, vendors, and machines    |
+| labels   | scopes                  | maps one subject asset to a standard, requirement or control                |
+| policies | checks                  | conformance checks; authored per integration collector, execution deferred  |
+| (n/a)    | controls                | an implemented control mapped to one or more requirements                   |
+| (n/a)    | requirements            | a standard's published normative statements                                 |
+| (n/a)    | standards               | a compliance standard in scope                                              |
+| (n/a)    | evidence-collectors     | attaches a data source to a control                                         |
+| (n/a)    | attestation-templates   | a form or quiz attached to a control                                        |
+| (n/a)    | integration-connections | a provider connection driving discovery and integration collectors          |
 
 This increment ships `standards`, `requirements`, `controls`, `assets`, `scopes`,
-`requirement-scopes`, `vendor-scopes`, `evidence-collectors`, `attestation-templates`,
-and `integration-connections`. `checks` are authored per integration collector (the
-tracked-check list) but their execution runner is not yet built.
+`evidence-collectors`, `attestation-templates`, and `integration-connections`.
+`checks` are authored per integration collector (the tracked-check list) but their
+execution runner is not yet built.
 
 ## Format
 
@@ -43,8 +42,7 @@ or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.dev/v1alpha1`.
 - `kind` - one of `Standard`, `Requirement`, `Control`, `Asset`, `Scope`,
-  `RequirementScope`, `VendorScope`, `EvidenceCollector`,
-  `AttestationTemplate`, or `Integration`.
+  `EvidenceCollector`, `AttestationTemplate`, or `Integration`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -153,58 +151,83 @@ parent: ologist-products
 
 ### Scope
 
-A scope maps one Company/Department asset (named under `organisation`) to one
-`Standard` with a `disposition` (`In` or `Out`). At most one scope may exist per
-`(organisation, standard)` pair. The field is still named `organisation`; it now
-names a typed asset id.
+A scope maps one `subject` (any asset id) to exactly one target - a `Standard`, a
+`Requirement`, or a `Control` - with a `disposition` (`In` or `Out`). The `subject`
+is a typed asset id: a Company/Department (org tree), a Vendor, or a Machine (or any
+other parent-anchored asset). Exactly one of `standard`, `requirement`, or `control`
+must be set (never two, never none). `justification` is required when `disposition`
+is `Out` (it explains the exception) and optional when `In`. At most one scope may
+exist per `(subject, standard)`, `(subject, requirement)`, and `(subject, control)`
+pair.
+
+One cross-field rule: a `Vendor` subject cannot target a `standard` (a vendor has no
+standard-level disposition); it targets a `requirement` or a `control`. Org subjects
+may target any of the three.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
 kind: Scope
 id: scope-products-ce
 title: Ologist Products - Cyber Essentials
-organisation: ologist-products
+subject: ologist-products
 standard: std-cyber-essentials
 disposition: In
-```
-
-Dispositions are sparse and scoping is opt-out: a node with no scope for a
-standard inherits its nearest ancestor's disposition, and a node with no scope on
-its path to the root defaults to `In` (in scope). An explicit `Out` opts a
-standard out, and a descendant `In` overrides an opted-out ancestor. The Statement
-of Applicability (below) resolves this per node.
-
-Scoping was previously opt-in: a standard was out of scope until an explicit
-`Scope In` was authored. It is now opt-out. A standard left unscoped is in scope; a
-deployment that wants a standard to stay out MUST author an explicit `Scope Out` at
-the appropriate organisation. A root-level `Scope In` authored under the old model
-is now a redundant no-op (it resolves `In` marked `explicit` instead of `default`)
-and may be deleted.
-
-### RequirementScope
-
-A requirement-scope maps one Company/Department asset (named under `organisation`)
-to one `Requirement` with a `disposition` (`In` or `Out`). At most one
-requirement-scope may exist per `(organisation, requirement)` pair. There is no
-`standard` field: the requirement fixes the standard.
-
-```yaml
+---
 apiVersion: freeboard.dev/v1alpha1
-kind: RequirementScope
+kind: Scope
 id: rs-products-firewalls-01-out
 title: Exclude firewall-on-every-device company-wide
-organisation: ologist-products
+subject: ologist-products
 requirement: req-ce-plus-firewalls-01
 disposition: Out
+justification: >-
+  Company-issued laptops run a managed host firewall centrally; the per-device
+  perimeter-firewall requirement is excepted pending the endpoint rollout.
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Scope
+id: vs-okta-firewall-out
+title: Okta host-firewall control not applicable
+subject: vendor-okta
+control: ctrl-firewall
+disposition: Out
+justification: SaaS identity provider - no host firewall under our control.
 ```
 
-Requirement-scopes sit under the standard-level scope. For a node and a
+**Standard-target scopes** are sparse and scoping is opt-out: a node with no scope
+for a standard inherits its nearest ancestor's disposition, and a node with no scope
+on its path to the root defaults to `In` (in scope). An explicit `Out` opts a
+standard out, and a descendant `In` overrides an opted-out ancestor. The Statement
+of Applicability (below) resolves this per node. A standard left unscoped is in
+scope; a deployment that wants a standard to stay out MUST author an explicit `Out`
+at the appropriate organisation. A root-level `In` is a redundant no-op (it resolves
+`In` marked `explicit` instead of `default`) and may be deleted.
+
+**Requirement-target scopes** layer under the standard-level scope. For a node and a
 requirement (owned by standard S): if the node's disposition for S resolves `Out`,
-the requirement follows the standard and requirement-scopes are not consulted;
-only where S resolves `In` does the requirement layer apply. Within
-an `In` standard, requirement-scopes inherit by the same nearest-ancestor rule as
-scopes, and a child re-includes (`In`) a requirement an ancestor excluded (`Out`).
-A requirement-level `In` cannot re-include a requirement whose standard is `Out`.
+the requirement follows the standard and requirement-target scopes are not consulted;
+only where S resolves `In` does the requirement layer apply. Within an `In` standard,
+requirement-target scopes inherit by the same nearest-ancestor rule as standard
+scopes, and a child re-includes (`In`) a requirement an ancestor excluded (`Out`). A
+requirement-level `In` cannot re-include a requirement whose standard is `Out`.
+
+**Vendor-subject scopes** are flat: they do not inherit down the org tree. They
+record whether one `Requirement` or one `Control` applies to a vendor, with a
+required `justification` on `Out`. The vendor register always surfaces the
+justification, so an exception is never silent.
+
+**Control-target scopes** are stored and read back, but the Statement of
+Applicability resolves only standard-level and requirement-level dispositions, so a
+control-target scope contributes no resolved node disposition yet (control-level
+resolution is deferred). Its dangling-subject warning (below) still applies.
+
+The `subject` is a scalar reference with NO foreign key: it may name an asset a later
+sync removes, a retired discovered machine, or a not-yet-discovered asset. A `subject`
+that resolves to no live asset is a NON-BLOCKING warning at sync and a generic
+page-level notice on the Statement of Applicability, never an error; the scope still
+loads and persists. The three target references (`standard`/`requirement`/`control`)
+are the opposite: each keeps a real foreign key, so a dangling target is a hard error
+and a standard/requirement/control cannot be deleted while a scope targets it.
 
 ### Vendor asset
 
@@ -221,35 +244,6 @@ title: Okta
 type: Vendor
 source: declared
 owner: ologist-products
-```
-
-### VendorScope
-
-A vendor-scope records whether one `Requirement` or one `Control` applies to one
-`Vendor`, with a `disposition` (`In` or `Out`). `vendor` names the `Vendor`.
-Exactly one of `requirement` or `control` must be set (never both, never neither),
-so a vendor-scope targets a single requirement or a single control. At most one
-vendor-scope may exist per `(vendor, requirement)` pair and per `(vendor, control)`
-pair. `justification` is required when `disposition` is `Out` (it explains the
-exception) and optional when `In`.
-
-```yaml
-apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
-id: vs-okta-mfa-in
-title: Okta enforces MFA
-vendor: vendor-okta
-requirement: req-ce-plus-user-access-control-04
-disposition: In
----
-apiVersion: freeboard.dev/v1alpha1
-kind: VendorScope
-id: vs-okta-firewall-out
-title: Okta firewall control not applicable
-vendor: vendor-okta
-control: ctrl-firewall
-disposition: Out
-justification: SaaS identity provider - no host firewall under our control.
 ```
 
 ### EvidenceCollector
@@ -397,22 +391,16 @@ Validation collects every error in one pass (not just the first). It fails when:
 - an `Asset.parent` or `Asset.owner` names an asset that is not a `Company`/`Department`;
 - a declared `Asset` carries a discovered-only field (`identity_kind`,
   `identity_value`, `state`, `first_seen`, `last_seen`);
-- a `Scope.organisation` or `Scope.standard` names an id that does not exist;
+- a `Scope` does not name exactly one of `standard`, `requirement`, or `control`
+  (none set, or more than one);
+- a `Scope.standard`, `Scope.requirement`, or `Scope.control` names an id that does
+  not exist;
 - a `Scope.disposition` is not `In` or `Out`;
-- two scopes name the same `(organisation, standard)` pair;
-- a `RequirementScope.organisation` or `RequirementScope.requirement` names an id
-  that does not exist;
-- a `RequirementScope.disposition` is not `In` or `Out`;
-- two requirement-scopes name the same `(organisation, requirement)` pair;
-- a `VendorScope` does not name exactly one of `requirement` or `control` (both
-  set, or neither);
-- a `VendorScope.vendor` names a `Vendor` id that does not exist;
-- a `VendorScope.requirement` or `VendorScope.control` names an id that does not
-  exist;
-- a `VendorScope.disposition` is not `In` or `Out`;
-- a `VendorScope` has `disposition: Out` but no `justification`;
-- two vendor-scopes name the same `(vendor, requirement)` or `(vendor, control)`
-  pair;
+- a `Scope` has `disposition: Out` but no `justification`;
+- a `Scope.subject` resolves to a `Vendor` asset and the target is a `standard` (a
+  vendor has no standard-level disposition);
+- two scopes name the same `(subject, standard)`, `(subject, requirement)`, or
+  `(subject, control)` pair;
 - an `EvidenceCollector.control` names a `Control` id that does not exist;
 - an `EvidenceCollector.vendor` is present but names a `Vendor` id that does not
   exist;
@@ -458,10 +446,20 @@ the loader rather than throwing.
 Some conditions are non-blocking warnings, not errors: they are printed to stderr
 but `validate`, `apply --dry-run`, and `sync` still succeed (exit 0). These are a
 dangling or missing `Asset.parent`/`owner`, a `parent` cycle among declared
-assets, a declared `Vendor` with no `owner`, and a `Machine` with no `parent`. The
-rationale is that one uncoordinated writer (for example a discovered machine naming
-a declared parent a later `sync` removes) must not be able to wedge the whole
-config; the asset is simply invisible to readers until the edge resolves.
+assets, a declared `Vendor` with no `owner`, a `Machine` with no `parent`, and a
+`Scope.subject` that resolves to no live asset. The rationale is that one
+uncoordinated writer (for example a discovered machine naming a declared parent a
+later `sync` removes) must not be able to wedge the whole config; the asset is
+simply invisible to readers until the edge resolves, and a scope with a dangling
+subject is hidden but not fatal.
+
+The dangling-subject warning is computed two ways. `validate` and `apply --dry-run`
+have no database, so they warn whenever a `subject` names no asset authored in the
+config (the authored-set check). `sync` has the store, so it warns from the
+DB-accurate asset set: a subject that resolves to no `assets` row, or only to a
+retired discovered asset, is unresolved. So a healthy discovered machine subject
+draws no false sync warning, while a retired or truly-absent subject warns at sync
+with the database as ground truth.
 
 ## Commands
 
@@ -480,37 +478,44 @@ freeboard gitops apply <dir> --dry-run
 
 ## Persistence
 
-The compliance domain (standards, requirements, controls, organisations, scopes,
-vendors) is persisted in MySQL. The data is the general compliance store; GitOps
+The compliance domain (standards, requirements, controls, assets, scopes) is
+persisted in MySQL. The data is the general compliance store; GitOps
 `sync` is one writer into it.
 
 ### Schema
 
-Ten domain tables (`standards`, `requirements`, `controls`, `organisations`,
-`scopes`, `requirement_scopes`, `vendors`, `vendor_scopes`, `evidence_collectors`,
-`attestation_templates`), each keyed on `id`
+Eight domain tables (`standards`, `requirements`, `controls`, `assets`,
+`scopes`, `evidence_collectors`, `attestation_templates`,
+`integration_connections`), each keyed on `id`
 with `api_version`, `title`, `created_at`, and `updated_at`. `standards` also
 carries nullable `version`, `authority`, `publisher`, and `source_url` metadata
 columns. `requirements` has a `standard_id` foreign key (`ON DELETE RESTRICT`), a
 `theme`, a `statement`, nullable `guidance`, and `citation_label`/`citation_url`.
-`organisations` has a nullable self-referential `parent_id` foreign key and a
-`kind` column. `scopes` has `organisation_id` and `standard_id` foreign keys, a
-`disposition` column, and a unique key on `(organisation_id, standard_id)`.
-`requirement_scopes` has `organisation_id` and `requirement_id` foreign keys (both
-`ON DELETE RESTRICT`, no `standard_id`: the standard is derived from the
-requirement), a `disposition` column, and a unique key on
-`(organisation_id, requirement_id)`. `vendors` holds identity and display text
-only. `vendor_scopes` has a `vendor_id` foreign key, nullable `requirement_id` and
-`control_id` foreign keys (all three `ON DELETE RESTRICT`), a `disposition` column,
-and a nullable `justification`; a `CHECK` constraint enforces that exactly one of
-`requirement_id` or `control_id` is set, and unique keys on
-`(vendor_id, requirement_id)` and `(vendor_id, control_id)` bound each target pair.
+`assets` is the one unified estate table: companies, departments, vendors, and
+machines share the id space, discriminated by a `type` column
+(`Company`/`Department`/`Vendor`/`Machine`) and a `source` column
+(`declared`/`discovered`). It carries two scalar, FK-free edges - `parent`
+(containment) and `owner` (accountability), mutually exclusive by `CHECK` - so a
+`parent`/`owner` may dangle; declared rows carry `api_version`/`title`, discovered
+machine rows carry the identity/`state`/seen columns. Organisations are the
+`Company`/`Department` subset. `scopes` is the one unified scope table: a scalar
+`subject_id` with NO foreign key (so a subject may dangle, matching an asset's
+`parent`/`owner`); nullable `standard_id`, `requirement_id`, and `control_id`
+foreign keys (each `ON DELETE RESTRICT` to `standards`/`requirements`/`controls`); a
+`disposition` column; and a nullable `justification`. A `CHECK` constraint enforces
+that exactly one of the three target columns is set, and three unique keys on
+`(subject_id, standard_id)`, `(subject_id, requirement_id)`, and
+`(subject_id, control_id)` bound each target pair (MySQL treats each `NULL` as
+distinct, so a key constrains only the rows whose own target column is non-null).
 `evidence_collectors` has a required `control_id` foreign key and a nullable
 `vendor_id` foreign key (both `ON DELETE RESTRICT`), the `type`/`frequency` token
 columns, a nullable `threshold`, and a native JSON `config` column.
 `attestation_templates` has a required `control_id` foreign key (`ON DELETE
 RESTRICT`), a `type` column, a nullable `body`, a nullable `pass_mark`, and native
-JSON `fields`/`quiz` columns. The `evidence_collectors` and `attestation_templates`
+JSON `fields`/`quiz` columns. `integration_connections` has a `provider`, a
+`base_url`, a `discovery_cadence`, and a nullable `vendor_id` foreign key to the
+`Vendor` assets; an evidence collector references it through a nullable
+`connection_id` foreign key. The `evidence_collectors` and `attestation_templates`
 `RESTRICT` foreign keys are why `gitops sync` prunes an absent collector or
 template before deleting the control or vendor it referenced.
 One relation table
@@ -585,20 +590,23 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
   `maps_to` carries `Requirement` ids).
 - `GET /api/v1/freeboard/organisations` - persisted organisations (`id`, `title`,
   `kind`, resolved `parent`, null for a root).
-- `GET /api/v1/freeboard/scopes` - persisted scopes (`id`, `title`,
-  `organisation`, `standard`, `disposition`).
-- `GET /api/v1/freeboard/requirement-scopes` - persisted requirement-scopes
-  (`id`, `title`, `organisation`, `requirement`, `disposition`).
-- `GET /api/v1/freeboard/vendors` - persisted vendors (`id`, `title`).
-- `GET /api/v1/freeboard/vendor-scopes` - persisted vendor-scopes (`id`, `title`,
-  `vendor`, `requirement`, `control`, `disposition`, `justification`; exactly one
-  of `requirement`/`control` is set, the other null; `justification` is null when
-  unset). Unlike the org-scoped reads, vendors and vendor-scopes are not narrowed
-  by organisation access - any authenticated user reads every row.
+- `GET /api/v1/freeboard/scopes` - persisted scopes (`id`, `title`, `subject`,
+  `standard`, `requirement`, `control`, `disposition`, `justification`; exactly one
+  of `standard`/`requirement`/`control` is set, the others null; `justification` is
+  null when unset). Rows are narrowed by subject readability: an org-tree subject in
+  the caller's accessible-organisation set, a vendor subject whose `owner` is in that
+  set, and a machine (or other parent-anchored) subject whose parent-org ancestry
+  reaches that set. A subject that is missing, dangling, or resolves to no live asset
+  hides the scope (fail-closed), so a hidden subject's `Out` justification never
+  leaks.
+- `GET /api/v1/freeboard/vendors` - persisted vendors (`id`, `title`). Narrowed by
+  owner access: a vendor is returned only when its `owner` (a Company/Department
+  asset) is in the caller's accessible-organisation set; a vendor with a null or
+  dangling owner is hidden from everyone (fail-closed).
 - `GET /api/v1/freeboard/integration-connections` - persisted integration
   connections (`id`, `provider`, `base_url`, `discovery_cadence`, `vendor`, and a
-  read-time `token_resolvable` health flag). The API token is never returned. Like
-  vendors, these are not narrowed by organisation access.
+  read-time `token_resolvable` health flag). The API token is never returned. These
+  are not narrowed by organisation access - any authenticated user reads every row.
 - `GET /api/v1/freeboard/statement-of-applicability/{standardId}` - the SoA
   projection for a standard: every organisation node with its resolved
   `disposition` (always `In` or `Out`) and whether that value is `explicit`,
@@ -607,35 +615,51 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
   whose standard resolves `In` (each with its `requirement`, resolved
   `disposition`, and `explicit`/`inherited` resolution; a requirement not listed
   follows the node's standard disposition). A node resolving `Out` always carries an
-  empty `requirements` list (requirement-scopes are not applied under an
+  empty `requirements` list (requirement-target scopes are not applied under an
   out-of-scope standard); an in-scope node (`explicit`, `inherited`, or `default`)
   carries its per-requirement deviations, which is an empty list when it has none.
+  The `/compliance/statement-of-applicability` page additionally shows a generic,
+  non-blocking notice ("rule targets a resource that does not currently exist") when
+  any scope of any target kind has a subject that resolves to no live asset; the
+  notice names neither the scope nor the subject id.
 - `GET /api/v1/freeboard/compliance/status` - a `persisted` object of per-kind
-  counts.
+  counts, carrying one `scopes` count for the unified scope table.
 
 Resources are ordered by `id`; relation arrays are ordered by id. When the store
 is unreachable, the read endpoints return HTTP 503 with an RFC 7807 problem body,
 and `/api/v1/freeboard/compliance/status` returns HTTP 200 with
-`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "requirementScopes": null, "vendors": null, "vendorScopes": null } }`
-(`null` marks the count as unknown, not zero). `GET /api/v1/freeboard/gitops/status`
-is unchanged and does not depend on the store.
+`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "vendors": null, "evidenceCollectors": null, "attestationTemplates": null } }`
+(`null` marks the count as unknown, not zero). Both the healthy and unreachable-store
+shapes carry the same keys, including a single `scopes` count and no
+`requirementScopes` or `vendorScopes` keys. `GET /api/v1/freeboard/gitops/status` is unchanged and does not depend on the
+store.
 
 ### App-managed writes
 
-When the instance is NOT in GitOps read-only mode, organisations, scope
-dispositions, and requirement-scope dispositions can be written through the API,
-enforcing the same invariants as import:
+When the instance is NOT in GitOps read-only mode, organisations, standard-target
+scope dispositions, and requirement-target scope dispositions can be written through
+the API, enforcing the same invariants as import. Both scope routes write the one
+unified `scopes` table, each confined to its own target column:
 
 - `PUT /api/v1/freeboard/organisations/{id}` - create or update an organisation.
 - `DELETE /api/v1/freeboard/organisations/{id}` - delete an organisation (fails if
-  it still has children, scopes, or requirement-scopes).
-- `PUT /api/v1/freeboard/scopes/{id}` - set a scope disposition for an
-  `(organisation, standard)` pair.
-- `DELETE /api/v1/freeboard/scopes/{id}` - delete a scope disposition.
-- `PUT /api/v1/freeboard/requirement-scopes/{id}` - set a requirement-scope
-  disposition for an `(organisation, requirement)` pair.
-- `DELETE /api/v1/freeboard/requirement-scopes/{id}` - delete a requirement-scope
-  disposition.
+  it still has children or scopes).
+- `PUT /api/v1/freeboard/scopes/{id}` - set a standard-target scope disposition for
+  a `(subject, standard)` pair. The body may carry a `justification`, required when
+  the disposition is `Out`.
+- `DELETE /api/v1/freeboard/scopes/{id}` - delete a standard-target scope.
+- `PUT /api/v1/freeboard/requirement-scopes/{id}` - set a requirement-target scope
+  disposition for a `(subject, requirement)` pair. The body may carry a
+  `justification`, required when the disposition is `Out`.
+- `DELETE /api/v1/freeboard/requirement-scopes/{id}` - delete a requirement-target
+  scope.
+
+Each route addresses only rows of its own target kind: the `/scopes` route reaches
+standard-target rows and the `/requirement-scopes` route requirement-target rows. An
+id that names an existing row of a different target kind is NOT-FOUND (404), never a
+silent retarget; a brand-new id creates a row of the route's own target kind.
+Control-target scopes are gitops-write-only and reachable by neither app route.
+Vendor-subject scopes also stay gitops-write-only.
 
 An invalid write returns an RFC 7807 problem body and changes nothing. In GitOps
 read-only mode these endpoints are rejected with HTTP 409 by the read-only

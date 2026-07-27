@@ -73,10 +73,10 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json => json.EnumerateArray().Select(ReadVendor).ToList(),
             ct);
 
-    public Task<ApiResult<IReadOnlyList<ApiVendorScope>>> ListVendorScopesAsync(CancellationToken ct)
-        => SendAsync<IReadOnlyList<ApiVendorScope>>(
-            HttpMethod.Get, $"{ApiRoutePrefix}/vendor-scopes", body: null,
-            json => json.EnumerateArray().Select(ReadVendorScope).ToList(),
+    public Task<ApiResult<IReadOnlyList<ApiScope>>> ListScopesAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiScope>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/scopes", body: null,
+            json => json.EnumerateArray().Select(ReadScope).ToList(),
             ct);
 
     public Task<ApiResult<IReadOnlyList<ApiControl>>> ListControlsAsync(CancellationToken ct)
@@ -198,11 +198,12 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
     private static ApiVendor ReadVendor(JsonElement json) =>
         new(json.GetProperty("id").GetString()!, json.GetProperty("title").GetString()!);
 
-    private static ApiVendorScope ReadVendorScope(JsonElement json) =>
+    private static ApiScope ReadScope(JsonElement json) =>
         new(
             json.GetProperty("id").GetString()!,
             json.GetProperty("title").GetString()!,
-            json.GetProperty("vendor").GetString()!,
+            json.GetProperty("subject").GetString()!,
+            OptionalString(json, "standard"),
             OptionalString(json, "requirement"),
             OptionalString(json, "control"),
             json.GetProperty("disposition").GetString()!,

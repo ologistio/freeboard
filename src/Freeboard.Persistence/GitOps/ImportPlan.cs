@@ -90,33 +90,23 @@ public sealed record RequirementRowPlan(
 /// </summary>
 public sealed record AssetRowPlan(string Id, string ApiVersion, string Title, string Type, string? Parent, string? Owner);
 
-/// <summary>A scope row to upsert: organisation and standard foreign keys plus disposition.</summary>
+/// <summary>
+/// A scope row to insert: a scalar subject plus exactly one target (standard, requirement, or control,
+/// the other two null), disposition, and optional justification (null when blank).
+/// </summary>
 public sealed record ScopeRowPlan(
-    string Id, string ApiVersion, string Title, string Organisation, string Standard, string Disposition);
-
-/// <summary>
-/// A requirement-scope row to upsert: organisation and requirement foreign keys plus disposition.
-/// The standard is derived from the requirement, so no standard column is carried.
-/// </summary>
-public sealed record RequirementScopeRowPlan(
-    string Id, string ApiVersion, string Title, string Organisation, string Requirement, string Disposition);
-
-/// <summary>A control -> requirement cross-ref row.</summary>
-public sealed record ControlRequirementRow(string ControlId, string RequirementId);
-
-/// <summary>
-/// A vendor-scope row to insert: vendor foreign key plus exactly one target (requirement or control,
-/// the other null), disposition, and optional justification (null when blank).
-/// </summary>
-public sealed record VendorScopeRowPlan(
     string Id,
     string ApiVersion,
     string Title,
-    string Vendor,
+    string Subject,
+    string? Standard,
     string? Requirement,
     string? Control,
     string Disposition,
     string? Justification);
+
+/// <summary>A control -> requirement cross-ref row.</summary>
+public sealed record ControlRequirementRow(string ControlId, string RequirementId);
 
 /// <summary>
 /// The flattened, id-keyed shape derived from a validated <see cref="GitOpsConfig"/>.
@@ -134,11 +124,7 @@ public sealed class ImportPlan
 
     public IReadOnlyList<ScopeRowPlan> Scopes { get; }
 
-    public IReadOnlyList<RequirementScopeRowPlan> RequirementScopes { get; }
-
     public IReadOnlyList<ControlRequirementRow> ControlRequirements { get; }
-
-    public IReadOnlyList<VendorScopeRowPlan> VendorScopes { get; }
 
     public IReadOnlyList<EvidenceCollectorRowPlan> EvidenceCollectors { get; }
 
@@ -166,13 +152,14 @@ public sealed class ImportPlan
         Assets = config.Assets
             .Select(a => new AssetRowPlan(a.Id, a.ApiVersion, a.Title, a.Type, NullIfBlank(a.Parent), NullIfBlank(a.Owner)))
             .ToList();
+        // Exactly one target is set (Core validation guarantees it); the empty target sides normalize to
+        // null. A blank justification (permitted on an In scope) normalizes to null like other optional
+        // fields.
         Scopes = config.Scopes
             .Select(s => new ScopeRowPlan(
-                s.Id, s.ApiVersion, s.Title, s.Organisation, s.Standard, s.Disposition))
-            .ToList();
-        RequirementScopes = config.RequirementScopes
-            .Select(s => new RequirementScopeRowPlan(
-                s.Id, s.ApiVersion, s.Title, s.Organisation, s.Requirement, s.Disposition))
+                s.Id, s.ApiVersion, s.Title, s.Subject,
+                NullIfBlank(s.Standard), NullIfBlank(s.Requirement), NullIfBlank(s.Control),
+                s.Disposition, NullIfBlank(s.Justification)))
             .ToList();
 
         // Distinct guards the composite-PK join table against a duplicate maps_to id within a
@@ -181,15 +168,6 @@ public sealed class ImportPlan
         ControlRequirements = config.Controls
             .SelectMany(c => c.MapsTo.Select(requirementId => new ControlRequirementRow(c.Id, requirementId)))
             .Distinct()
-            .ToList();
-
-        // Exactly one target is set (Core validation guarantees it); the empty side normalizes to
-        // null. A blank justification (permitted on an In scope) normalizes to null like other
-        // optional fields.
-        VendorScopes = config.VendorScopes
-            .Select(v => new VendorScopeRowPlan(
-                v.Id, v.ApiVersion, v.Title, v.Vendor,
-                NullIfBlank(v.Requirement), NullIfBlank(v.Control), v.Disposition, NullIfBlank(v.Justification)))
             .ToList();
 
         // Threshold is parsed to int? only here, after Core validation has range-checked the raw text;
@@ -243,12 +221,6 @@ public sealed class ImportPlan
     /// <summary>Declared Company/Department asset ids (the keep set for the org-role-assignment prune).</summary>
     public IReadOnlyList<string> OrganisationIds =>
         Assets.Where(r => r.Type is "Company" or "Department").Select(r => r.Id).ToList();
-
-    public IReadOnlyList<string> ScopeIds => Scopes.Select(r => r.Id).ToList();
-
-    public IReadOnlyList<string> RequirementScopeIds => RequirementScopes.Select(r => r.Id).ToList();
-
-    public IReadOnlyList<string> VendorScopeIds => VendorScopes.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> EvidenceCollectorIds => EvidenceCollectors.Select(r => r.Id).ToList();
 

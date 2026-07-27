@@ -12,8 +12,6 @@ public static class GitOpsSchema
     public const string KindControl = "Control";
     public const string KindAsset = "Asset";
     public const string KindScope = "Scope";
-    public const string KindRequirementScope = "RequirementScope";
-    public const string KindVendorScope = "VendorScope";
     public const string KindEvidenceCollector = "EvidenceCollector";
     public const string KindAttestationTemplate = "AttestationTemplate";
     public const string KindIntegrationConnection = "Integration";
@@ -136,7 +134,7 @@ public sealed record Asset
     public string Owner { get; init; } = string.Empty;
 }
 
-/// <summary>Whether an organisation is in or out of scope for a standard.</summary>
+/// <summary>Whether a subject is in or out of scope for its target.</summary>
 public enum ScopeDisposition
 {
     In,
@@ -144,9 +142,14 @@ public enum ScopeDisposition
 }
 
 /// <summary>
-/// Maps one Company/Department asset (named under <see cref="Organisation"/>) to one
-/// <see cref="Standard"/> with a <see cref="Disposition"/>. Identity is <see cref="Id"/>; at most one
-/// Scope exists per <c>(organisation, standard)</c> pair.
+/// Maps one asset <see cref="Subject"/> to exactly one target - a <see cref="Standard"/>, a
+/// <see cref="Requirement"/>, or a <see cref="Control"/> - with a <see cref="Disposition"/>. Identity is
+/// <see cref="Id"/>. Exactly one of <see cref="Standard"/>/<see cref="Requirement"/>/<see cref="Control"/>
+/// is set; the others are empty. <see cref="Justification"/> is required when <see cref="Disposition"/> is
+/// <c>Out</c> and optional otherwise. At most one Scope exists per <c>(subject, standard)</c>,
+/// <c>(subject, requirement)</c>, and <c>(subject, control)</c> pair. A Vendor subject cannot target a
+/// standard (a vendor has no standard-level disposition). The subject reference is scalar: it may name any
+/// asset id and a subject that resolves to no asset is a non-blocking warning, not an error.
 /// </summary>
 public sealed record Scope
 {
@@ -154,56 +157,17 @@ public sealed record Scope
     public string Kind { get; init; } = string.Empty;
     public string Id { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
-    public string Organisation { get; init; } = string.Empty;
+
+    /// <summary>Subject asset id.</summary>
+    public string Subject { get; init; } = string.Empty;
+
+    /// <summary>Target Standard id, empty when the target is a requirement or control.</summary>
     public string Standard { get; init; } = string.Empty;
 
-    /// <summary>Raw disposition text as authored; validation maps it to <see cref="ScopeDisposition"/>.</summary>
-    public string Disposition { get; init; } = string.Empty;
-}
-
-/// <summary>
-/// Maps one Company/Department asset (named under <see cref="Organisation"/>) to one
-/// <see cref="Requirement"/> with a <see cref="Disposition"/>. Identity is <see cref="Id"/>; at most one RequirementScope
-/// exists per <c>(organisation, requirement)</c> pair. The owning standard is derived from
-/// the requirement, so there is no <c>standard</c> field. Resolved under the standard-level
-/// <see cref="Scope"/>: it applies only where the requirement's standard resolves <c>In</c>.
-/// </summary>
-public sealed record RequirementScope
-{
-    public string ApiVersion { get; init; } = string.Empty;
-    public string Kind { get; init; } = string.Empty;
-    public string Id { get; init; } = string.Empty;
-    public string Title { get; init; } = string.Empty;
-    public string Organisation { get; init; } = string.Empty;
+    /// <summary>Target Requirement id, empty when the target is a standard or control.</summary>
     public string Requirement { get; init; } = string.Empty;
 
-    /// <summary>Raw disposition text as authored; validation maps it to <see cref="ScopeDisposition"/>.</summary>
-    public string Disposition { get; init; } = string.Empty;
-}
-
-/// <summary>
-/// Records whether one <see cref="Requirement"/> or one <see cref="Control"/> applies to one
-/// Vendor asset, with an exception rationale. Identity is <see cref="Id"/>. Exactly one of
-/// <see cref="Requirement"/> or <see cref="Control"/> is set (the target); the other is empty.
-/// <see cref="Disposition"/> reuses the <see cref="Scope"/> disposition (<c>In</c>/<c>Out</c>):
-/// <c>In</c> means the target applies to the vendor, <c>Out</c> means it is excepted. A
-/// <see cref="VendorScope"/> is a flat per-<c>(vendor, target)</c> statement with no organisation
-/// dimension. <see cref="Justification"/> is required when <see cref="Disposition"/> is <c>Out</c>
-/// and optional otherwise. At most one exists per <c>(vendor, requirement)</c> and per
-/// <c>(vendor, control)</c> pair.
-/// </summary>
-public sealed record VendorScope
-{
-    public string ApiVersion { get; init; } = string.Empty;
-    public string Kind { get; init; } = string.Empty;
-    public string Id { get; init; } = string.Empty;
-    public string Title { get; init; } = string.Empty;
-    public string Vendor { get; init; } = string.Empty;
-
-    /// <summary>Target Requirement id, empty when the target is a control.</summary>
-    public string Requirement { get; init; } = string.Empty;
-
-    /// <summary>Target Control id, empty when the target is a requirement.</summary>
+    /// <summary>Target Control id, empty when the target is a standard or requirement.</summary>
     public string Control { get; init; } = string.Empty;
 
     /// <summary>Raw disposition text as authored; validation maps it to <see cref="ScopeDisposition"/>.</summary>
@@ -363,8 +327,6 @@ public sealed record GitOpsConfig
     public List<Control> Controls { get; init; } = [];
     public List<Asset> Assets { get; init; } = [];
     public List<Scope> Scopes { get; init; } = [];
-    public List<RequirementScope> RequirementScopes { get; init; } = [];
-    public List<VendorScope> VendorScopes { get; init; } = [];
     public List<EvidenceCollector> EvidenceCollectors { get; init; } = [];
     public List<AttestationTemplate> AttestationTemplates { get; init; } = [];
     public List<IntegrationConnection> IntegrationConnections { get; init; } = [];

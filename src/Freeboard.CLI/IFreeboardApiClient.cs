@@ -31,8 +31,8 @@ internal interface IFreeboardApiClient
     /// <summary>GET /vendors - list vendors.</summary>
     Task<ApiResult<IReadOnlyList<ApiVendor>>> ListVendorsAsync(CancellationToken ct);
 
-    /// <summary>GET /vendor-scopes - list vendor-scopes (per-vendor requirement/control exceptions).</summary>
-    Task<ApiResult<IReadOnlyList<ApiVendorScope>>> ListVendorScopesAsync(CancellationToken ct);
+    /// <summary>GET /scopes - list the unified scopes (each a subject and one target).</summary>
+    Task<ApiResult<IReadOnlyList<ApiScope>>> ListScopesAsync(CancellationToken ct);
 
     /// <summary>GET /controls - list controls with their resolved maps_to and optional evaluation rule.</summary>
     Task<ApiResult<IReadOnlyList<ApiControl>>> ListControlsAsync(CancellationToken ct);
@@ -79,12 +79,12 @@ internal sealed record BootstrapResult(ApiUser User, string Token);
 internal sealed record ApiVendor(string Id, string Title);
 
 /// <summary>
-/// A vendor-scope as returned by the API. Exactly one of <see cref="Requirement"/> or
-/// <see cref="Control"/> is set (the other null). <see cref="Justification"/> is null when unset and
+/// A scope as returned by the API. Exactly one of <see cref="Standard"/>, <see cref="Requirement"/>, or
+/// <see cref="Control"/> is set (the others null). <see cref="Justification"/> is null when unset and
 /// always present for an <c>Out</c> exception.
 /// </summary>
-internal sealed record ApiVendorScope(
-    string Id, string Title, string Vendor, string? Requirement, string? Control, string Disposition, string? Justification);
+internal sealed record ApiScope(
+    string Id, string Title, string Subject, string? Standard, string? Requirement, string? Control, string Disposition, string? Justification);
 
 /// <summary>A control as returned by the API, with its resolved maps_to and optional evaluation rule.</summary>
 internal sealed record ApiControl(string Id, string Title, IReadOnlyList<string> MapsTo, string? Evaluation);

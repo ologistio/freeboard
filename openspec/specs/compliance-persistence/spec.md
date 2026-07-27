@@ -50,31 +50,37 @@ columns.
 
 ### Requirement: Cross-references persisted as relations
 
-The store SHALL persist `Control.maps_to` (Standard ids) as relational rows with
-foreign keys to the referenced standard by `id`, not as denormalized text.
-`Organisation.parent` SHALL be persisted as a nullable self-referential foreign key
-on the organisation row. `Scope.organisation` and `Scope.standard` SHALL be
-persisted as foreign-key columns on the scope row referencing the organisation and
-standard by `id`. Referential integrity SHALL be enforced by the database. Reads
-SHALL return the references resolved by `id`.
+The store SHALL persist `Control.maps_to` (Requirement ids) as relational rows in the
+`control_requirements` join with foreign keys to the referenced requirement by `id`, not as
+denormalized text. `Asset.parent` SHALL be persisted as a scalar reference column with NO
+foreign key (a dangling-tolerated asset reference validated by the application), consistent
+with the unified `assets` table from the asset unification. `Scope.subject` SHALL be
+persisted as a scalar `subject_id` column with NO foreign key (a dangling-tolerated asset
+reference validated by the application), and the one populated `Scope` target (`standard`,
+`requirement`, or `control`) SHALL be persisted as a nullable foreign-key column referencing
+`standards`, `requirements`, or `controls` by `id`. Referential integrity for the `maps_to`
+and scope-target references SHALL be enforced by the database; the asset `parent` and the
+scope subject are enforced by the application, not a foreign key. Reads SHALL return the
+references resolved by `id`.
 
 #### Scenario: maps_to stored as a relation
 
-- **WHEN** a `Control` with two `maps_to` Standard ids is written
-- **THEN** two relation rows link the control id to each standard id, each with a
-  foreign key to the standards table
+- **WHEN** a `Control` with two `maps_to` Requirement ids is written
+- **THEN** two relation rows in the `control_requirements` join link the control id to
+  each requirement id, each with a foreign key to the requirements table
 
-#### Scenario: Organisation parent stored as a self-FK
+#### Scenario: Asset parent stored as a scalar reference with no foreign key
 
-- **WHEN** an `Organisation` with a `parent` is written
-- **THEN** its row holds a `parent_id` foreign key referencing the organisations
-  table, and a root organisation stores a null `parent_id`
+- **WHEN** an `Asset` with a `parent` is written
+- **THEN** its row holds a scalar `parent` column with no foreign key (a dangling parent
+  is tolerated), and a root asset stores a null `parent`
 
-#### Scenario: Scope stored with organisation and standard foreign keys
+#### Scenario: Scope stored with a scalar subject and a target foreign key
 
-- **WHEN** a `Scope` mapping an organisation to a standard with a disposition is
-  written
-- **THEN** its row holds `organisation_id` and `standard_id` foreign keys and a
+- **WHEN** a `Scope` mapping a subject to a standard, requirement, or control with a
+  disposition is written
+- **THEN** its row holds a `subject_id` column with no foreign key, exactly one populated
+  target foreign-key column (`standard_id`, `requirement_id`, or `control_id`), and a
   `disposition` column
 
 ### Requirement: Identity and upsert key on id, never title
@@ -117,15 +123,23 @@ persisted standards (with their `version`, `authority`, optional `publisher`, an
 optional `source_url` metadata), controls (with their resolved `maps_to`
 `Requirement` ids, read from the `control_requirements` join), requirements (with
 their resolved owning `standard`, `theme`, `statement`, `guidance`,
-`citation_label`, and `citation_url`), organisations (with resolved `parent`),
-scopes (with resolved `organisation`, `standard`, and `disposition`), and
-requirement-scopes (with resolved `organisation`, `requirement`, and `disposition`)
-and per-kind counts that include requirements and requirement-scopes. `IGitOpsImporter`
+`citation_label`, and `citation_url`), organisations (with resolved `parent`), and
+scopes (each with its resolved `subject`, exactly one target of
+`standard`/`requirement`/`control`, `disposition`, `justification`, and - carried by a
+`LEFT JOIN` on the `assets` table keyed on `subject_id` for the web read's subject-readability
+narrowing - the subject's resolved `type`, `source`, `state`, `parent`, and `owner`, which are
+server-side narrowing inputs the API response does not expose) and per-kind
+counts that include requirements and one unified scope count. `IGitOpsImporter`
 (in the `Freeboard.Persistence.GitOps` namespace - GitOps is one writer into the
 general store) SHALL provide a method that replaces the persisted set from an
 already-validated `GitOpsConfig`. `IGitOpsImporter.ImportAsync` SHALL document that
 its caller guarantees the config has been validated; the importer SHALL NOT re-run
-Core validation. The web app's dependency-injection registration SHALL register
+Core validation. `ImportAsync` SHALL return an import result carrying any scope subjects
+that do not resolve against the persisted `assets` table (the DB-accurate subject-resolution
+predicate) as non-blocking warnings, since Core, having no database, cannot evaluate a
+discovered or retired subject; the importer SHALL compute that set within the import
+transaction before commit (rolling the import back on a check failure), not after commit.
+The web app's dependency-injection registration SHALL register
 `IComplianceStore` for reads, so the web app's service provider does not resolve
 `IGitOpsImporter` or `IMigrationRunner`. The MySQL implementations SHALL satisfy
 these abstractions. Consumers SHALL depend on the abstractions, not the concrete
@@ -135,14 +149,24 @@ implementations.
 
 - **WHEN** a caller invokes the `IComplianceStore` read methods after an import
 - **THEN** it receives the persisted standards (with metadata), controls,
-  requirements, organisations, scopes, and requirement-scopes with their `id`,
-  `title`, and resolved references
+  requirements, organisations, and unified scopes with their `id`, `title`, resolved
+  `subject`, one target, `disposition`, and `justification`
 
-#### Scenario: Counts include requirements and requirement-scopes
+#### Scenario: Scope read carries the subject's narrowing metadata
+
+- **WHEN** a caller reads the unified scopes for the web `/scopes` narrowing
+- **THEN** each scope row carries, from a `LEFT JOIN` on `assets` keyed on `subject_id`, the
+  subject's resolved `type` (`Company`/`Department`/`Vendor`/`Machine`, or none when the subject
+  resolves to no asset), `source`, `state`, `parent`, and `owner`, so the endpoint can evaluate
+  the subject-resolution predicate and the per-family readability branch (org via the accessible
+  set, vendor via `owner`, machine via `parent` ancestry) server-side, and these fields are not
+  surfaced in the API response
+
+#### Scenario: Counts include requirements and one scope count
 
 - **WHEN** a caller reads the per-kind counts after an import
-- **THEN** the counts include the number of persisted requirements and
-  requirement-scopes alongside standards, controls, organisations, and scopes
+- **THEN** the counts include the number of persisted requirements and one unified scope
+  count alongside standards, controls, and organisations
 
 #### Scenario: Import replaces the persisted set
 
@@ -160,58 +184,60 @@ implementations.
 
 The importer SHALL run in a fixed order within one DML transaction: upsert domain
 rows by `id` in FK-safe order (standards, including their metadata; then
-requirements, whose rows reference standards; then controls; then organisations
-parent-before-child); then prune absent scopes and upsert the new scope set (a
-scope references organisations and standards, and the prune precedes the upsert so a
-scope whose `id` is renamed while keeping its `(organisation, standard)` pair does
-not collide on the unique key); then prune absent requirement-scopes and upsert the
-new requirement-scope set (a requirement-scope references organisations and
-requirements, both already upserted, and the prune precedes the upsert so a
-requirement-scope whose `id` is renamed while keeping its `(organisation,
-requirement)` pair does not collide on the unique key); then replace all `maps_to`
-cross-ref join rows for the imported set in the `control_requirements` join (delete
-the existing join rows and insert the rows derived from the new config, a whole-set
-replacement rather than a per-parent diff), which is safe because controls and
+requirements, whose rows reference standards; then controls; then the declared assets,
+including organisations - the asset `parent` is a scalar column with no foreign key, so no
+parent-before-child ordering is required among them); then replace the whole unified scope
+set (delete every `scopes` row then insert the new set), which is a whole-set replacement
+rather than a per-row diff because the table has a primary key plus three unique keys, so an
+id-keyed pair-swap cannot be upserted safely, and the scope `subject_id` has no foreign key
+while its `standard_id`/`requirement_id`/`control_id` targets are already upserted; then
+replace all `maps_to` cross-ref join rows for the imported set in the `control_requirements`
+join (delete the existing join rows and insert the rows derived from the new config, a
+whole-set replacement rather than a per-parent diff), which is safe because controls and
 requirements are both upserted by now; then delete remaining domain rows whose `id`
-is absent from the config in FK-safe order (requirements before standards; then
-organisations child-before-parent; then controls; then standards). The absent
-scope and requirement-scope prunes precede the absent organisation, standard, and
-requirement deletes, so a removed organisation or requirement no longer has a
-referencing scope or requirement-scope row when it is deleted. Because a validated
-config is acyclic and has no dangling references (a `Freeboard.Core` invariant), a
-stable order exists and foreign-key constraints hold at commit.
+is absent from the config in FK-safe order (the declared assets, including organisations -
+with no child-before-parent ordering required because the asset `parent` has no foreign key;
+then controls; then requirements; then standards, requirements being deleted before the
+standards they reference). The whole-set scope
+replace precedes the absent standard, requirement, and control deletes, so a removed
+standard, requirement, or control no longer has a referencing scope row when it is
+deleted, and precedes the declared-asset prune, so a removed asset simply leaves a scope
+with a dangling `subject_id` (no foreign key blocks the delete). After all inserts,
+replacements, and deletes but BEFORE the transaction commits, the importer SHALL run the
+unresolved-subject check (a `LEFT JOIN assets` applying the subject-resolution predicate) within
+the same transaction so it observes the final post-write asset state, capture the unresolved
+subjects into the import result, and only then commit; a failure of that check SHALL roll the
+whole import back, preserving the all-or-nothing outcome. The order is foreign-key-safe not
+because the config is acyclic (an asset `parent` cycle is a tolerated non-blocking warning, not a
+rejection), but because the hard scope-target references (`standard`/`requirement`/`control`)
+resolve and are upserted before the scope set that references them, and a tolerated asset `parent`
+cycle cannot affect ordering: `parent` carries NO foreign key, so a dangling or cyclic `parent`
+is a tolerated edge and never a foreign-key violation, and no parent-before-child ordering among
+assets is required. A stable order therefore exists and every foreign-key constraint holds at
+commit.
 
 #### Scenario: Dropping a referenced standard in the same sync succeeds
 
 - **WHEN** a sync removes a Standard that, in the prior persisted state, was
-  referenced by a Requirement via `standard` or by a Scope, and the new config also
-  removes those references
+  referenced by a Requirement via `standard` or by a Scope targeting the standard, and the
+  new config also removes those references
 - **THEN** the import succeeds without a foreign-key violation, because the
   referencing rows are replaced or removed before the standard row is deleted
 
 #### Scenario: Dropping a referenced requirement in the same sync succeeds
 
 - **WHEN** a sync removes a Requirement that, in the prior persisted state, was
-  referenced by a RequirementScope, and the new config also removes that
-  requirement-scope
-- **THEN** the import succeeds without a foreign-key violation, because the absent
-  requirement-scope is pruned before the requirement row is deleted
+  targeted by a Scope, and the new config also removes that scope
+- **THEN** the import succeeds without a foreign-key violation, because the whole scope
+  set is replaced before the requirement row is deleted
 
-#### Scenario: Renaming a scope that keeps its organisation and standard pair
+#### Scenario: Removing a scope's subject asset does not block the sync
 
-- **WHEN** a sync renames a Scope's `id` while keeping the same
-  `(organisation, standard)` pair
-- **THEN** the import succeeds and the store holds the scope under its new `id`,
-  because absent scopes are pruned before the scope upsert so the unique
-  `(organisation, standard)` key is free for the new row
-
-#### Scenario: Renaming a requirement-scope that keeps its organisation and requirement pair
-
-- **WHEN** a sync renames a RequirementScope's `id` while keeping the same
-  `(organisation, requirement)` pair
-- **THEN** the import succeeds and the store holds the requirement-scope under its
-  new `id`, because absent requirement-scopes are pruned before the upsert so the
-  unique `(organisation, requirement)` key is free for the new row
+- **WHEN** a sync removes an asset that, in the prior persisted state, was the `subject` of
+  a scope the new config keeps
+- **THEN** the import succeeds without a foreign-key violation, because `subject_id` has no
+  foreign key; the scope persists with a now-dangling subject, surfaced as a non-blocking
+  warning
 
 #### Scenario: Requirement upserted after its standard
 
@@ -220,11 +246,12 @@ stable order exists and foreign-key constraints hold at commit.
 - **THEN** the standard row is upserted before the requirement that references it,
   and on removal the requirement is deleted before the standard
 
-#### Scenario: Parent organisation ordering holds
+#### Scenario: Assets reconcile without a parent-before-child ordering
 
 - **WHEN** a sync imports a company and its department in one config
-- **THEN** the parent company row is upserted before the department that references
-  it, and on removal the department is deleted before the parent
+- **THEN** both reconcile in the unified `assets` table; because the asset `parent` is a
+  scalar column with no foreign key, no parent-before-child (or child-before-parent)
+  ordering is required and neither the insert nor the delete order can violate a foreign key
 
 ### Requirement: Migration runner applies pending migrations and reports state
 
@@ -418,25 +445,6 @@ GitOps YAML config and SHALL NOT be committed to the repository.
 - **THEN** the connection string comes from environment, user-secrets, or a
   config provider, and never from the GitOps YAML config or a committed file
 
-### Requirement: Scope disposition is unique per organisation per standard
-
-The scopes table SHALL enforce a unique key on `(organisation_id, standard_id)` so
-at most one disposition exists per organisation node per standard. A `disposition`
-column SHALL store the enum value (`In` or `Out`). The same organisation MAY hold
-independent dispositions for different standards.
-
-#### Scenario: Duplicate mapping violates the unique key
-
-- **WHEN** a second scope row for an existing `(organisation_id, standard_id)` pair
-  is written directly to the store
-- **THEN** the database rejects it on the unique key
-
-#### Scenario: Same organisation across standards is allowed
-
-- **WHEN** an organisation has a scope for standard A and another for standard B
-- **THEN** both rows persist, because the unique key is on the pair, not the
-  organisation alone
-
 ### Requirement: Requirements and standard metadata persistence
 
 The store SHALL persist the `Requirement` kind in a dedicated `requirements`
@@ -497,156 +505,6 @@ dropped `control_standards` table (cascade on delete). Pre-1.0 and forward-only:
 - **WHEN** two requirements have ids that differ only in case and both are written
 - **THEN** the store holds two distinct rows, because the `id` column collation is
   binary
-
-### Requirement: Requirement-scope persistence
-
-The store SHALL persist the `RequirementScope` kind in a dedicated
-`requirement_scopes` table, created by migration `009`. Each requirement-scope row
-SHALL be keyed on its immutable `id` and SHALL hold `api_version`, `title`, an
-`organisation_id` foreign key to the referenced organisation, a `requirement_id`
-foreign key to the referenced requirement, a `disposition` column storing the enum
-value (`In` or `Out`), a `created_at` set on first insert, and an `updated_at` set on
-every write. The `id`, `organisation_id`, and `requirement_id` columns SHALL use
-binary collation (`utf8mb4_bin`) so identity is exact-byte, consistent with
-`Freeboard.Core`. The table SHALL enforce a unique key on
-`(organisation_id, requirement_id)` so at most one disposition exists per
-organisation node per requirement; because a requirement determines its standard,
-this is equivalent to uniqueness per `(organisation, standard, requirement)`. The
-`organisation_id` foreign key SHALL reference `organisations(id)` and the
-`requirement_id` foreign key SHALL reference `requirements(id)`, both with
-`ON DELETE RESTRICT`, matching the `scopes` table: the importer removes referencing
-requirement-scopes before deleting an organisation or requirement (see the
-import-order requirement). Migration `009` SHALL be additive and forward-only: it
-SHALL create only the `requirement_scopes` table and SHALL NOT alter, rewrite, or
-drop any existing table.
-
-#### Scenario: Fresh database gains the requirement_scopes table
-
-- **WHEN** migrations are applied to a fresh database through `009`
-- **THEN** the `requirement_scopes` table exists with its primary key, the unique
-  key on `(organisation_id, requirement_id)`, the index on `requirement_id`, foreign
-  keys to `organisations` and `requirements`, and binary-collation `id`,
-  `organisation_id`, and `requirement_id` columns
-
-#### Scenario: RequirementScope persists keyed on id with organisation and requirement foreign keys
-
-- **WHEN** a validated config with a `RequirementScope` mapping an organisation to a
-  requirement is imported
-- **THEN** a `requirement_scopes` row exists keyed on the requirement-scope `id`,
-  holding its `title`, `api_version`, `created_at`, `updated_at`, a `disposition`
-  column, an `organisation_id` foreign key, and a `requirement_id` foreign key
-
-#### Scenario: Duplicate mapping violates the unique key
-
-- **WHEN** a second requirement-scope row for an existing
-  `(organisation_id, requirement_id)` pair is written directly to the store
-- **THEN** the database rejects it on the unique key
-
-#### Scenario: Case-distinct requirement-scope ids remain distinct
-
-- **WHEN** two requirement-scopes have ids that differ only in case and both are
-  written
-- **THEN** the store holds two distinct rows, because the `id` column collation is
-  binary
-
-### Requirement: Vendor and VendorScope persistence
-
-The system SHALL persist the `Vendor` and `VendorScope` kinds in dedicated MySQL
-tables `vendors` and `vendor_scopes`, created by a forward-only migration that
-alters no existing table. Ids and foreign-key columns SHALL use `utf8mb4_bin` to
-match Core's exact-byte id identity, consistent with the existing compliance
-tables. The `vendors` table SHALL hold `id`, `api_version`, `title`, `created_at`,
-and `updated_at`. The `vendor_scopes` table SHALL hold `id`, `api_version`,
-`title`, a `vendor_id` foreign key to `vendors`, a nullable `requirement_id`
-foreign key to `requirements`, a nullable `control_id` foreign key to `controls`, a
-`disposition`, a nullable `justification`, `created_at`, and `updated_at`. Exactly
-one of `requirement_id` or `control_id` SHALL be set on each row. This invariant
-SHALL be enforced primarily by the Core validator before import (the user-facing
-diagnostic) and additionally by a table `CHECK` constraint on `vendor_scopes` that
-rejects a row with both target columns set or both null, as a database-level
-backstop. The foreign keys SHALL be
-`ON DELETE RESTRICT`, matching the existing scope tables, so the importer prunes
-referencing vendor-scopes before deleting a vendor, requirement, or control. The
-table SHALL enforce at most one row per `(vendor_id, requirement_id)` and at most
-one per `(vendor_id, control_id)` with unique keys.
-
-The GitOps importer SHALL sync vendors and vendor-scopes in the same
-whole-set-replace transaction as the other kinds, in a foreign-key-safe order:
-vendors upserted with the other independent rows; vendor-scopes replaced as a whole
-set (delete-all then insert), like requirement-scopes; absent vendors deleted after
-their referencing vendor-scopes are gone. A blank `justification` SHALL be stored as
-NULL.
-
-The read store SHALL expose the persisted vendors and vendor-scopes through the
-`IComplianceStore` abstraction, and the persisted-counts read SHALL include the
-vendor and vendor-scope counts.
-
-#### Scenario: Vendors and vendor-scopes round-trip through import and read
-
-- **WHEN** a valid config containing vendors and vendor-scopes is imported and then
-  read back through the store
-- **THEN** every vendor and vendor-scope is persisted and returned with its `id`,
-  `title`, references, `disposition`, and `justification` (null when absent)
-
-#### Scenario: Out vendor-scope keeps its justification
-
-- **WHEN** a vendor-scope with `disposition: Out` and a non-empty `justification` is
-  imported and read back
-- **THEN** the stored row returns that justification text
-
-#### Scenario: Import order respects foreign keys when a vendor is removed
-
-- **WHEN** an import removes a vendor that still has vendor-scopes in the previous
-  persisted set
-- **THEN** the importer deletes the referencing vendor-scopes before deleting the
-  vendor, so the restrict foreign key is not violated
-
-#### Scenario: Import order respects foreign keys when a targeted requirement is removed
-
-- **WHEN** an import removes a requirement that a vendor-scope in the previous
-  persisted set targets
-- **THEN** the importer replaces the vendor-scope set (dropping the referencing
-  vendor-scope) before deleting the requirement, so the requirement RESTRICT
-  foreign key is not violated
-
-#### Scenario: Import order respects foreign keys when a targeted control is removed
-
-- **WHEN** an import removes a control that a vendor-scope in the previous persisted
-  set targets
-- **THEN** the importer replaces the vendor-scope set (dropping the referencing
-  vendor-scope) before deleting the control, so the control RESTRICT foreign key is
-  not violated
-
-#### Scenario: Renamed vendor-scope keeping the same pair survives resync
-
-- **WHEN** an import re-syncs a vendor-scope whose `id` changed while its
-  `(vendor, target)` pair stayed the same
-- **THEN** the whole-set replace drops the old row and inserts the new one, so the
-  `(vendor, requirement)` / `(vendor, control)` unique key is not violated and the
-  pair persists under the new id
-
-#### Scenario: Vendor-scope pair-swap keeping ids survives resync
-
-- **WHEN** an import re-syncs two vendor-scopes that swap their `(vendor, target)`
-  pairs while keeping their existing `id`s - row A takes row B's pair and row B takes
-  row A's pair
-- **THEN** the whole-set replace deletes both old rows before inserting the swapped
-  pairs, so neither `(vendor, requirement)` / `(vendor, control)` unique key is
-  transiently violated - an id-keyed upsert could not do this, because both ids
-  persist while their pairs cross, which is why the importer full-replaces
-  `vendor_scopes` rather than upserting them
-
-#### Scenario: Counts include vendors and vendor-scopes
-
-- **WHEN** the persisted-counts read runs against a reachable store
-- **THEN** the counts include the number of persisted vendors and vendor-scopes
-
-#### Scenario: Database rejects a vendor-scope with no single target
-
-- **WHEN** a `vendor_scopes` row is written directly with both `requirement_id` and
-  `control_id` set, or with both null
-- **THEN** the table `CHECK` constraint rejects the row, independently of the Core
-  validator
 
 ### Requirement: EvidenceCollector persistence and Control evaluation column
 
@@ -797,4 +655,121 @@ answer.
 
 - **WHEN** the persisted-counts read runs against a reachable store
 - **THEN** the counts include the number of persisted attestation-templates
+
+### Requirement: Unified scope table with a subject and a polymorphic target
+
+The store SHALL persist the unified `Scope` kind in one `scopes` table, created by merging
+the previous `scopes`, `requirement_scopes`, and `vendor_scopes` tables in migration `020`.
+Each scope row SHALL hold `id`, `api_version`, `title`, a `subject_id`, a nullable
+`standard_id`, a nullable `requirement_id`, a nullable `control_id`, a `disposition`, a
+nullable `justification`, a `created_at` set on first insert, and an `updated_at` set on
+every write. The `id`, `subject_id`, `standard_id`, `requirement_id`, and `control_id`
+columns SHALL use binary collation (`utf8mb4_bin`) so identity is exact-byte, consistent
+with `Freeboard.Core`.
+
+The `subject_id` column SHALL have NO foreign key: it is a scalar asset reference validated
+by the application and dangling-tolerated, so an asset may be retired or not-yet-discovered
+without blocking a sync or the asset's deletion. The `standard_id`, `requirement_id`, and
+`control_id` columns SHALL each be a foreign key `ON DELETE RESTRICT` to `standards(id)`,
+`requirements(id)`, and `controls(id)` respectively, so the importer prunes referencing
+scopes before deleting a targeted standard, requirement, or control. A table `CHECK`
+constraint SHALL enforce that exactly one of `standard_id`, `requirement_id`, or
+`control_id` is set, as a database-level backstop to the Core validator. The table SHALL
+enforce at most one row per `(subject_id, standard_id)`, one per `(subject_id,
+requirement_id)`, and one per `(subject_id, control_id)` with three unique keys; each key
+constrains only rows whose own target column is non-null, because MySQL treats each NULL as
+distinct in a unique index (the same behaviour the previous `vendor_scopes` table relied
+on).
+
+Migration `020` SHALL be forward-only and NOT atomically replay-safe (matching `015`,
+`018`, and `019`): it SHALL create the unified table, copy the three source tables into it
+by `INSERT ... SELECT` (mapping `scopes.organisation_id` and `requirement_scopes.organisation_id`
+and `vendor_scopes.vendor_id` to `subject_id`, which already hold asset ids after the asset
+unification), drop the three source tables, and leave one `scopes` table. The three source
+id spaces are assumed disjoint (pre-production, no data contract); a duplicate primary key
+from a colliding id SHALL fail the migration rather than silently merge two scopes.
+
+The GitOps importer SHALL replace the whole unified scope set in one foreign-key-safe
+transaction (delete-all then insert), like the previous requirement-scope and vendor-scope
+replaces, ordered before the absent-standard, absent-requirement, and absent-control
+deletes and before the declared-asset prune, so no target `RESTRICT` foreign key is
+violated and a removed asset simply leaves a scope with a dangling subject. A blank
+`justification` SHALL be stored as NULL.
+
+Within the same import transaction, after all writes but BEFORE the commit, the importer SHALL
+evaluate each persisted scope `subject` against the `assets` table with the subject-resolution
+predicate (a subject is unresolved when no `assets` row has its id, or the row is a discovered
+asset in the `Retired` state) - the read observes the final post-write asset state - capture the
+set of unresolved subjects into the import result, and only then commit. A failure of that check
+SHALL roll the whole import back, preserving the importer's all-or-nothing outcome, rather than
+committing an import whose result-building then throws. The importer SHALL return the unresolved
+subjects as non-blocking warnings. This DB-accurate check is the sync-path dangling-subject
+signal: it covers discovered and retired `Machine` subjects that a database-less validator cannot
+evaluate, and it never fails the import.
+
+The read store SHALL expose the unified scopes through the `IComplianceStore` abstraction,
+and the persisted-counts read SHALL include one scope count.
+
+#### Scenario: Fresh database gains the unified scopes table
+
+- **WHEN** migrations are applied to a fresh database through `020`
+- **THEN** the `scopes` table exists with its primary key, a no-foreign-key `subject_id`,
+  nullable `standard_id`/`requirement_id`/`control_id` foreign keys `ON DELETE RESTRICT`,
+  the single-target `CHECK`, the three unique keys `(subject_id, standard_id)`,
+  `(subject_id, requirement_id)`, `(subject_id, control_id)`, and binary-collation id and
+  reference columns, and the `requirement_scopes` and `vendor_scopes` tables do not exist
+
+#### Scenario: Scope persists keyed on id with a subject and one target
+
+- **WHEN** a validated config with a `Scope` mapping a subject to a standard, a
+  requirement, or a control is imported and read back
+- **THEN** a `scopes` row exists keyed on the scope `id`, holding its `title`,
+  `api_version`, timestamps, `subject_id`, exactly one populated target column, a
+  `disposition`, and a `justification` (null when absent)
+
+#### Scenario: Database rejects a scope with no single target
+
+- **WHEN** a `scopes` row is written directly with zero target columns set, or with two or
+  three set
+- **THEN** the table `CHECK` constraint rejects the row, independently of the Core
+  validator
+
+#### Scenario: Duplicate subject-target pair violates a unique key
+
+- **WHEN** a second scope row for an existing `(subject_id, standard_id)`, `(subject_id,
+  requirement_id)`, or `(subject_id, control_id)` pair is written directly to the store
+- **THEN** the database rejects it on the corresponding unique key
+
+#### Scenario: Migration copies disjoint ids and fails on a collision
+
+- **WHEN** migration `020` runs on a database whose `scopes`, `requirement_scopes`, and
+  `vendor_scopes` ids are disjoint, and separately on one where two source rows share an id
+- **THEN** the disjoint copy succeeds into the unified table, and the colliding copy fails
+  `020` on the duplicate primary key rather than merging the two rows
+
+#### Scenario: Migration marks Out rows that carry no recorded justification
+
+- **WHEN** migration `020` copies an `Out` scope row from the legacy `scopes` or
+  `requirement_scopes` table (neither of which has a `justification` column), a `vendor_scopes`
+  `Out` row that recorded a real justification, and a `vendor_scopes` `Out` row whose recorded
+  justification is blank
+- **THEN** the two org rows land with the provenance marker "Migrated legacy Out rule;
+  justification was not recorded and requires review.", the vendor row with a real justification
+  keeps its own text unchanged, and the blank vendor row lands with the marker, so no copied
+  `Out` row is readable without a rationale before the first sync overwrites it
+
+#### Scenario: Counts include one scope count
+
+- **WHEN** the persisted-counts read runs against a reachable store
+- **THEN** the counts include one unified scope count alongside standards, controls,
+  requirements, and organisations
+
+#### Scenario: Importer reports a DB-unresolved scope subject as a warning
+
+- **WHEN** an import commits a scope whose `subject` is absent from `assets`, or present only
+  as a discovered asset in the `Retired` state, while another scope's subject resolves to a
+  live asset
+- **THEN** the import succeeds and returns the unresolved subject as a non-blocking warning,
+  and does NOT report the subject that resolves to a live asset, applying the DB-accurate
+  subject-resolution predicate the database-less validator cannot
 

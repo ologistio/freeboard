@@ -22,15 +22,17 @@ public sealed class VendorCommands
                 return ApiCommandRunner.Translate(vendorsResult, _ => { });
             }
 
-            var scopesResult = await client.ListVendorScopesAsync(ct).ConfigureAwait(false);
+            var scopesResult = await client.ListScopesAsync(ct).ConfigureAwait(false);
             return ApiCommandRunner.Translate(scopesResult, scopes => Print(vendorsResult.Payload!, scopes));
         });
     }
 
-    private static void Print(IReadOnlyList<ApiVendor> vendors, IReadOnlyList<ApiVendorScope> scopes)
+    private static void Print(IReadOnlyList<ApiVendor> vendors, IReadOnlyList<ApiScope> scopes)
     {
+        // Vendor exceptions are the unified scopes whose subject is a vendor; the endpoint has already
+        // owner-narrowed them, so filtering by the visible vendor ids yields each vendor's rows.
         var scopesByVendor = scopes
-            .GroupBy(s => s.Vendor, StringComparer.Ordinal)
+            .GroupBy(s => s.Subject, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
         foreach (var vendor in vendors)

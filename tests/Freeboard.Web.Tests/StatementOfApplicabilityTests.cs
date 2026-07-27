@@ -9,16 +9,24 @@ public sealed class StatementOfApplicabilityTests
     private static readonly OrganisationRow Department = new("company-dept", "Department", "Department", "company");
     private static readonly OrganisationRow Team = new("company-dept-team", "Team", "Department", "company-dept");
 
+    // A standard-target scope in the unified shape (standard set, requirement/control null).
+    private static ScopeRow Std(string id, string title, string subject, string standard, string disposition) =>
+        new(id, title, subject, standard, null, null, disposition, null);
+
+    // A requirement-target scope in the unified shape (requirement set, standard/control null).
+    private static ScopeRow Req(string id, string title, string subject, string requirement, string disposition) =>
+        new(id, title, subject, null, requirement, null, disposition, disposition == "Out" ? "reason" : null);
+
     [Fact]
     public void ExplicitDispositionWinsOverAncestors()
     {
         var scopes = new[]
         {
-            new ScopeRow("s1", "In at company", "company", "std", "In"),
-            new ScopeRow("s2", "Out at dept", "company-dept", "std", "Out"),
+            Std("s1", "In at company", "company", "std", "In"),
+            Std("s2", "Out at dept", "company-dept", "std", "Out"),
         };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [], [], "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [], "std");
 
         var dept = nodes.Single(n => n.Id == "company-dept");
         Assert.Equal("Out", dept.Disposition);
@@ -28,9 +36,9 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void ChildInheritsNearestAncestor()
     {
-        var scopes = new[] { new ScopeRow("s1", "In at company", "company", "std", "In") };
+        var scopes = new[] { Std("s1", "In at company", "company", "std", "In") };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department, Team], scopes, [], [], "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department, Team], scopes, [], "std");
 
         var dept = nodes.Single(n => n.Id == "company-dept");
         Assert.Equal("In", dept.Disposition);
@@ -46,11 +54,11 @@ public sealed class StatementOfApplicabilityTests
     {
         var scopes = new[]
         {
-            new ScopeRow("s1", "In at company", "company", "std", "In"),
-            new ScopeRow("s2", "Out at dept", "company-dept", "std", "Out"),
+            Std("s1", "In at company", "company", "std", "In"),
+            Std("s2", "Out at dept", "company-dept", "std", "Out"),
         };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department, Team], scopes, [], [], "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department, Team], scopes, [], "std");
 
         var team = nodes.Single(n => n.Id == "company-dept-team");
         Assert.Equal("Out", team.Disposition);
@@ -60,7 +68,7 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void NoScopeOnPathDefaultsIn()
     {
-        var nodes = StatementOfApplicability.Resolve([Company, Department], [], [], [], "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], [], [], "std");
 
         foreach (var node in nodes)
         {
@@ -72,9 +80,9 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void ScopeForAnotherStandardDoesNotLeak()
     {
-        var scopes = new[] { new ScopeRow("s1", "In for other", "company", "other-std", "In") };
+        var scopes = new[] { Std("s1", "In for other", "company", "other-std", "In") };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [], [], "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [], "std");
 
         // A Scope for a different standard must not make THIS standard explicit or inherited; with no
         // Scope for "std" on the path, every node defaults In.
@@ -90,7 +98,7 @@ public sealed class StatementOfApplicabilityTests
     {
         var unordered = new[] { Team, Company, Department };
 
-        var nodes = StatementOfApplicability.Resolve(unordered, [], [], [], "std");
+        var nodes = StatementOfApplicability.Resolve(unordered, [], [], "std");
 
         Assert.Equal(["company", "company-dept", "company-dept-team"], nodes.Select(n => n.Id).ToArray());
     }
@@ -101,10 +109,13 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void CompanyWideExclusionInheritedByDepartment()
     {
-        var scopes = new[] { new ScopeRow("s1", "In at company", "company", "std", "In") };
-        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude at company", "company", "req-a", "Out") };
+        var scopes = new[]
+        {
+            Std("s1", "In at company", "company", "std", "In"),
+            Req("rs1", "Exclude at company", "company", "req-a", "Out"),
+        };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], "std");
 
         var company = nodes.Single(n => n.Id == "company");
         var companyReq = Assert.Single(company.Requirements);
@@ -121,14 +132,14 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void DepartmentReincludeOverridesCompanyExclusion()
     {
-        var scopes = new[] { new ScopeRow("s1", "In at company", "company", "std", "In") };
-        var requirementScopes = new[]
+        var scopes = new[]
         {
-            new RequirementScopeRow("rs1", "Exclude at company", "company", "req-a", "Out"),
-            new RequirementScopeRow("rs2", "Re-include at dept", "company-dept", "req-a", "In"),
+            Std("s1", "In at company", "company", "std", "In"),
+            Req("rs1", "Exclude at company", "company", "req-a", "Out"),
+            Req("rs2", "Re-include at dept", "company-dept", "req-a", "In"),
         };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], "std");
 
         var dept = nodes.Single(n => n.Id == "company-dept");
         var deptReq = Assert.Single(dept.Requirements);
@@ -139,12 +150,15 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void ExclusionIgnoredWhenStandardResolvesOut()
     {
-        var scopes = new[] { new ScopeRow("s1", "Out at company", "company", "std", "Out") };
-        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude", "company", "req-a", "Out") };
+        var scopes = new[]
+        {
+            Std("s1", "Out at company", "company", "std", "Out"),
+            Req("rs1", "Exclude", "company", "req-a", "Out"),
+        };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], "std");
 
-        // Standard Out dominates: requirement-scopes are not consulted, so no deviations listed.
+        // Standard Out dominates: requirement-target scopes are not consulted, so no deviations listed.
         Assert.All(nodes, n => Assert.Empty(n.Requirements));
         Assert.Equal("Out", nodes.Single(n => n.Id == "company").Disposition);
     }
@@ -152,10 +166,13 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void RequirementReincludeIgnoredWhenStandardResolvesOut()
     {
-        var scopes = new[] { new ScopeRow("s1", "Out at company", "company", "std", "Out") };
-        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Re-include", "company", "req-a", "In") };
+        var scopes = new[]
+        {
+            Std("s1", "Out at company", "company", "std", "Out"),
+            Req("rs1", "Re-include", "company", "req-a", "In"),
+        };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], "std");
 
         // A requirement-level In cannot re-include a requirement whose standard resolves Out: the
         // standard Out dominates, so the requirement layer is not consulted and no deviations list.
@@ -166,11 +183,11 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void DefaultInNodeReportsRequirementDeviation()
     {
-        // No standard scope anywhere, so the node defaults In; its requirement-scope Out is a reported
-        // deviation.
-        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude", "company", "req-a", "Out") };
+        // No standard scope anywhere, so the node defaults In; its requirement-target scope Out is a
+        // reported deviation.
+        var scopes = new[] { Req("rs1", "Exclude", "company", "req-a", "Out") };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], [], [ReqA], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], "std");
 
         var company = nodes.Single(n => n.Id == "company");
         Assert.Equal("In", company.Disposition);
@@ -187,11 +204,11 @@ public sealed class StatementOfApplicabilityTests
         var sibling = new OrganisationRow("company-other", "Other", "Department", "company");
         var scopes = new[]
         {
-            new ScopeRow("s1", "Out at company", "company", "std", "Out"),
-            new ScopeRow("s2", "In at dept", "company-dept", "std", "In"),
+            Std("s1", "Out at company", "company", "std", "Out"),
+            Std("s2", "In at dept", "company-dept", "std", "In"),
         };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department, sibling], scopes, [], [], "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department, sibling], scopes, [], "std");
 
         var dept = nodes.Single(n => n.Id == "company-dept");
         Assert.Equal("In", dept.Disposition);
@@ -205,14 +222,14 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void PerRequirementListOrderedByRequirementId()
     {
-        var scopes = new[] { new ScopeRow("s1", "In at company", "company", "std", "In") };
-        var requirementScopes = new[]
+        var scopes = new[]
         {
-            new RequirementScopeRow("rs2", "Exclude b", "company", "req-b", "Out"),
-            new RequirementScopeRow("rs1", "Exclude a", "company", "req-a", "Out"),
+            Std("s1", "In at company", "company", "std", "In"),
+            Req("rs2", "Exclude b", "company", "req-b", "Out"),
+            Req("rs1", "Exclude a", "company", "req-a", "Out"),
         };
 
-        var nodes = StatementOfApplicability.Resolve([Company], scopes, [ReqB, ReqA], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company], scopes, [ReqB, ReqA], "std");
 
         var company = Assert.Single(nodes);
         Assert.Equal(["req-a", "req-b"], company.Requirements.Select(r => r.Requirement).ToArray());
@@ -221,12 +238,15 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void RequirementScopeOfAnotherStandardIsAbsent()
     {
-        var scopes = new[] { new ScopeRow("s1", "In at company", "company", "std", "In") };
-        // ReqOther belongs to another standard; its requirement-scope must not appear for "std".
+        // ReqOther belongs to another standard; its requirement-target scope must not appear for "std".
         var reqOther = new RequirementRow("req-other", "Other", "other-std", "Theme", "S", null, "L", "https://example.com/o");
-        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude other", "company", "req-other", "Out") };
+        var scopes = new[]
+        {
+            Std("s1", "In at company", "company", "std", "In"),
+            Req("rs1", "Exclude other", "company", "req-other", "Out"),
+        };
 
-        var nodes = StatementOfApplicability.Resolve([Company], scopes, [ReqA, reqOther], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company], scopes, [ReqA, reqOther], "std");
 
         Assert.Empty(Assert.Single(nodes).Requirements);
     }
@@ -235,17 +255,17 @@ public sealed class StatementOfApplicabilityTests
     public void ChildReincludesStandardThenInheritsParentRequirementExclusion()
     {
         // Parent resolves the standard Out; child re-scopes the standard In. The parent carries a
-        // requirement-scope Out for req-a. Under the child's own In standard, the child inherits that
-        // requirement-scope Out (marked inherited), while the parent lists no per-requirement
+        // requirement-target scope Out for req-a. Under the child's own In standard, the child inherits
+        // that requirement-target Out (marked inherited), while the parent lists no per-requirement
         // exclusions (its standard is Out, so the requirement layer is not consulted).
         var scopes = new[]
         {
-            new ScopeRow("s1", "Out at company", "company", "std", "Out"),
-            new ScopeRow("s2", "In at dept", "company-dept", "std", "In"),
+            Std("s1", "Out at company", "company", "std", "Out"),
+            Std("s2", "In at dept", "company-dept", "std", "In"),
+            Req("rs1", "Exclude at company", "company", "req-a", "Out"),
         };
-        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude at company", "company", "req-a", "Out") };
 
-        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], requirementScopes, "std");
+        var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [ReqA], "std");
 
         var company = nodes.Single(n => n.Id == "company");
         Assert.Equal("Out", company.Disposition);
@@ -270,14 +290,17 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void DrilldownEnumeratesEveryRequirementTaggedInOrOutAndExcludedIsLeaf()
     {
-        var scopes = new[] { new ScopeRow("s1", "In at company", "company", "std", "In") };
-        // req-a is excluded explicitly; req-b has no requirement-scope so it defaults In.
-        var requirementScopes = new[] { new RequirementScopeRow("rs1", "Exclude a", "company", "req-a", "Out") };
+        // req-a is excluded explicitly; req-b has no requirement-target scope so it defaults In.
+        var scopes = new[]
+        {
+            Std("s1", "In at company", "company", "std", "In"),
+            Req("rs1", "Exclude a", "company", "req-a", "Out"),
+        };
         // A control maps to each requirement, so the excluded requirement's leaf behaviour is provable.
         var controls = new[] { Ctrl("ctrl-a", ["req-a"]), Ctrl("ctrl-b", ["req-b"]) };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company, Department], scopes, [ReqA, ReqB], requirementScopes, controls, [], [], [], "std");
+            [Company, Department], scopes, [ReqA, ReqB], controls, [], [], [], "std");
 
         // The node lists every requirement of the standard (In and Out), ordered by id, not only the deviation.
         var company = nodes.Single(n => n.Id == "company");
@@ -305,10 +328,10 @@ public sealed class StatementOfApplicabilityTests
     [Fact]
     public void DrilldownStandardOutYieldsNoRequirementChildren()
     {
-        var scopes = new[] { new ScopeRow("s1", "Out at company", "company", "std", "Out") };
+        var scopes = new[] { Std("s1", "Out at company", "company", "std", "Out") };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], scopes, [ReqA, ReqB], [], [], [], [], [], "std");
+            [Company], scopes, [ReqA, ReqB], [], [], [], [], "std");
 
         Assert.Empty(Assert.Single(nodes).Requirements);
     }
@@ -326,7 +349,7 @@ public sealed class StatementOfApplicabilityTests
         var vendors = new[] { new VendorRow("vendor-x", "Vendor X", null) };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA, ReqB], [], controls, collectors, templates, vendors, "std");
+            [Company], [], [ReqA, ReqB], controls, collectors, templates, vendors, "std");
 
         var company = Assert.Single(nodes);
         var reqA = company.Requirements.Single(r => r.Id == "req-a");
@@ -366,7 +389,7 @@ public sealed class StatementOfApplicabilityTests
         var templates = new[] { Tmpl("tmpl-b", "ctrl-a"), Tmpl("tmpl-a", "ctrl-a") };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], [], controls, collectors, templates, [], "std");
+            [Company], [], [ReqA], controls, collectors, templates, [], "std");
 
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);
         Assert.Equal(["ctrl-a", "ctrl-b"], reqA.Controls.Select(c => c.Id).ToArray());
@@ -380,7 +403,7 @@ public sealed class StatementOfApplicabilityTests
     public void DrilldownRequirementWithNoMappedControlHasEmptyControls()
     {
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], [], [], [], [], [], "std");
+            [Company], [], [ReqA], [], [], [], [], "std");
 
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);
         Assert.Empty(reqA.Controls);
@@ -394,12 +417,40 @@ public sealed class StatementOfApplicabilityTests
 
         // No matching vendor row, so the display falls back to the raw id.
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], [], controls, collectors, [], [], "std");
+            [Company], [], [ReqA], controls, collectors, [], [], "std");
 
         // The collector's vendor is carried as metadata; the requirement still resolves In (default).
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);
         Assert.Equal("In", reqA.Disposition);
         Assert.Equal(SoaResolution.Default, reqA.Resolution);
         Assert.Equal("vendor-x", reqA.Controls[0].Checks[0].Vendor);
+    }
+
+    [Fact]
+    public void HasDanglingSubjectTrueWhenAnySubjectUnresolvedAcrossEveryTargetKind()
+    {
+        var resolvable = new HashSet<string>(StringComparer.Ordinal) { "company" };
+        // A control-target org scope whose subject resolves to no asset warns, even though the SoA does
+        // not resolve a control-level disposition for it.
+        var scopes = new[]
+        {
+            Std("s1", "In at company", "company", "std", "In"),
+            new ScopeRow("s2", "Control target, dangling subject", "ghost", null, null, "ctrl-a", "In", null),
+        };
+
+        Assert.True(StatementOfApplicability.HasDanglingSubject(scopes, resolvable));
+    }
+
+    [Fact]
+    public void HasDanglingSubjectFalseWhenEverySubjectResolves()
+    {
+        var resolvable = new HashSet<string>(StringComparer.Ordinal) { "company", "vendor-x" };
+        var scopes = new[]
+        {
+            Std("s1", "In at company", "company", "std", "In"),
+            new ScopeRow("s2", "Vendor control", "vendor-x", null, null, "ctrl-a", "In", null),
+        };
+
+        Assert.False(StatementOfApplicability.HasDanglingSubject(scopes, resolvable));
     }
 }

@@ -129,14 +129,8 @@ public sealed class OrgSelectionTests
         public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<ScopeRow>)[]);
 
-        public Task<IReadOnlyList<RequirementScopeRow>> GetRequirementScopesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<RequirementScopeRow>)[]);
-
         public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<VendorRow>)[]);
-
-        public Task<IReadOnlyList<VendorScopeRow>> GetVendorScopesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<VendorScopeRow>)[]);
 
         public Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<EvidenceCollectorRow>)[]);
@@ -148,12 +142,12 @@ public sealed class OrgSelectionTests
             Task.FromResult((IReadOnlyList<IntegrationConnectionRow>)[]);
 
         public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SoaInputs(Organisations, [], [], []));
+            Task.FromResult(new SoaInputs(Organisations, [], [], new HashSet<string>(StringComparer.Ordinal)));
 
         public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SoaDrilldownInputs([], [], [], [], [], [], [], []));
+            Task.FromResult(new SoaDrilldownInputs([], [], [], new HashSet<string>(StringComparer.Ordinal), [], [], [], []));
 
         public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0, 0));
     }
 }

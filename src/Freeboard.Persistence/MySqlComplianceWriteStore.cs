@@ -13,8 +13,8 @@ namespace Freeboard.Persistence;
 /// self-parent, a cycle, a dangling parent, or deleting an org with children or scopes is rejected here as
 /// an immediate authoring error, where sync only warns. assets.parent carries no foreign key, so these
 /// app-level guards (not a DB self-FK) are what hold the org tree acyclic and referentially whole; the
-/// unique <c>(organisation_id, standard_id)</c> and <c>(organisation_id, requirement_id)</c> scope keys
-/// remain the DB backstop.
+/// unified scopes table's <c>(subject_id, standard_id)</c> and <c>(subject_id, requirement_id)</c> unique
+/// keys remain the DB backstop.
 /// </summary>
 public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFactory) : IComplianceWriteStore
 {
@@ -113,20 +113,14 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             return WriteResult.Fail("Cannot delete an organisation that still has child organisations.");
         }
 
+        // One unified scopes table now; an org subject may target a standard, requirement, or control, so
+        // the guard counts any scope whose subject is this org.
         var scopeCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM scopes WHERE organisation_id = @Id;",
+            "SELECT COUNT(*) FROM scopes WHERE subject_id = @Id;",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (scopeCount > 0)
         {
             return WriteResult.Fail("Cannot delete an organisation that still has scopes.");
-        }
-
-        var requirementScopeCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM requirement_scopes WHERE organisation_id = @Id;",
-            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (requirementScopeCount > 0)
-        {
-            return WriteResult.Fail("Cannot delete an organisation that still has requirement-scopes.");
         }
 
         // Prune the org's role assignments before the delete: the organisation FK is ON DELETE
@@ -144,14 +138,61 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         return WriteResult.Success;
     }
 
-    public async Task<WriteResult> UpsertScopeDispositionAsync(
+    public Task<WriteResult> UpsertScopeDispositionAsync(
         string id,
         string title,
-        string organisation,
+        string subject,
         string standard,
         string disposition,
+        string? justification = null,
         string? expectedCurrentOrganisation = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        UpsertScopeTargetAsync(
+            ScopeTarget.Standard, id, title, subject, "standards", standard, disposition, justification,
+            expectedCurrentOrganisation, cancellationToken);
+
+    public Task<WriteResult> DeleteScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
+        DeleteScopeTargetAsync(ScopeTarget.Standard, id, expectedOwner, cancellationToken);
+
+    public Task<WriteResult> UpsertRequirementScopeDispositionAsync(
+        string id,
+        string title,
+        string subject,
+        string requirement,
+        string disposition,
+        string? justification = null,
+        string? expectedCurrentOrganisation = null,
+        CancellationToken cancellationToken = default) =>
+        UpsertScopeTargetAsync(
+            ScopeTarget.Requirement, id, title, subject, "requirements", requirement, disposition, justification,
+            expectedCurrentOrganisation, cancellationToken);
+
+    public Task<WriteResult> DeleteRequirementScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
+        DeleteScopeTargetAsync(ScopeTarget.Requirement, id, expectedOwner, cancellationToken);
+
+    /// <summary>The app-writable target columns of the unified scopes table. Control targets are
+    /// gitops-write-only and unreachable from either app route.</summary>
+    private enum ScopeTarget
+    {
+        Standard,
+        Requirement,
+    }
+
+    // The one disposition upsert shared by both app routes, confined to the route's own target column so an
+    // id cannot cross the target boundary (an authz boundary). It branches on the GLOBAL id (not target
+    // filtered): no row = create a row of this target kind; a same-target-kind row = update; a
+    // different-target-kind row = not-found (a PUT must not convert a row's target kind).
+    private async Task<WriteResult> UpsertScopeTargetAsync(
+        ScopeTarget target,
+        string id,
+        string title,
+        string subject,
+        string targetTable,
+        string targetId,
+        string disposition,
+        string? justification,
+        string? expectedCurrentOrganisation,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(id))
         {
@@ -163,38 +204,76 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             return WriteResult.Fail("Scope title is required.");
         }
 
-        if (!ConfigValidator.TryParseDisposition(disposition, out _))
+        if (!ConfigValidator.TryParseDisposition(disposition, out var parsedDisposition))
         {
             return WriteResult.Fail($"Disposition must be '{nameof(ScopeDisposition.In)}' or '{nameof(ScopeDisposition.Out)}'.");
+        }
+
+        var normalizedJustification = string.IsNullOrWhiteSpace(justification) ? null : justification;
+        if (parsedDisposition == ScopeDisposition.Out && normalizedJustification is null)
+        {
+            return WriteResult.Fail("A scope with disposition 'Out' requires a justification.");
         }
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        if (await LockedOwnerChangedAsync(connection, transaction, "scopes", id, expectedCurrentOrganisation, cancellationToken).ConfigureAwait(false))
+        // Lock the row by global id and read its target columns and subject, joining the subject asset for
+        // its type. A row whose own target column is not this route's kind is not-found: a PUT must not
+        // retarget it, and it must not be authorized against that row's owning subject. A row whose subject
+        // is not a live Company/Department asset (a Vendor/Machine subject, or an unresolved subject) is
+        // likewise not-found: those scopes are GitOps-write-only, so an app PUT must not retarget them.
+        var locked = (await connection.QueryAsync<ScopeLockRow>(new CommandDefinition(
+            "SELECT s.standard_id AS StandardId, s.requirement_id AS RequirementId, s.control_id AS ControlId, "
+            + "s.subject_id AS SubjectId, a.type AS SubjectType FROM scopes s "
+            + "LEFT JOIN assets a ON a.id = s.subject_id WHERE s.id = @Id FOR UPDATE;",
+            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).FirstOrDefault();
+
+        if (locked is not null)
         {
-            return WriteResult.Conflict("The scope's owning organisation changed concurrently; re-authorize and retry.");
+            var thisKindId = target == ScopeTarget.Standard ? locked.StandardId : locked.RequirementId;
+            if (thisKindId is null)
+            {
+                return WriteResult.NotFound();
+            }
+
+            if (locked.SubjectType is not ("Company" or "Department"))
+            {
+                return WriteResult.NotFound();
+            }
+
+            if (expectedCurrentOrganisation is null)
+            {
+                // The caller authorized a create, but a same-kind row now exists: a concurrent create.
+                return WriteResult.Conflict("A scope with that id already exists.");
+            }
+
+            if (!string.Equals(locked.SubjectId, expectedCurrentOrganisation, StringComparison.Ordinal))
+            {
+                return WriteResult.Conflict("The scope's owning organisation changed concurrently; re-authorize and retry.");
+            }
         }
 
-        if (!await OrganisationExistsAsync(connection, transaction, organisation, cancellationToken).ConfigureAwait(false))
+        if (!await OrganisationExistsAsync(connection, transaction, subject, cancellationToken).ConfigureAwait(false))
         {
-            return WriteResult.Fail($"Organisation '{organisation}' does not exist.");
+            return WriteResult.Fail($"Organisation '{subject}' does not exist.");
         }
 
-        if (!await ExistsAsync(connection, transaction, "standards", standard, cancellationToken).ConfigureAwait(false))
+        if (!await ExistsAsync(connection, transaction, targetTable, targetId, cancellationToken).ConfigureAwait(false))
         {
-            return WriteResult.Fail($"Standard '{standard}' does not exist.");
+            return WriteResult.Fail($"Target '{targetId}' does not exist.");
         }
 
-        // At most one scope per (organisation, standard). A row for the pair under a DIFFERENT
-        // id is a duplicate mapping; the same id updating its own pair is fine.
+        // At most one scope per (subject, target). A row for the pair under a DIFFERENT id is a duplicate
+        // mapping; the same id updating its own pair is fine. The pair query is confined to this target
+        // column, so a wrong-kind row (target column null) never matches.
+        var pairColumn = target == ScopeTarget.Standard ? "standard_id" : "requirement_id";
         var conflictingId = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
-            "SELECT id FROM scopes WHERE organisation_id = @Organisation AND standard_id = @Standard LIMIT 1;",
-            new { Organisation = organisation, Standard = standard }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            $"SELECT id FROM scopes WHERE subject_id = @Subject AND {pairColumn} = @TargetId LIMIT 1;",
+            new { Subject = subject, TargetId = targetId }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (conflictingId is not null && !string.Equals(conflictingId, id, StringComparison.Ordinal))
         {
-            return WriteResult.Fail(
-                $"A scope already maps organisation '{organisation}' to standard '{standard}'.");
+            return WriteResult.Fail($"A scope already maps subject '{subject}' to target '{targetId}'.");
         }
 
         var now = DateTime.UtcNow;
@@ -203,25 +282,29 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             Id = id,
             ApiVersion = GitOpsSchema.ApiVersion,
             Title = title,
-            Organisation = organisation,
-            Standard = standard,
+            Subject = subject,
+            Standard = target == ScopeTarget.Standard ? targetId : null,
+            Requirement = target == ScopeTarget.Requirement ? targetId : null,
             Disposition = disposition,
+            Justification = normalizedJustification,
             Now = now,
         };
         try
         {
             // A null expected owner is a create: INSERT-only so a row inserted concurrently between the
             // lock and this write conflicts rather than silently overwriting. An expected owner is an
-            // update on the row the caller was authorized for and already re-locked above.
+            // update on the row the caller was authorized for and already re-locked above. Both write the
+            // route's own target column and leave the other two target columns null.
             var isCreate = expectedCurrentOrganisation is null;
             var sql = isCreate
-                ? "INSERT INTO scopes (id, api_version, title, organisation_id, standard_id, disposition, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Standard, @Disposition, @Now, @Now);"
-                : "INSERT INTO scopes (id, api_version, title, organisation_id, standard_id, disposition, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Standard, @Disposition, @Now, @Now) "
+                ? "INSERT INTO scopes (id, api_version, title, subject_id, standard_id, requirement_id, control_id, disposition, justification, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Subject, @Standard, @Requirement, NULL, @Disposition, @Justification, @Now, @Now);"
+                : "INSERT INTO scopes (id, api_version, title, subject_id, standard_id, requirement_id, control_id, disposition, justification, created_at, updated_at) "
+                    + "VALUES (@Id, @ApiVersion, @Title, @Subject, @Standard, @Requirement, NULL, @Disposition, @Justification, @Now, @Now) "
                     + "ON DUPLICATE KEY UPDATE "
-                    + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
-                    + "standard_id = VALUES(standard_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);";
+                    + "api_version = VALUES(api_version), title = VALUES(title), subject_id = VALUES(subject_id), "
+                    + "standard_id = VALUES(standard_id), requirement_id = VALUES(requirement_id), "
+                    + "disposition = VALUES(disposition), justification = VALUES(justification), updated_at = VALUES(updated_at);";
             await connection.ExecuteAsync(new CommandDefinition(
                 sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
@@ -234,113 +317,35 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         return WriteResult.Success;
     }
 
-    public async Task<WriteResult> DeleteScopeAsync(string id, CancellationToken cancellationToken = default)
+    // Target-column-scoped delete, further confined to a Company/Department subject: the standard route
+    // deletes only a standard-target row, the requirement route only a requirement-target row, and either
+    // only when the subject is a live Company/Department asset. A wrong-kind id (or a control-target row),
+    // and a Vendor/Machine or unresolved subject (those scopes are GitOps-write-only), match no row and are
+    // not-found. Never an unqualified DELETE FROM scopes WHERE id=@Id (that would be an authz-boundary
+    // bypass letting one permission delete the other route's rows).
+    //
+    // The delete always also matches the row's current subject against expectedOwner, so it removes at most
+    // the row the caller was authorized against. The owner predicate is unconditional (fail closed): there
+    // is no null-owner path that would restore an unbound delete. A row concurrently reparented to another
+    // organisation no longer matches and is left untouched (not-found), closing the same cross-org-move
+    // TOCTOU the PUT closes under its FOR UPDATE re-check.
+    private async Task<WriteResult> DeleteScopeTargetAsync(
+        ScopeTarget target, string id, string expectedOwner, CancellationToken cancellationToken)
     {
+        var column = target == ScopeTarget.Standard ? "standard_id" : "requirement_id";
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM scopes WHERE id = @Id;",
-            new { Id = id }, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return WriteResult.Success;
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            $"DELETE s FROM scopes s JOIN assets a ON a.id = s.subject_id "
+            + $"WHERE s.id = @Id AND s.{column} IS NOT NULL AND a.type IN ('Company', 'Department') "
+            + "AND s.subject_id = @ExpectedOwner;",
+            new { Id = id, ExpectedOwner = expectedOwner }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return affected == 0 ? WriteResult.NotFound() : WriteResult.Success;
     }
 
-    public async Task<WriteResult> UpsertRequirementScopeDispositionAsync(
-        string id,
-        string title,
-        string organisation,
-        string requirement,
-        string disposition,
-        string? expectedCurrentOrganisation = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return WriteResult.Fail("RequirementScope id is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            return WriteResult.Fail("RequirementScope title is required.");
-        }
-
-        if (!ConfigValidator.TryParseDisposition(disposition, out _))
-        {
-            return WriteResult.Fail($"Disposition must be '{nameof(ScopeDisposition.In)}' or '{nameof(ScopeDisposition.Out)}'.");
-        }
-
-        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-
-        if (await LockedOwnerChangedAsync(connection, transaction, "requirement_scopes", id, expectedCurrentOrganisation, cancellationToken).ConfigureAwait(false))
-        {
-            return WriteResult.Conflict("The requirement-scope's owning organisation changed concurrently; re-authorize and retry.");
-        }
-
-        if (!await OrganisationExistsAsync(connection, transaction, organisation, cancellationToken).ConfigureAwait(false))
-        {
-            return WriteResult.Fail($"Organisation '{organisation}' does not exist.");
-        }
-
-        if (!await ExistsAsync(connection, transaction, "requirements", requirement, cancellationToken).ConfigureAwait(false))
-        {
-            return WriteResult.Fail($"Requirement '{requirement}' does not exist.");
-        }
-
-        // At most one requirement-scope per (organisation, requirement). A row for the pair under a
-        // DIFFERENT id is a duplicate mapping; the same id updating its own pair is fine.
-        var conflictingId = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
-            "SELECT id FROM requirement_scopes WHERE organisation_id = @Organisation AND requirement_id = @Requirement LIMIT 1;",
-            new { Organisation = organisation, Requirement = requirement }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (conflictingId is not null && !string.Equals(conflictingId, id, StringComparison.Ordinal))
-        {
-            return WriteResult.Fail(
-                $"A requirement-scope already maps organisation '{organisation}' to requirement '{requirement}'.");
-        }
-
-        var now = DateTime.UtcNow;
-        var parameters = new
-        {
-            Id = id,
-            ApiVersion = GitOpsSchema.ApiVersion,
-            Title = title,
-            Organisation = organisation,
-            Requirement = requirement,
-            Disposition = disposition,
-            Now = now,
-        };
-        try
-        {
-            // A null expected owner is a create: INSERT-only so a row inserted concurrently between the
-            // lock and this write conflicts rather than silently overwriting. An expected owner is an
-            // update on the row the caller was authorized for and already re-locked above.
-            var isCreate = expectedCurrentOrganisation is null;
-            var sql = isCreate
-                ? "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now);"
-                : "INSERT INTO requirement_scopes (id, api_version, title, organisation_id, requirement_id, disposition, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Organisation, @Requirement, @Disposition, @Now, @Now) "
-                    + "ON DUPLICATE KEY UPDATE "
-                    + "api_version = VALUES(api_version), title = VALUES(title), organisation_id = VALUES(organisation_id), "
-                    + "requirement_id = VALUES(requirement_id), disposition = VALUES(disposition), updated_at = VALUES(updated_at);";
-            await connection.ExecuteAsync(new CommandDefinition(
-                sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        }
-        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
-        {
-            return WriteResult.Conflict("A requirement-scope with that id already exists.");
-        }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return WriteResult.Success;
-    }
-
-    public async Task<WriteResult> DeleteRequirementScopeAsync(string id, CancellationToken cancellationToken = default)
-    {
-        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM requirement_scopes WHERE id = @Id;",
-            new { Id = id }, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return WriteResult.Success;
-    }
+    /// <summary>The target columns, subject, and subject asset type of a locked scope row, read by global
+    /// id. <see cref="SubjectType"/> is null when the subject resolves to no asset row.</summary>
+    private sealed record ScopeLockRow(
+        string? StandardId, string? RequirementId, string? ControlId, string? SubjectId, string? SubjectType);
 
     private static async Task<bool> ExistsAsync(
         DbConnection connection,
@@ -366,30 +371,6 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             "SELECT COUNT(*) FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return count > 0;
-    }
-
-    /// <summary>
-    /// Locks the existing row (<c>SELECT ... FOR UPDATE</c>) and reports whether its current owning
-    /// organisation differs from the one the caller authorized. When the caller expected no existing row
-    /// (<paramref name="expectedCurrentOrganisation"/> null), a row that now exists under any org is a
-    /// change. A row absent under the lock is not a change: the upsert then inserts it afresh under the
-    /// requested org, which the caller already authorized. Closes the cross-org-move TOCTOU: the
-    /// authorized current owner cannot change between the pre-write authorization and the write.
-    /// The table name is a fixed internal constant, never caller input.
-    /// </summary>
-    private static async Task<bool> LockedOwnerChangedAsync(
-        DbConnection connection,
-        DbTransaction transaction,
-        string table,
-        string id,
-        string? expectedCurrentOrganisation,
-        CancellationToken cancellationToken)
-    {
-        var currentOwner = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
-            $"SELECT organisation_id FROM {table} WHERE id = @Id FOR UPDATE;",
-            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return currentOwner is not null
-            && !string.Equals(currentOwner, expectedCurrentOrganisation, StringComparison.Ordinal);
     }
 
     /// <summary>

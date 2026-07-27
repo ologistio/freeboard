@@ -1,5 +1,6 @@
 using ConsoleAppFramework;
 using Freeboard.Core.GitOps;
+using Freeboard.Persistence.GitOps;
 using Freeboard.Persistence.System;
 
 namespace Freeboard.CLI;
@@ -71,8 +72,11 @@ public sealed class GitOpsCommands
         }
 
         // Warnings do not block sync (dangling/missing edges, parent cycles), but the operator must see
-        // them, so print them on the valid path before touching the database.
-        PrintWarnings(result);
+        // them, so print them on the valid path before touching the database. The scope-subject-dangling
+        // warning is suppressed here: on the sync path the importer runs the DB-accurate check (which alone
+        // sees discovered and retired Machine subjects) and its result is printed after the import, so the
+        // DB-less Core signal would be a potential false positive.
+        PrintWarnings(result, includeScopeSubject: false);
 
         var resolved = ConnectionStringResolver.Resolve(connectionString);
         if (resolved is null)
@@ -82,6 +86,7 @@ public sealed class GitOpsCommands
             return 3;
         }
 
+        ImportResult importResult;
         try
         {
             var runner = PersistenceFactory.CreateMigrationRunner(resolved);
@@ -110,7 +115,7 @@ public sealed class GitOpsCommands
             }
 
             var importer = PersistenceFactory.CreateImporter(resolved);
-            importer.ImportAsync(result.Config).GetAwaiter().GetResult();
+            importResult = importer.ImportAsync(result.Config).GetAwaiter().GetResult();
         }
         catch (MigrationException ex)
         {
@@ -123,11 +128,17 @@ public sealed class GitOpsCommands
             return 3;
         }
 
+        // The DB-accurate dangling-subject warnings, computed inside the import transaction against the
+        // final post-write asset state (covering discovered and retired Machine subjects Core cannot see).
+        foreach (var subject in importResult.UnresolvedScopeSubjects)
+        {
+            Console.Error.WriteLine($"warning: scope subject '{subject}' resolves to no live asset.");
+        }
+
         Console.WriteLine(
             $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Requirements.Count} requirement(s), "
             + $"{result.Config.Controls.Count} control(s), {AssetSummary(result.Config)}, "
-            + $"{result.Config.Scopes.Count} scope(s), {result.Config.RequirementScopes.Count} requirement-scope(s), "
-            + $"{result.Config.VendorScopes.Count} vendor-scope(s), "
+            + $"{result.Config.Scopes.Count} scope(s), "
             + $"{result.Config.EvidenceCollectors.Count} evidence-collector(s), "
             + $"{result.Config.AttestationTemplates.Count} attestation-template(s).");
         return 0;
@@ -141,10 +152,15 @@ public sealed class GitOpsCommands
         }
     }
 
-    private static void PrintWarnings(ConfigResult result)
+    private static void PrintWarnings(ConfigResult result, bool includeScopeSubject = true)
     {
         foreach (var warning in result.Warnings)
         {
+            if (!includeScopeSubject && warning.Code == DiagnosticCode.ScopeSubjectUnresolved)
+            {
+                continue;
+            }
+
             Console.Error.WriteLine($"warning: {warning}");
         }
     }
@@ -164,8 +180,7 @@ public sealed class GitOpsCommands
         Console.WriteLine(
             $"OK: {config.Standards.Count} standard(s), {config.Requirements.Count} requirement(s), "
             + $"{config.Controls.Count} control(s), {AssetSummary(config)}, "
-            + $"{config.Scopes.Count} scope(s), {config.RequirementScopes.Count} requirement-scope(s), "
-            + $"{config.VendorScopes.Count} vendor-scope(s), "
+            + $"{config.Scopes.Count} scope(s), "
             + $"{config.EvidenceCollectors.Count} evidence-collector(s), "
             + $"{config.AttestationTemplates.Count} attestation-template(s).");
     }
@@ -202,26 +217,13 @@ public sealed class GitOpsCommands
         Console.WriteLine($"Scopes ({config.Scopes.Count}):");
         foreach (var scope in config.Scopes)
         {
+            var target = !string.IsNullOrEmpty(scope.Standard)
+                ? $"standard {scope.Standard}"
+                : !string.IsNullOrEmpty(scope.Requirement)
+                    ? $"requirement {scope.Requirement}"
+                    : $"control {scope.Control}";
             Console.WriteLine(
-                $"  - {scope.Id}: {scope.Title} -> {scope.Organisation} / {scope.Standard} = {scope.Disposition}");
-        }
-
-        Console.WriteLine($"RequirementScopes ({config.RequirementScopes.Count}):");
-        foreach (var requirementScope in config.RequirementScopes)
-        {
-            Console.WriteLine(
-                $"  - {requirementScope.Id}: {requirementScope.Title} -> {requirementScope.Organisation} / "
-                + $"{requirementScope.Requirement} = {requirementScope.Disposition}");
-        }
-
-        Console.WriteLine($"VendorScopes ({config.VendorScopes.Count}):");
-        foreach (var vendorScope in config.VendorScopes)
-        {
-            var target = string.IsNullOrEmpty(vendorScope.Requirement)
-                ? $"control {vendorScope.Control}"
-                : $"requirement {vendorScope.Requirement}";
-            Console.WriteLine(
-                $"  - {vendorScope.Id}: {vendorScope.Title} -> {vendorScope.Vendor} / {target} = {vendorScope.Disposition}");
+                $"  - {scope.Id}: {scope.Title} -> {scope.Subject} / {target} = {scope.Disposition}");
         }
 
         Console.WriteLine($"EvidenceCollectors ({config.EvidenceCollectors.Count}):");

@@ -21,9 +21,7 @@ public sealed class ComplianceEndpointTests
         "/api/v1/freeboard/controls",
         "/api/v1/freeboard/organisations",
         "/api/v1/freeboard/scopes",
-        "/api/v1/freeboard/requirement-scopes",
         "/api/v1/freeboard/vendors",
-        "/api/v1/freeboard/vendor-scopes",
         "/api/v1/freeboard/evidence-collectors",
         "/api/v1/freeboard/attestation-templates",
         "/api/v1/freeboard/statement-of-applicability/std-a",
@@ -47,21 +45,21 @@ public sealed class ComplianceEndpointTests
             new OrganisationRow("org-a", "Org A", "Company", null),
             new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
         ],
-        Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")],
-        RequirementScopes =
+        // One unified scope set: a standard-target and two requirement-target org scopes, plus two
+        // vendor-subject scopes (owner-narrowed). The trailing subject-narrowing fields drive /scopes
+        // readability; SoA resolution ignores them.
+        Scopes =
         [
-            new RequirementScopeRow("rs-a", "Exclude req-a", "org-a", "req-a", "Out"),
-            new RequirementScopeRow("rs-b", "Exclude req-b", "org-a", "req-b", "Out"),
+            new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null, SubjectType: "Company"),
+            new ScopeRow("rs-a", "Exclude req-a", "org-a", null, "req-a", null, "Out", "req-a excluded", SubjectType: "Company"),
+            new ScopeRow("rs-b", "Exclude req-b", "org-a", null, "req-b", null, "Out", "req-b excluded", SubjectType: "Company"),
+            new ScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO.", SubjectType: "Vendor", SubjectOwner: "org-a"),
+            new ScopeRow("vs-b", "Include ctrl-a for vendor-a", "vendor-a", null, null, "ctrl-a", "In", null, SubjectType: "Vendor", SubjectOwner: "org-a"),
         ],
         Vendors =
         [
             new VendorRow("vendor-a", "Vendor A", "org-a"),
             new VendorRow("vendor-b", "Vendor B", "org-a"),
-        ],
-        VendorScopes =
-        [
-            new VendorScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO."),
-            new VendorScopeRow("vs-b", "Include ctrl-a for vendor-a", "vendor-a", null, "ctrl-a", "In", null),
         ],
         Collectors =
         [
@@ -327,46 +325,49 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
-    public async Task ScopesEndpointReturnsMapping()
+    public async Task ScopesEndpointReturnsUnifiedRow()
     {
         using var factory = Factory(PopulatedStore());
         using var client = MemberClient(factory);
 
         var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/scopes");
 
-        var scope = json[0];
-        Assert.Equal("scope-a", scope.GetProperty("id").GetString());
-        Assert.Equal("org-a", scope.GetProperty("organisation").GetString());
+        var scope = json.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "scope-a");
+        Assert.Equal("org-a", scope.GetProperty("subject").GetString());
         Assert.Equal("std-a", scope.GetProperty("standard").GetString());
+        Assert.Equal(JsonValueKind.Null, scope.GetProperty("requirement").ValueKind);
+        Assert.Equal(JsonValueKind.Null, scope.GetProperty("control").ValueKind);
         Assert.Equal("In", scope.GetProperty("disposition").GetString());
+        Assert.Equal(JsonValueKind.Null, scope.GetProperty("justification").ValueKind);
+
+        // A requirement-target row carries its requirement id and null standard/control.
+        var rs = json.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "rs-a");
+        Assert.Equal("req-a", rs.GetProperty("requirement").GetString());
+        Assert.Equal(JsonValueKind.Null, rs.GetProperty("standard").ValueKind);
+
+        // The response projects only the eight public fields; no subject narrowing fields leak.
+        var raw = await client.GetStringAsync("/api/v1/freeboard/scopes");
+        Assert.DoesNotContain("subjectType", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("subjectOwner", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("subjectParent", raw, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task RequirementScopesEndpointReturnsMappingOrderedById()
+    public async Task RemovedRequirementScopesReadEndpointIs404()
     {
         using var factory = Factory(PopulatedStore());
         using var client = MemberClient(factory);
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/requirement-scopes");
-
-        Assert.Equal(2, json.GetArrayLength());
-        // Ordered by id: rs-a before rs-b.
-        Assert.Equal("rs-a", json[0].GetProperty("id").GetString());
-        Assert.Equal("org-a", json[0].GetProperty("organisation").GetString());
-        Assert.Equal("req-a", json[0].GetProperty("requirement").GetString());
-        Assert.Equal("Out", json[0].GetProperty("disposition").GetString());
-        Assert.Equal("rs-b", json[1].GetProperty("id").GetString());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/freeboard/requirement-scopes")).StatusCode);
     }
 
     [Fact]
-    public async Task RequirementScopesReadServedInReadOnlyModeToAuthenticatedUser()
+    public async Task RemovedVendorScopesReadEndpointIs404()
     {
-        using var factory = Factory(PopulatedStore(), readOnly: true);
+        using var factory = Factory(PopulatedStore());
         using var client = MemberClient(factory);
 
-        var response = await client.GetAsync("/api/v1/freeboard/requirement-scopes");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/freeboard/vendor-scopes")).StatusCode);
     }
 
     [Fact]
@@ -384,26 +385,23 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
-    public async Task VendorScopesEndpointReturnsTargetsDispositionsAndJustifications()
+    public async Task ScopesEndpointReturnsVendorSubjectRowsWithTargetsAndJustifications()
     {
         using var factory = Factory(PopulatedStore());
         using var client = MemberClient(factory);
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendor-scopes");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/scopes");
 
-        Assert.Equal(2, json.GetArrayLength());
-
-        // vs-a: requirement target, Out, justification present. control null.
-        var vsA = json[0];
-        Assert.Equal("vs-a", vsA.GetProperty("id").GetString());
-        Assert.Equal("vendor-a", vsA.GetProperty("vendor").GetString());
+        // vs-a: vendor subject, requirement target, Out, justification present. control null.
+        var vsA = json.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "vs-a");
+        Assert.Equal("vendor-a", vsA.GetProperty("subject").GetString());
         Assert.Equal("req-a", vsA.GetProperty("requirement").GetString());
         Assert.Equal(JsonValueKind.Null, vsA.GetProperty("control").ValueKind);
         Assert.Equal("Out", vsA.GetProperty("disposition").GetString());
         Assert.Equal("Supports MFA but not SSO.", vsA.GetProperty("justification").GetString());
 
-        // vs-b: control target, In, no justification. requirement null.
-        var vsB = json[1];
+        // vs-b: vendor subject, control target, In, no justification. requirement null.
+        var vsB = json.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "vs-b");
         Assert.Equal("ctrl-a", vsB.GetProperty("control").GetString());
         Assert.Equal(JsonValueKind.Null, vsB.GetProperty("requirement").ValueKind);
         Assert.Equal("In", vsB.GetProperty("disposition").GetString());
@@ -417,31 +415,34 @@ public sealed class ComplianceEndpointTests
         using var client = MemberClient(factory);
 
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/vendors")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/vendor-scopes")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/scopes")).StatusCode);
     }
 
     [Fact]
     public async Task OwnerExcludedEnforceCallerSeesNoVendorOrScope()
     {
-        // The vendor endpoints narrow by IOrgAccess through the vendor owner. Under strict Enforce with
-        // no grants the accessible-org set is empty, so every vendor is hidden - and with it every
-        // vendor-scope, so an Out justification for a hidden vendor never leaks.
+        // /scopes narrows a vendor subject by its owner. Under strict Enforce with no grants the
+        // accessible-org set is empty, so every vendor is hidden - and with it every vendor-subject
+        // scope, so an Out justification for a hidden vendor never leaks.
         using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var vendors = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
         Assert.Equal(0, vendors.GetArrayLength());
 
-        var scopes = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendor-scopes");
+        var scopes = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/scopes");
         Assert.Equal(0, scopes.GetArrayLength());
+
+        var raw = await client.GetStringAsync("/api/v1/freeboard/scopes");
+        Assert.DoesNotContain("Supports MFA but not SSO.", raw, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task VendorReadsNarrowToTheCallerAccessibleOwners()
+    public async Task ScopeReadsNarrowToTheCallerAccessibleOwners()
     {
         // Two vendors owned by different orgs; the reader is granted on org-a only. Under Enforce the
-        // caller sees vendor-a and its scope, but neither vendor-b nor vendor-b's Out justification -
-        // the hidden vendor takes its vendor-scopes with it (fail-closed).
+        // caller sees vendor-a's scope, but neither vendor-b's scope nor its Out justification - the
+        // hidden vendor subject fails closed.
         var store = new FakeComplianceStore
         {
             Organisations =
@@ -454,23 +455,20 @@ public sealed class ComplianceEndpointTests
                 new VendorRow("vendor-a", "Vendor A", "org-a"),
                 new VendorRow("vendor-b", "Vendor B", "org-b"),
             ],
-            VendorScopes =
+            Scopes =
             [
-                new VendorScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", "req-a", null, "In", null),
-                new VendorScopeRow("vs-b", "Except req-b for vendor-b", "vendor-b", "req-b", null, "Out", "Owned elsewhere."),
+                new ScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", null, "req-a", null, "In", null, SubjectType: "Vendor", SubjectOwner: "org-a"),
+                new ScopeRow("vs-b", "Except req-b for vendor-b", "vendor-b", null, "req-b", null, "Out", "Owned elsewhere.", SubjectType: "Vendor", SubjectOwner: "org-b"),
             ],
         };
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
         using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
-        var vendors = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
-        Assert.Equal(["vendor-a"], vendors.EnumerateArray().Select(v => v.GetProperty("id").GetString()!).ToArray());
-
-        var scopes = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendor-scopes");
+        var scopes = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/scopes");
         Assert.Equal(["vs-a"], scopes.EnumerateArray().Select(s => s.GetProperty("id").GetString()!).ToArray());
 
-        var raw = await client.GetStringAsync("/api/v1/freeboard/vendor-scopes");
+        var raw = await client.GetStringAsync("/api/v1/freeboard/scopes");
         Assert.DoesNotContain("Owned elsewhere.", raw, StringComparison.Ordinal);
     }
 
@@ -586,12 +584,14 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(1, persisted.GetProperty("controls").GetInt32());
         Assert.Equal(2, persisted.GetProperty("requirements").GetInt32());
         Assert.Equal(2, persisted.GetProperty("organisations").GetInt32());
-        Assert.Equal(1, persisted.GetProperty("scopes").GetInt32());
-        Assert.Equal(2, persisted.GetProperty("requirementScopes").GetInt32());
+        Assert.Equal(5, persisted.GetProperty("scopes").GetInt32());
         Assert.Equal(2, persisted.GetProperty("vendors").GetInt32());
-        Assert.Equal(2, persisted.GetProperty("vendorScopes").GetInt32());
         Assert.Equal(2, persisted.GetProperty("evidenceCollectors").GetInt32());
         Assert.Equal(2, persisted.GetProperty("attestationTemplates").GetInt32());
+
+        // The merged persisted shape carries one scopes count and no requirementScopes/vendorScopes keys.
+        Assert.False(persisted.TryGetProperty("requirementScopes", out _));
+        Assert.False(persisted.TryGetProperty("vendorScopes", out _));
     }
 
     [Fact]
@@ -629,9 +629,7 @@ public sealed class ComplianceEndpointTests
                      "/api/v1/freeboard/controls",
                      "/api/v1/freeboard/organisations",
                      "/api/v1/freeboard/scopes",
-                     "/api/v1/freeboard/requirement-scopes",
                      "/api/v1/freeboard/vendors",
-                     "/api/v1/freeboard/vendor-scopes",
                      "/api/v1/freeboard/evidence-collectors",
                      "/api/v1/freeboard/attestation-templates",
                  })
@@ -665,11 +663,13 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("requirements").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("organisations").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("scopes").ValueKind);
-        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("requirementScopes").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendors").ValueKind);
-        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendorScopes").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("evidenceCollectors").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("attestationTemplates").ValueKind);
+
+        // The degraded shape also drops the two legacy scope-count keys.
+        Assert.False(persisted.TryGetProperty("requirementScopes", out _));
+        Assert.False(persisted.TryGetProperty("vendorScopes", out _));
     }
 
     [Fact]

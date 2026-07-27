@@ -25,7 +25,7 @@ public sealed class DrawerE2ETests : E2ETestBase
     {
         App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
         App.Compliance.Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)];
-        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", "In")];
+        App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
         App.Compliance.Requirements =
         [
             new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),

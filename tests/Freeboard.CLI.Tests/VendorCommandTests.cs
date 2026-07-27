@@ -53,10 +53,10 @@ public sealed class VendorCommandTests : IDisposable
         {
             VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success(
                 [new ApiVendor("vendor-a", "Vendor A"), new ApiVendor("vendor-b", "Vendor B")]),
-            VendorScopeListResult = ApiResult<IReadOnlyList<ApiVendorScope>>.Success(
+            ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success(
             [
-                new ApiVendorScope("vs-a", "T", "vendor-a", "req-a", null, "Out", "Supports MFA but not SSO."),
-                new ApiVendorScope("vs-b", "T", "vendor-a", null, "ctrl-a", "In", null),
+                new ApiScope("vs-a", "T", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO."),
+                new ApiScope("vs-b", "T", "vendor-a", null, null, "ctrl-a", "In", null),
             ]),
         });
 
@@ -64,7 +64,7 @@ public sealed class VendorCommandTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Equal(1, fake.VendorListCalls);
-        Assert.Equal(1, fake.VendorScopeListCalls);
+        Assert.Equal(1, fake.ScopeListCalls);
         Assert.Contains("vendor-a", output, StringComparison.Ordinal);
         Assert.Contains("Vendor B", output, StringComparison.Ordinal);
         // Every Out exception prints its justification; the In one does not require one.
@@ -79,7 +79,7 @@ public sealed class VendorCommandTests : IDisposable
         Install(new FakeApiClient
         {
             VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success([]),
-            VendorScopeListResult = ApiResult<IReadOnlyList<ApiVendorScope>>.Success([]),
+            ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success([]),
         });
 
         var (exit, _, _) = Capture(() => new VendorCommands().List());
@@ -111,8 +111,8 @@ public sealed class VendorCommandTests : IDisposable
 
         Assert.Equal(3, exit);
         Assert.Contains("authorized", err, StringComparison.OrdinalIgnoreCase);
-        // The vendor read failed, so the vendor-scope read is never attempted.
-        Assert.Equal(0, fake.VendorScopeListCalls);
+        // The vendor read failed, so the scope read is never attempted.
+        Assert.Equal(0, fake.ScopeListCalls);
     }
 
     [Fact]
@@ -132,10 +132,10 @@ public sealed class VendorCommandTests : IDisposable
     [Fact]
     public void OperationalFailureOnScopesReadExitsThree()
     {
-        // Vendors read succeeds but the vendor-scopes read fails operationally -> exit 3.
+        // Vendors read succeeds but the scopes read fails operationally -> exit 3.
         Install(new FakeApiClient
         {
-            VendorScopeListResult = ApiResult<IReadOnlyList<ApiVendorScope>>.Failure("Could not reach the API."),
+            ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Failure("Could not reach the API."),
         });
 
         var (exit, _, err) = Capture(() => new VendorCommands().List());

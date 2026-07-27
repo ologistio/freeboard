@@ -6,31 +6,60 @@ TBD - created by archiving change redefine-scope-org-standard. Update Purpose af
 ### Requirement: App-managed writes for organisations and scope dispositions
 
 When the instance is not in GitOps read-only mode, the web app SHALL allow creating,
-updating, and deleting organisation assets, scope dispositions, and requirement-scope
-dispositions through the `/api/v1/freeboard/` API, persisted through a write
-abstraction over the same store the read path uses. An organisation is an `Asset` of
-`type: Company` or `type: Department` with a scalar `parent` edge; these writes
+updating, and deleting organisation assets, standard-level scope dispositions, and
+requirement-level scope dispositions through the `/api/v1/freeboard/` API, persisted
+through a write abstraction over the same store the read path uses. An organisation is an
+`Asset` of `type: Company` or `type: Department` with a scalar `parent` edge; these writes
 persist it with `source: declared` and validate against the merged `assets` table
-(filtered to the `Company`/`Department` subset), not a separate `organisations` table.
+(filtered to the `Company`/`Department` subset). Scope dispositions persist into the
+unified `scopes` table: a standard-level write persists a scope row with the organisation
+as `subject` and the standard as the target, and a requirement-level write persists a
+scope row with the organisation as `subject` and the requirement as the target. Vendor
+subjects remain gitops-write-only; there is no app-managed write for a vendor scope.
+
+Because both write routes now operate on one `scopes` table by row `id`, each route SHALL
+be confined to its own target kind so an unqualified `id` cannot cross the target boundary,
+WITHOUT breaking the create path. On a PUT the route SHALL branch on the row's current
+existence by its global `id`: when no `scopes` row has that `id`, it SHALL create a new row of
+the route's own target kind (a `standard_id` row for the standard-level route, a
+`requirement_id` row for the requirement-level route); when a row with that `id` already has
+the route's own target column set, it SHALL update that row; and when a row with that `id` has
+a DIFFERENT target column set (or is a control-target row), the route SHALL treat it as
+not-found and SHALL NOT convert it from one target kind to another. A DELETE SHALL affect only
+rows whose own target column is set (the standard-level route only `standard_id` rows, the
+requirement-level route only `requirement_id` rows) and SHALL be not-found when the addressed
+`id` is absent or is a wrong-kind row. Control-target rows are gitops-write-only and have no
+app write path, so neither route may create, modify, or delete them. This keeps a caller
+holding only one scope-write permission from reaching another target kind's row by its global
+`id`, while an ordinary new-id PUT still creates.
+
+The route's ENDPOINT SHALL apply the same target-column confinement to its stored-owner
+authorization lookup, not just the store's write statement. A PUT's in-handler stored-owner
+read and a DELETE's stored-owner authorization selector SHALL consider only a scope row whose
+own target column matches the route (the standard-level route only a `standard_id` row, the
+requirement-level route only a `requirement_id` row); a same-`id` row of a different target
+kind SHALL be treated as absent (no stored owner) so the caller is NOT authorized - nor 403'd -
+against that other-kind row's owning organisation. The write then reaches the not-found (404)
+outcome, never a 403 against, or a silent authorization from, an unrelated target kind's row.
 
 These app-managed writes are STRICTER than the gitops sync path, on purpose. The
-gitops sync path tolerates a dangling or cyclic `parent` (and a dangling `owner`) as a
-NON-BLOCKING warning, so one uncoordinated config writer cannot wedge a `sync`. The
-app CRUD endpoints are the opposite contract: a human editing one node through the UI,
-where a self-parent, a cycle, a dangling parent, or deleting a node that still has
-children or scopes is an immediate authoring error to reject at the write, not a
-tolerated warning to reconcile later. So these writes SHALL enforce AT WRITE TIME:
-`type` in `Company`/`Department`; a `parent` that resolves to an existing
-`Company`/`Department` asset; no self-parent; no cycle; scope and requirement-scope
-references that resolve; `disposition` in `In`/`Out`; at most one scope per
-`(organisation, standard)` pair; requirement-scope references (organisation and
-requirement) that resolve; and at most one requirement-scope per
-`(organisation, requirement)` pair. A requirement-scope write carries only
-`organisation`, `requirement`, and `disposition`; it has no `standard` field, because
-its standard is derived from the requirement. (Rejecting an unknown `standard` field
-is a config-loader concern, not a write-API guarantee: the write DTO simply omits it.)
-An invalid write SHALL be rejected with an RFC 7807 problem body and SHALL NOT modify
-the store.
+gitops sync path tolerates a dangling or cyclic `parent` (and a dangling `owner` or a
+dangling scope `subject`) as a NON-BLOCKING warning, so one uncoordinated config writer
+cannot wedge a `sync`. The app CRUD endpoints are the opposite contract: a human editing
+one node through the UI, where a self-parent, a cycle, a dangling parent, or deleting a
+node that still has children or scopes is an immediate authoring error to reject at the
+write, not a tolerated warning to reconcile later. So these writes SHALL enforce AT WRITE
+TIME: `type` in `Company`/`Department`; a `parent` that resolves to an existing
+`Company`/`Department` asset; no self-parent; no cycle; a scope `subject` that resolves to
+an existing `Company`/`Department` asset; a scope target (standard or requirement) that
+resolves; `disposition` in `In`/`Out`; a non-blank `justification` when the disposition is
+`Out` (the generalized rule that every exclusion carries its rationale); at most one scope
+per `(subject, standard)` pair for a standard-level write; and at most one scope per
+`(subject, requirement)` pair for a requirement-level write. A requirement-level scope
+write carries only `subject`, `requirement`, `disposition`, and (for `Out`)
+`justification`; it has no `standard` field, because its standard is derived from the
+requirement. An invalid write SHALL be rejected with an RFC 7807 problem body and SHALL NOT
+modify the store.
 
 A write that REPAIRS an invalid node SHALL be allowed by the store guards, so the
 strict app path never deadlocks on a state the tolerant gitops path produced. Setting
@@ -49,11 +78,13 @@ needs `system.admin`, and re-homing it away from a stale (dangling) parent needs
 holding the required authorization - no store guard blocks breaking a gitops-created
 dangling or cyclic parent - not for any node-writer unconditionally.
 
-Deleting an organisation asset that still has a child organisation asset, a scope, or
-a requirement-scope bound to it SHALL be rejected with a problem body and SHALL NOT
-modify the store, so the underlying `ON DELETE RESTRICT` foreign key is never surfaced
-as a raw database error. To delete such a node the author must first re-parent or
-remove its children and detach its scopes.
+Deleting an organisation asset that still has a child organisation asset or a scope bound
+to it (a scope whose `subject` is that organisation) SHALL be rejected with a problem body
+and SHALL NOT modify the store, so the underlying `ON DELETE RESTRICT` foreign key on the
+scope target is never surfaced as a raw database error; the scope `subject` has no foreign
+key, so this guard is enforced by the app counting referencing scopes, not by the
+database. To delete such a node the author must first re-parent or remove its children and
+detach its scopes.
 
 #### Scenario: Create an organisation asset
 
@@ -62,45 +93,82 @@ remove its children and detach its scopes.
 - **THEN** it is persisted as an `Asset` of that `type` with `source: declared` and is
   readable through the read endpoints
 
-#### Scenario: Set a scope disposition
+#### Scenario: Set a standard-level scope disposition
 
-- **WHEN** a client writes a scope disposition for an `(organisation, standard)` pair
-  that has none, whose `organisation` resolves to a `Company`/`Department` asset
-- **THEN** the disposition is persisted and appears in the Statement of Applicability
-  projection
+- **WHEN** a client writes a scope disposition for a `(subject, standard)` pair that has
+  none, whose `subject` resolves to a `Company`/`Department` asset
+- **THEN** the disposition is persisted as a unified scope row and appears in the
+  Statement of Applicability projection
 
-#### Scenario: Set a requirement-scope disposition
+#### Scenario: Set a requirement-level scope disposition
 
-- **WHEN** a client writes a requirement-scope disposition for an
-  `(organisation, requirement)` pair that has none, whose `organisation` resolves to a
-  `Company`/`Department` asset
-- **THEN** the disposition is persisted, readable through the requirement-scopes read
-  endpoint, and applied in the Statement of Applicability projection when the
-  organisation's standard resolves `In`
+- **WHEN** a client writes a scope disposition for a `(subject, requirement)` pair that
+  has none, whose `subject` resolves to a `Company`/`Department` asset
+- **THEN** the disposition is persisted as a unified scope row, readable through the
+  `/scopes` read endpoint, and applied in the Statement of Applicability projection when
+  the organisation's standard resolves `In`
+
+#### Scenario: Out disposition without a justification is rejected on write
+
+- **WHEN** a client writes a scope disposition of `Out` with no `justification` (or a
+  whitespace-only one)
+- **THEN** the write is rejected with a problem body and the store is unchanged, matching
+  the gitops sync path, which also rejects an `Out` scope with no justification
 
 #### Scenario: Duplicate mapping rejected on write
 
-- **WHEN** a client writes a second scope for an `(organisation, standard)` pair that
-  already has one
+- **WHEN** a client writes a second scope for a `(subject, standard)` or `(subject,
+  requirement)` pair that already has one
 - **THEN** the write is rejected with a problem body and the store is unchanged
 
-#### Scenario: Duplicate requirement-scope mapping rejected on write
+#### Scenario: A write route cannot reach another target kind's row by id
 
-- **WHEN** a client writes a second requirement-scope for an
-  `(organisation, requirement)` pair that already has one
-- **THEN** the write is rejected with a problem body and the store is unchanged
+- **WHEN** a client addresses the id of a requirement-target scope row through
+  `PUT`/`DELETE /scopes/{id}`, or the id of a standard-target row through
+  `PUT`/`DELETE /requirement-scopes/{id}`, or a control-target row through either route
+- **THEN** the row is treated as not-found (HTTP 404) and is neither deleted nor converted to
+  the other target kind, because each route filters on its own target column
+  (`standard_id`/`requirement_id`) and control-target rows have no app write path
 
-#### Scenario: Unresolved requirement-scope reference rejected on write
+#### Scenario: The write store's target-column filter is enforced in SQL
 
-- **WHEN** a client writes a requirement-scope whose `organisation` does not resolve to
-  a `Company`/`Department` asset or whose `requirement` does not resolve, or whose
-  `disposition` is not `In` or `Out`
-- **THEN** the write is rejected with a problem body and the store is unchanged. This
-  matches the gitops sync path, which also rejects an unresolved requirement-scope
-  `organisation` or `requirement` as a hard validation error. Only a dangling
-  `Asset.parent`/`owner`, a `parent` cycle, and a missing required asset edge became
-  non-blocking warnings; requirement-scope reference resolution stays a hard error on
-  both paths.
+- **WHEN** the standard-route write store is asked, against the real store, to delete by the id
+  of a requirement-target or control-target scope row, or to PUT (upsert) by that id (and
+  symmetrically the requirement-route store by a standard-target or control-target id)
+- **THEN** the DELETE's target-column-scoped statement (`... WHERE id=@Id AND standard_id IS
+  NOT NULL` for the standard route, `requirement_id IS NOT NULL` for the requirement route)
+  affects no row, and the PUT's global-id lookup finds the row is a wrong target kind and
+  refuses to retarget it; both return the not-found result the endpoint maps to HTTP 404,
+  mutating nothing
+
+#### Scenario: A wrong-kind row owned by an unwritable org is not-found, not forbidden
+
+- **WHEN** a caller holding only `compliance.scope.write` addresses, through
+  `PUT`/`DELETE /scopes/{id}`, the id of a requirement-target scope row whose owning
+  organisation the caller CANNOT write
+- **THEN** the endpoint returns HTTP 404, NOT 403, because the standard route's stored-owner
+  authorization lookup is filtered to `standard_id` rows and so finds no owner to authorize
+  against; the requirement-target row's existence and its owning organisation are not disclosed,
+  and the row is neither authorized against nor modified
+
+#### Scenario: New-id PUT creates a scope of the route's target kind
+
+- **WHEN** a client PUTs a scope disposition on `/scopes/{id}` (or `/requirement-scopes/{id}`)
+  whose `id` names no existing `scopes` row
+- **THEN** the write creates a new row of that route's own target kind (a `standard_id` row for
+  `/scopes`, a `requirement_id` row for `/requirement-scopes`), rather than treating the absent
+  id as not-found, so the target-column confinement does not regress ordinary scope creation
+  into a 404
+
+#### Scenario: Unresolved scope reference rejected on write
+
+- **WHEN** a client writes a scope whose `subject` does not resolve to a
+  `Company`/`Department` asset or whose target (standard or requirement) does not resolve,
+  or whose `disposition` is not `In` or `Out`
+- **THEN** the write is rejected with a problem body and the store is unchanged. The app
+  write path is strict: unlike gitops sync, which tolerates a dangling scope `subject` as a
+  non-blocking warning, the app write requires the subject to resolve to a
+  `Company`/`Department` asset at write time
 
 #### Scenario: Invalid parent rejected on write
 
@@ -131,12 +199,12 @@ remove its children and detach its scopes.
   authorizes the parent side (`system.admin` for root, `org.write` on the stored and
   new parent) independently of the `org.write` on the node itself
 
-#### Scenario: Delete organisation blocked while a child, scope, or requirement-scope references it
+#### Scenario: Delete organisation blocked while a child or scope references it
 
-- **WHEN** a client deletes an organisation asset that still has a child asset, a
-  scope, or a requirement-scope bound to it
+- **WHEN** a client deletes an organisation asset that still has a child asset or a scope
+  whose `subject` is that organisation
 - **THEN** the write is rejected with a problem body and the store is unchanged, rather
-  than surfacing the RESTRICT foreign-key error
+  than leaving an orphaned scope subject
 
 ### Requirement: Writes are blocked in GitOps read-only mode
 

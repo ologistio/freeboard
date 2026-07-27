@@ -86,60 +86,6 @@ public sealed class ConfigValidatorTests
     }
 
     [Fact]
-    public void DanglingScopeOrganisationReferenceFails()
-    {
-        using var dir = TempConfig.Create(
-            ("std.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Standard
-                id: std-a
-                title: A
-                """),
-            ("scope.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                organisation: org-missing
-                standard: std-a
-                disposition: In
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Organisation id 'org-missing'"));
-    }
-
-    [Fact]
-    public void DanglingScopeStandardReferenceFails()
-    {
-        using var dir = TempConfig.Create(
-            ("org.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Asset
-                id: org-a
-                title: Org A
-                type: Company
-                source: declared
-                """),
-            ("scope.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                organisation: org-a
-                standard: std-missing
-                disposition: In
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Standard id 'std-missing'"));
-    }
-
-    [Fact]
     public void UnknownAssetTypeFails()
     {
         using var dir = TempConfig.Create(
@@ -156,40 +102,6 @@ public sealed class ConfigValidatorTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("unknown type 'Guild'"));
-    }
-
-    [Fact]
-    public void UnknownDispositionFails()
-    {
-        using var dir = TempConfig.Create(
-            ("std.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Standard
-                id: std-a
-                title: A
-                """),
-            ("org.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Asset
-                id: org-a
-                title: Org A
-                type: Company
-                source: declared
-                """),
-            ("scope.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                organisation: org-a
-                standard: std-a
-                disposition: Maybe
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("unknown disposition 'Maybe'"));
     }
 
     [Fact]
@@ -221,47 +133,6 @@ public sealed class ConfigValidatorTests
     }
 
     [Fact]
-    public void DuplicateScopeMappingFails()
-    {
-        using var dir = TempConfig.Create(
-            ("base.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Standard
-                id: std-a
-                title: A
-                ---
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Asset
-                id: org-a
-                title: Org A
-                type: Company
-                source: declared
-                """),
-            ("scopes.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                organisation: org-a
-                standard: std-a
-                disposition: In
-                ---
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Scope
-                id: scope-b
-                title: Scope B
-                organisation: org-a
-                standard: std-a
-                disposition: Out
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("std-a") && d.Message.Contains("more than once"));
-    }
-
-    [Fact]
     public void DuplicateMapsToIdFails()
     {
         using var dir = TempConfig.Create(
@@ -288,25 +159,6 @@ public sealed class ConfigValidatorTests
             result.Diagnostics,
             d => d.Message.Contains("ctrl-a") && d.Message.Contains("maps_to")
                 && d.Message.Contains("duplicate") && d.Message.Contains("iso-27001"));
-    }
-
-    [Fact]
-    public void OmittedScopeReferencesFail()
-    {
-        using var dir = TempConfig.Create(
-            ("scope.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Scope
-                id: scope-a
-                title: Scope A
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("organisation"));
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("standard"));
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("scope-a") && d.Message.Contains("disposition"));
     }
 
     [Fact]

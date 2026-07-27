@@ -12,11 +12,10 @@ claim.
 | Path                                   | Kind                       | Purpose                                                     |
 | -------------------------------------- | -------------------------- | ----------------------------------------------------------- |
 | `standards/cyber-essentials-plus.yaml` | `Standard` + `Requirement` | Symlink to the shared CE+ catalog                           |
-| `organisations.yaml`                   | `Organisation`             | The company tree: one Company, four departments, one nested |
-| `scopes.yaml`                          | `Scope`                    | Company-wide In scope for CE+                               |
-| `requirement-scopes.yaml`              | `RequirementScope`         | A department exclusion overridden by a child department     |
+| `organisations.yaml`                   | `Asset`                    | The company tree: one Company, four departments, one nested |
+| `scopes.yaml`                          | `Scope`                    | Company-wide In scope for CE+ plus a nested exception       |
 | `controls.yaml`                        | `Control`                  | The controls Fixture Corp operates, each `maps_to` CE+ reqs |
-| `vendors/*.yaml`                       | `Vendor` + `VendorScope`   | One file per vendor: the vendor and its scopes together     |
+| `vendors/*.yaml`                       | `Asset` (Vendor) + `Scope` | One file per vendor: the vendor asset plus its scopes       |
 
 The config is loaded as a whole (every `.yaml` under this directory, recursively),
 so the split into files and folders is organisational only - references resolve
@@ -35,18 +34,19 @@ same file.
 
 Fixture Corp is one `Company` with four `Department` children (Engineering, Sales
 and Marketing, Finance and Operations, IT and Security). Engineering has a nested
-`Platform Team`. A single company-wide `Scope` puts the whole tree In for CE+ by
-inheritance.
+`Platform Team`. A single company-wide standard-target `Scope` puts the whole tree
+In for CE+ by inheritance.
 
-`requirement-scopes.yaml` shows a two-level exception: Engineering excludes the
-14-day patch requirement for a legacy build server, and the Platform team
-(nested under Engineering) re-includes it - demonstrating nearest-ancestor
+`scopes.yaml` also shows a two-level requirement-target exception: Engineering
+excludes the 14-day patch requirement for a legacy build server, and the Platform
+team (nested under Engineering) re-includes it - demonstrating nearest-ancestor
 inheritance with child override.
 
 ## Vendors and exceptions
 
-Each file under `vendors/` holds one `Vendor` and the `VendorScope`s that bind it
-to the controls or requirements it stands behind:
+Each file under `vendors/` holds one vendor `Asset` (`type: Vendor`) and the
+vendor-subject `Scope`s that bind it to the controls or requirements it stands
+behind:
 
 - **CrowdStrike Falcon**, **Fleet**, **Google Workspace** - the real named
   integrations, all `In` (they participate normally in a control or requirement).
@@ -64,8 +64,9 @@ vendor register always surfaces (never silent):
 - **Quill Accountancy** (external firm) is `Out` of the MFA control - it has no
   logins to Fixture Corp's systems (N/A); documents move over an encrypted portal.
 
-A `VendorScope` targets exactly one of a `Requirement` id or a `Control` id, and
-is flat: it carries no `organisation` and does not inherit down the org tree.
+A vendor-subject `Scope` names the vendor asset as its `subject` and targets exactly
+one of a `Requirement` id or a `Control` id (a vendor cannot target a standard). It
+is flat: it does not inherit down the org tree.
 
 ## Commands
 
