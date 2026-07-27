@@ -114,6 +114,19 @@ key on `title`.
 - **THEN** its `created_at` is unchanged and its `updated_at` is advanced to the
   time of the new write
 
+#### Scenario: A GitOps sync replaces a scope rather than upserting it
+
+- **WHEN** an existing `Scope` is written again (same `id`) by a GitOps sync
+- **THEN** the whole-set replace gives it a new `created_at`, so the preserved-`created_at`
+  rule above does NOT hold for a sync-authored scope; the replace is required for target
+  foreign-key safety and neither timestamp is read
+
+#### Scenario: An app-managed scope write preserves created_at
+
+- **WHEN** an existing `Scope` is updated through an app-managed disposition route
+- **THEN** its `created_at` is unchanged and only `updated_at` advances, as for every
+  other kind
+
 ### Requirement: General read store and GitOps importer abstractions
 
 The system SHALL expose separate abstractions for reading the store and for
@@ -663,7 +676,12 @@ the previous `scopes`, `requirement_scopes`, and `vendor_scopes` tables in migra
 Each scope row SHALL hold `id`, `api_version`, `title`, a `subject_id`, a nullable
 `standard_id`, a nullable `requirement_id`, a nullable `control_id`, a `disposition`, a
 nullable `justification`, a `created_at` set on first insert, and an `updated_at` set on
-every write. The `id`, `subject_id`, `standard_id`, `requirement_id`, and `control_id`
+every write. The app-managed disposition routes preserve `created_at` and advance only
+`updated_at`, as for every other kind. The GitOps importer does not: it replaces the whole
+scope set on each sync (see below), so for a sync-authored scope `created_at` is reset to
+the time of the last sync and is NOT a record of when the scope was first declared - that
+authoring history lives in the config repository. No read surface exposes either column.
+The `id`, `subject_id`, `standard_id`, `requirement_id`, and `control_id`
 columns SHALL use binary collation (`utf8mb4_bin`) so identity is exact-byte, consistent
 with `Freeboard.Core`.
 
