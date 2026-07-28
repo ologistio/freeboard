@@ -365,7 +365,7 @@ ingest SHALL write `source: discovered` assets; a declared config authoring
 `source: discovered` SHALL be rejected as a validation error (see the
 gitops-config-format capability). The declared-asset removal SHALL be
 foreign-key-safe for every FK-backed reference: the rows that reference a removed
-asset through a real `ON DELETE RESTRICT` foreign key (evidence-collectors,
+asset through a real `ON DELETE RESTRICT` foreign key (collectors,
 integration-connections, and org-scoped role assignments) SHALL be pruned first. A
 `Scope`'s subject is NOT such a reference: the unified `scopes` table stores the
 subject as a scalar `subject_id` column with NO foreign key, so a scope whose subject
@@ -375,7 +375,9 @@ foreign keys - its `standard_id`/`requirement_id`/`control_id` target columns - 
 `ON DELETE RESTRICT` but reference `standards`/`requirements`/`controls`, not assets, so
 they do not participate in declared-asset removal. The former per-target
 `requirement_scopes` and `vendor_scopes` tables no longer exist (merged into `scopes` by
-migration `020`), so they are not in the pruned set.
+migration `020`), and the former `evidence_collectors` and `attestation_templates` tables
+no longer exist (merged into `collectors` by the collector-merge migration), so none of
+them is in the pruned set.
 
 Because declared slug ids and discovered ULID ids share one id space, a `sync`
 SHALL detect a declared asset whose id equals an existing `discovered` asset's id

@@ -1,16 +1,5 @@
-# integration-connection Specification
+## MODIFIED Requirements
 
-## Purpose
-
-Model a provider integration as a first-class GitOps kind - an `Integration` that a
-`Collector` of `type: integration` references - so discovery and integration collection
-share one persisted, referentially-consistent connection record. The connection's API token is
-resolved out-of-band from configuration (never git-tracked, persisted, or logged) and surfaced
-only as a `tokenResolvable` health flag; an unresolvable token warns once at startup and fails
-its scheduled collection as a scheduler error rather than a masked evidence result. Web, HTTP
-API, and CLI read surfaces expose the connection subset and its token health without ever
-returning the token value.
-## Requirements
 ### Requirement: IntegrationConnection persistence and read model
 
 The system SHALL persist integration-connections in MySQL via a forward-only
@@ -151,62 +140,3 @@ SHALL honour.
 - **THEN** its scheduled dispatch fails and is recorded as the scheduler's `error`
   status, not as a `Pass` or `Fail` evidence run, and the token value appears in no log
   or stored field
-
-### Requirement: Integration-connection web read view
-
-The web app SHALL serve a read-only integration-connections page that lists each
-connection with its `provider`, `base_url`, `discovery_cadence`, and its
-`tokenResolvable` health flag composed at read time. The page SHALL read through the
-compliance store in-process, SHALL be GET-only and served in GitOps read-only mode,
-and SHALL require an authenticated user: an anonymous browser GET SHALL redirect to
-`/login`. When the store is unreachable the page SHALL render an in-page notice
-rather than an error page. When no connections exist the page SHALL render an empty
-state.
-
-The system SHALL also expose an authenticated read-only HTTP endpoint that returns
-the connection list as JSON (each item carrying `id`, `provider`, `base_url`,
-`discovery_cadence`, `vendor`, and the composed `token_resolvable` flag, and never
-the token value), so the CLI can read connections without direct database access.
-
-#### Scenario: Connections page lists connections with health
-
-- **WHEN** an authenticated user opens the integration-connections page and
-  connections exist
-- **THEN** the page lists each connection's provider, base URL, discovery cadence, and
-  token-resolvable health, and never the token value
-
-#### Scenario: Anonymous request redirects to login
-
-- **WHEN** an anonymous browser requests the integration-connections page
-- **THEN** the response redirects to `/login`
-
-#### Scenario: Store outage renders a notice
-
-- **WHEN** the compliance store is unreachable while rendering the page
-- **THEN** the page shows an in-page notice rather than an error page
-
-### Requirement: Integration-connection CLI list command
-
-The CLI SHALL provide a `connections list` command that reads the
-integration-connection list through the HTTP API, not by direct database access,
-using the configured API base URL and admin token. It SHALL display each
-connection's provider, base URL, discovery cadence, and token-resolvable health,
-and SHALL NOT display the token value. The command SHALL follow the CLI exit-code
-convention: `0` on success, `1` on a validation response, and `3` on an operational
-failure (unauthorized, forbidden, server error, or connection failure). The command
-SHALL live in the community, cross-platform `Freeboard.CLI` and SHALL NOT reference
-`Freeboard.Enterprise` or reach the database directly.
-
-#### Scenario: connections list prints connections with health
-
-- **WHEN** the user runs `connections list` against a reachable, authenticated API
-  with connections present
-- **THEN** the command prints each connection's provider, base URL, discovery cadence,
-  and token-resolvable health, and exits `0`
-
-#### Scenario: connections list reports an operational failure
-
-- **WHEN** the user runs `connections list` and the API is unreachable or rejects the
-  admin token
-- **THEN** the command prints an error and exits `3`
-

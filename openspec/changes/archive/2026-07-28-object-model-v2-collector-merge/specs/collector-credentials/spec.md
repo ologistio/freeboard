@@ -1,8 +1,5 @@
-# collector-credentials Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change rework-evidence-ingest-shared-model. Update Purpose after archive.
-## Requirements
 ### Requirement: Per-collector machine credential
 
 The system SHALL support a per-collector machine credential: a bearer token
@@ -24,33 +21,6 @@ and reuse the existing token hasher.
 
 - **WHEN** a collector is deleted from the unified `collectors` table
 - **THEN** its `collector_credentials` rows are removed
-
-### Requirement: Collector bearer authentication scheme and ingest policy
-
-The system SHALL add a collector bearer authentication scheme, separate from the
-human session scheme, that authenticates only against `collector_credentials`. An
-absent, malformed, unknown, or key-version-mismatched token SHALL fail
-authentication (`401`). A recognised credential SHALL authenticate and carry the
-collector-id claim, and SHALL carry an active claim only when it is neither
-revoked nor expired. The named ingest authorization policy SHALL bind this scheme
-and require both the collector-id claim and the active claim, so a revoked or
-expired credential authenticates but is forbidden (`403`). Presenting a collector
-token at any non-ingest endpoint SHALL fail with `401`.
-
-#### Scenario: A revoked credential is forbidden, not unauthenticated
-
-- **WHEN** a request presents a recognised but revoked collector token at ingest
-- **THEN** the response is `403 Forbidden`
-
-#### Scenario: An unknown token fails authentication
-
-- **WHEN** a request presents a token with no matching credential
-- **THEN** the response is `401 Unauthorized`
-
-#### Scenario: A collector token is rejected outside ingest
-
-- **WHEN** a collector token is presented at a human-session endpoint
-- **THEN** the response is `401 Unauthorized`
 
 ### Requirement: Credential issuance and revocation are system-admin config actions
 
@@ -96,4 +66,3 @@ exit codes are unchanged and only the API path they call moves.
 - **WHEN** a client calls `POST /api/v1/freeboard/evidence-collectors/{id}/credentials` or
   `DELETE /api/v1/freeboard/evidence-collectors/{id}/credentials/{credId}`
 - **THEN** neither route is mapped and neither issues or revokes a credential
-

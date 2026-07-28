@@ -1,8 +1,5 @@
-# gitops-config-format Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-gitops-config-management. Update Purpose after archive.
-## Requirements
 ### Requirement: Declarative compliance config schema
 
 The system SHALL define a YAML config format that describes compliance state as a
@@ -89,106 +86,6 @@ evaluated as stale. Property binding is snake_case for domain fields; `apiVersio
   field, so the cutover cannot silently accept two authoring shapes alongside the `config`
   form
 
-### Requirement: Stable id is identity, title is display only
-
-The system SHALL treat each resource's `id` as its permanent identity. The
-`title` is human-facing and MAY change without changing identity. All
-cross-references and duplicate detection SHALL key off `id` and SHALL NOT match
-on `title`.
-
-#### Scenario: Title change does not change identity
-
-- **WHEN** a resource's `title` is edited but its `id` is unchanged
-- **THEN** the resource is treated as the same resource, and any references to
-  its `id` still resolve
-
-#### Scenario: References resolve by id
-
-- **WHEN** a `Control.maps_to`, an `Asset.parent`, an `Asset.owner`, a `Scope.subject`,
-  or a `Scope.standard`, `Scope.requirement`, or `Scope.control` entry names an id
-- **THEN** resolution matches on that `id` only, never on any resource `title`
-
-### Requirement: Config validation
-
-The system SHALL validate a loaded config and report all errors as a structured
-list, not just the first error. Validation SHALL fail (an `Error` diagnostic) when
-any of the following hold: a required field is missing or empty; an unknown field
-is present on a document; an `id` is duplicated within its kind; a `Control.maps_to`
-is empty; a `Control.maps_to` entry references a `Requirement` id that does not
-exist; a `Control.maps_to` lists the same `Requirement` id more than once; a
-`Requirement.standard` references a `Standard` id that does not exist; a
-`Requirement` is missing its `standard`, `theme`, `statement`, `citation_label`, or
-`citation_url`; a `Requirement.citation_url` is not a well-formed absolute
-`http`/`https` URL; an `Asset.type` is not `Company`, `Department`, `Machine`, or
-`Vendor`; an `Asset.source` is not `declared` or `discovered`; a declared config
-authors `source: discovered`; a declared config authors any discovered-only field
-(`identity_kind`, `identity_value`, `state`, `first_seen`, `last_seen`); an `Asset`
-carries both `parent` and `owner`; an
-`Asset.parent` or `Asset.owner` names an asset that is not a `Company` or
-`Department`; a `parent` is carried by an asset that is not a Company, Department,
-or Machine; an `owner` is carried by an asset that is not a Vendor; a `Scope` is missing
-its `subject` or `disposition`; a `Scope` names none of `standard`/`requirement`/`control`
-or more than one of them; a `Scope.standard`, `Scope.requirement`, or `Scope.control`
-references an id that no document defines; a `Scope.disposition` is not `In` or `Out`; a
-`Scope` whose disposition is `Out` has a missing or whitespace-only `justification`; a
-`Scope` whose `subject` resolves to a `Vendor` asset targets a `standard`; a `Standard` is
-missing or blank on `version` or `authority`; a `Standard.source_url` is present and
-non-empty but not a well-formed absolute `http`/`https` URL; two Scopes share the same
-`(subject, standard)`, `(subject, requirement)`, or `(subject, control)` pair; the
-`apiVersion` is not exactly `freeboard.dev/v1alpha1`. Optional fields that are omitted or
-whitespace-only are treated as absent. A dangling `Asset.parent` or `Asset.owner`, a
-`parent` cycle among assets, a missing required edge (a declared `Vendor` with no `owner`
-or a `Machine` with no `parent`), and a dangling `Scope.subject` SHALL be reported as
-NON-BLOCKING `Warning` diagnostics that do not fail validation, not as errors. Unknown or
-missing `kind` is reported by the loader, not re-checked here.
-
-#### Scenario: Missing required field
-
-- **WHEN** a `Control` document omits its `maps_to` field
-- **THEN** validation fails and the error list includes an entry naming the
-  document and the missing field
-
-#### Scenario: Unknown apiVersion rejected
-
-- **WHEN** a document declares an `apiVersion` other than `freeboard.dev/v1alpha1`
-- **THEN** validation fails and the error list names the document and the unknown
-  `apiVersion`
-
-#### Scenario: Unknown field rejected
-
-- **WHEN** a document contains a field not defined for its kind
-- **THEN** validation fails and the error list names the document and the unknown
-  field
-
-#### Scenario: Dangling scope target reference
-
-- **WHEN** a `Scope` names a `standard`, `requirement`, or `control` id that no document
-  defines
-- **THEN** validation fails and the error list names the scope and the unknown target
-
-#### Scenario: Dangling scope subject is a warning, not an error
-
-- **WHEN** a `Scope.subject` names an id that no asset defines
-- **THEN** the error list contains no error for it; a non-blocking warning names the
-  dangling subject and validation still passes
-
-#### Scenario: Dangling asset parent is a warning, not an error
-
-- **WHEN** an `Asset.parent` names an id that no asset defines
-- **THEN** the error list contains no error for it; a non-blocking warning names the
-  dangling reference and validation still passes
-
-#### Scenario: Duplicate scope mapping
-
-- **WHEN** two `Scope` documents name the same `(subject, standard)`, `(subject,
-  requirement)`, or `(subject, control)` pair
-- **THEN** validation fails and the error list names the duplicated pair
-
-#### Scenario: All errors reported
-
-- **WHEN** a config has more than one validation error
-- **THEN** the error list contains an entry for every error, not only the first
-
 ### Requirement: Loader and validator never throw or print
 
 The loader and validator in `Freeboard.Core` SHALL return diagnostics as data and
@@ -267,6 +164,108 @@ null dereference later.
 - **THEN** the loader loads the collector with an empty config, or with that list empty,
   returns no diagnostic for it, and does not throw
 
+### Requirement: Asset authoring, type, source, and edges
+
+The system SHALL support an `Asset` kind that unifies the previous `Organisation`
+and `Vendor` kinds and the discovered machine model into one resource. An `Asset`
+has an immutable `id`, a mutable `title`, a required `type` (exactly one of
+`Company`, `Department`, `Machine`, or `Vendor`), a required `source` (exactly one
+of `declared` or `discovered`), and at most one of two mutually exclusive scalar
+edges: `parent` (a `Company` or `Department` asset id) or `owner` (a `Company` or
+`Department` asset id). A `Company`, `Department`, or `Machine` asset MAY carry a
+`parent`; a `Vendor` asset MAY carry an `owner`. A declared asset MAY carry the
+authored fields only; the discovered-only fields (`identity_kind`,
+`identity_value`, `state`, `first_seen`, `last_seen`) are written by ingest, never
+authored in config.
+
+A declared config MAY author `source: declared` only. `source: discovered` is
+reserved for ingest and SHALL be rejected when authored in config. A declared
+asset uses an authored slug id; a discovered asset uses a ULID id; both share one
+id space. `parent` and `owner` are scalar references validated at write with no
+foreign key: a reference that does not resolve is tolerated (see Asset validation).
+The `Scope.subject` and `Collector.vendor` references SHALL name the matching
+asset: `Scope.subject` names any asset (a Company/Department, a Machine, or a Vendor; a Vendor
+subject may not target a standard), and `Collector.vendor` names a `Vendor` asset. The
+`Scope.subject` reference is scalar with no foreign key and is dangling-tolerated, while
+the `Scope` target references (`standard`/`requirement`/`control`) keep referential
+integrity.
+
+#### Scenario: Company asset with a department child loads
+
+- **WHEN** a `kind: Asset` document of `type: Company` with `source: declared` and a
+  `kind: Asset` of `type: Department` with `source: declared` and a `parent` naming
+  the Company both appear
+- **THEN** both load into the typed model, the Company is a root asset, and the
+  Department is its child
+
+#### Scenario: Vendor asset with an owner loads
+
+- **WHEN** a `kind: Asset` of `type: Vendor` with `source: declared` and an `owner`
+  naming a `Company` asset appears
+- **THEN** it loads as a declared vendor asset owned by that Company
+
+#### Scenario: Declared source is the only authorable source
+
+- **WHEN** a `kind: Asset` document authors `source: declared`
+- **THEN** it loads, whereas a document authoring `source: discovered` is rejected
+  (see Asset validation)
+
+#### Scenario: Unknown field on an Asset is rejected
+
+- **WHEN** a `kind: Asset` document carries a field not defined for the kind
+- **THEN** the loader reports the document and the unknown field
+
+### Requirement: Integration authorship
+
+The system SHALL support an `Integration` kind that defines an
+integration's connection: one base URL and one discovery cadence, backing an
+integration's discovery and its per-control collectors. `Integration` is the seventh
+declared kind of the object model, alongside `Standard`, `Requirement`, `Control`,
+`Asset`, `Scope`, and `Collector`. An `Integration`
+has an `id` (its permanent identity), a `title` (display only), a required
+`provider`, a required `base_url`, a required `discovery_cadence`, and an optional
+`vendor` (a `Vendor` id linking the connection to a vendor record).
+
+`provider` SHALL be drawn from a single, closed, case-sensitive provider token set
+whose only value in this increment is `fleet`. That one closed set governs exactly three
+things: it validates `Integration.provider`, it validates the `provider` a `Collector` of
+`type: integration` authors, and it selects the runner for an
+integration `Collector` that names this connection. There is no separate
+provider token set for collectors. `provider` is distinct from `vendor` and is NOT
+unique - one provider MAY back many connections; identity is the `id`.
+
+The closed set does NOT govern a machine's `asset_source.source` broadly.
+`asset_source.source` accepts any nonblank token (validated only as nonblank, up to 64
+characters) and is NOT checked against `IntegrationProvider.Tokens`; a machine reported
+by some other source carries whatever source token that source emits. The tie to
+`provider` is narrower and forward-looking: when the future integration runner writes a
+machine observation discovered through this connection, it SHALL write the exact
+`Integration.provider` token as that observation's `asset_source.source`. That equality
+is a contract for the integration runner, not a runtime validation of every
+`asset_source.source`. Because a machine's source attachment is keyed by
+`(organisation_id, source, external_id)` and carries no connection id, a machine does
+not resolve to one connection when several connections share a provider;
+connection-level disambiguation is future work. `base_url` SHALL be an absolute
+`http`/`https` URL (the same
+URL rule as `Requirement.citation_url` and `Standard.source_url`).
+`discovery_cadence` SHALL be one of the collection-cadence tokens `continuous`,
+`daily`, `weekly`, `monthly`, `quarterly`, or `annual` (the same set a
+`Collector.frequency` uses). The connection SHALL NOT carry an API token or
+any other credential field; its token is resolved out-of-band at runtime, keyed by
+the connection id.
+
+#### Scenario: Integration loads with provider, base URL, and cadence
+
+- **WHEN** an `Integration` document names an `id`, a `title`, a `provider`
+  of `fleet`, an absolute `http`/`https` `base_url`, and a `discovery_cadence`
+- **THEN** it loads as an `Integration` with those fields populated and its
+  optional `vendor` populated when present, and it declares no token field
+
+#### Scenario: Integration links to a vendor
+
+- **WHEN** an `Integration` names a `vendor` that a `Vendor` document defines
+- **THEN** it loads with that vendor link, distinct from its `provider`
+
 ### Requirement: Config carries no secret material
 
 The schema SHALL NOT define any field that holds credential material (a token,
@@ -292,109 +291,6 @@ redacted from every broad read surface (the read API, CLI, and web register).
   `(type, provider)` config key
 - **THEN** it contains no field or config key intended to hold credential material, and an
   `Integration` in particular declares no token field
-
-### Requirement: Deterministic loading
-
-The system SHALL load files in a deterministic order: files sorted by their
-normalized relative path using ordinal comparison, then documents in their
-in-file order. This makes validation output and reporting stable across runs and
-across platforms on the same input.
-
-#### Scenario: Order matches normalized path then in-file order
-
-- **WHEN** a known multi-file fixture is loaded
-- **THEN** the resulting config model and any error list are ordered by each
-  file's normalized relative path (ordinal comparison) and then by document
-  order within the file, matching the expected order for that fixture
-
-### Requirement: Requirement authorship and standard metadata
-
-The system SHALL support a `Requirement` kind that is DISTINCT from `Control` and
-records a standard's published normative content. A `Requirement` SHALL belong to
-exactly one `Standard`, named by a singular `standard` field that is a `Standard`
-id. A `Requirement` SHALL carry a `theme` (a free-form label, NOT a fixed enum),
-a `statement` (the normative requirement text), an optional `guidance`, and an
-external citation split into a required `citation_label` (a human label for the
-published source) and a required `citation_url` (an absolute `http`/`https` link
-to it). `Control.maps_to` SHALL name `Requirement` ids: a control maps to the
-specific requirements it satisfies, not to a whole standard. `maps_to` SHALL be a
-non-empty list, each entry SHALL resolve to a defined `Requirement` id, and a
-control SHALL NOT list the same `Requirement` id more than once.
-
-The `Standard` kind SHALL support metadata: required `version` and `authority`
-(the body that owns the scheme), and optional `publisher` (the delivery or
-certification body) and `source_url` (the official source). `version` and
-`authority` SHALL be required so a `Standard` is a described object; `publisher`
-and `source_url` SHALL be optional. `theme` SHALL be a free-form string so the
-model stays standard-agnostic; the five Cyber Essentials Plus themes are values a
-fixture supplies, not values the schema enumerates.
-
-Optional string fields (`Requirement.guidance`, `Standard.publisher`,
-`Standard.source_url`) SHALL normalize omitted-or-whitespace-only to absent: an
-absent value is stored and read as NULL, and the non-empty and URI-format checks
-SHALL run only when such a field is present and non-empty (the same treatment
-`Asset.parent` gives an empty value). Required fields (`Standard.version`,
-`Standard.authority`) keep the non-empty rule and SHALL fail validation when empty
-or whitespace-only.
-
-#### Scenario: Requirement is distinct from Control and owned by one standard
-
-- **WHEN** a `Requirement` document names a `standard`, a `theme`, a `statement`,
-  a `citation_label`, and a `citation_url`
-- **THEN** it loads as a `Requirement` (not a `Control`), owned by the single named
-  `Standard` id, and no `Control` semantics (such as `maps_to`) apply to it
-
-#### Scenario: Control maps to requirements
-
-- **WHEN** a `Control` document's `maps_to` names defined `Requirement` ids
-- **THEN** it loads and validates, and the control is mapped to those requirements
-  (not to a standard directly)
-
-#### Scenario: Control mapping to an unknown requirement is rejected
-
-- **WHEN** a `Control.maps_to` entry names a `Requirement` id that no `Requirement`
-  document defines
-- **THEN** validation fails and the error list names the control and the unknown
-  requirement reference
-
-#### Scenario: Duplicate requirement id within one control is rejected
-
-- **WHEN** a `Control.maps_to` lists the same `Requirement` id more than once
-- **THEN** validation fails and the error list names the control and the duplicated
-  `Requirement` id
-
-#### Scenario: Optional guidance omitted or blank is absent
-
-- **WHEN** a `Requirement` omits `guidance` (or sets it to a whitespace-only value)
-  but provides `standard`, `theme`, `statement`, `citation_label`, and
-  `citation_url`
-- **THEN** it loads and validates, and `guidance` is absent (read back as null)
-
-#### Scenario: Standard requires version and authority
-
-- **WHEN** a `Standard` document provides `id`, `title`, `version`, and
-  `authority`, and omits `publisher` and `source_url`
-- **THEN** it loads and validates, with `publisher` and `source_url` absent (read
-  back as null)
-
-#### Scenario: Blank optional standard metadata is absent, not an error
-
-- **WHEN** a `Standard` provides `version` and `authority` but sets `publisher` or
-  `source_url` to an omitted or whitespace-only value
-- **THEN** it loads and validates, treating the blank optional field as absent
-  rather than reporting an empty-value or malformed-URL error
-
-#### Scenario: Standard missing version or authority is rejected
-
-- **WHEN** a `Standard` document omits `version` or `authority`
-- **THEN** validation fails and the error list names the standard and the missing
-  field
-
-#### Scenario: Theme is a free-form label
-
-- **WHEN** two `Requirement` documents under different standards use different
-  `theme` values
-- **THEN** both load without the schema constraining `theme` to any fixed set
 
 ### Requirement: Config-format documentation covers every supported kind
 
@@ -449,370 +345,7 @@ rejected. The supported-kinds list, the noun-mapping table, and every example SH
   `evidence-collectors` and `attestation-templates` rows while the
   `integration-connections` row is unchanged
 
-### Requirement: Asset authoring, type, source, and edges
-
-The system SHALL support an `Asset` kind that unifies the previous `Organisation`
-and `Vendor` kinds and the discovered machine model into one resource. An `Asset`
-has an immutable `id`, a mutable `title`, a required `type` (exactly one of
-`Company`, `Department`, `Machine`, or `Vendor`), a required `source` (exactly one
-of `declared` or `discovered`), and at most one of two mutually exclusive scalar
-edges: `parent` (a `Company` or `Department` asset id) or `owner` (a `Company` or
-`Department` asset id). A `Company`, `Department`, or `Machine` asset MAY carry a
-`parent`; a `Vendor` asset MAY carry an `owner`. A declared asset MAY carry the
-authored fields only; the discovered-only fields (`identity_kind`,
-`identity_value`, `state`, `first_seen`, `last_seen`) are written by ingest, never
-authored in config.
-
-A declared config MAY author `source: declared` only. `source: discovered` is
-reserved for ingest and SHALL be rejected when authored in config. A declared
-asset uses an authored slug id; a discovered asset uses a ULID id; both share one
-id space. `parent` and `owner` are scalar references validated at write with no
-foreign key: a reference that does not resolve is tolerated (see Asset validation).
-The `Scope.subject` and `Collector.vendor` references SHALL name the matching
-asset: `Scope.subject` names any asset (a Company/Department, a Machine, or a Vendor; a Vendor
-subject may not target a standard), and `Collector.vendor` names a `Vendor` asset. The
-`Scope.subject` reference is scalar with no foreign key and is dangling-tolerated, while
-the `Scope` target references (`standard`/`requirement`/`control`) keep referential
-integrity.
-
-#### Scenario: Company asset with a department child loads
-
-- **WHEN** a `kind: Asset` document of `type: Company` with `source: declared` and a
-  `kind: Asset` of `type: Department` with `source: declared` and a `parent` naming
-  the Company both appear
-- **THEN** both load into the typed model, the Company is a root asset, and the
-  Department is its child
-
-#### Scenario: Vendor asset with an owner loads
-
-- **WHEN** a `kind: Asset` of `type: Vendor` with `source: declared` and an `owner`
-  naming a `Company` asset appears
-- **THEN** it loads as a declared vendor asset owned by that Company
-
-#### Scenario: Declared source is the only authorable source
-
-- **WHEN** a `kind: Asset` document authors `source: declared`
-- **THEN** it loads, whereas a document authoring `source: discovered` is rejected
-  (see Asset validation)
-
-#### Scenario: Unknown field on an Asset is rejected
-
-- **WHEN** a `kind: Asset` document carries a field not defined for the kind
-- **THEN** the loader reports the document and the unknown field
-
-### Requirement: Asset validation
-
-The system SHALL validate assets and report every error as a structured
-diagnostic. Validation SHALL fail (an `Error` diagnostic) when any of the
-following hold: an `Asset` is missing or blank on `id` or `title`; an `Asset.type`
-is not one of `Company`, `Department`, `Machine`, or `Vendor`; an `Asset.source`
-is not `declared` or `discovered`; a declared config authors `source: discovered`; a
-declared config authors any discovered-only field (`identity_kind`, `identity_value`,
-`state`, `first_seen`, `last_seen`), which is ingest-written and never authored;
-an `Asset` carries both `parent` and `owner`; an `Asset.parent` names an asset that
-is not a `Company` or `Department`; an `Asset.owner` names an asset that is not a
-`Company` or `Department`; a `parent` is carried by an asset that is not a
-`Company`, `Department`, or `Machine`; an `owner` is carried by an asset that is not
-a `Vendor`; an unknown field is present; or an `Asset` id is duplicated. Authoring a
-discovered-only field is a distinct error from authoring `source: discovered`: the
-first names the offending field, the second names the source.
-
-A `parent` or `owner` that names an id absent from the resolved asset set (a
-dangling reference) SHALL NOT be an error: it SHALL be reported as a NON-BLOCKING
-`Warning` diagnostic that does not fail `validate`, `apply`, or `sync`. A `parent`
-cycle among declared assets SHALL likewise be tolerated (a warning, not an error),
-because resolution walks are cycle-guarded. A missing required edge - a declared
-`Vendor` with no `owner`, or a `Machine` with no `parent` - SHALL also be a
-NON-BLOCKING `Warning`, not an error, because such an asset is invisible under the
-fail-closed read model; a `Company` or `Department` with no `parent` is a legitimate
-root and SHALL NOT warn.
-
-#### Scenario: Unknown type rejected
-
-- **WHEN** an `Asset` declares a `type` other than `Company`, `Department`,
-  `Machine`, or `Vendor`
-- **THEN** validation fails, naming the asset and the bad type
-
-#### Scenario: Authoring a discovered asset in config is rejected
-
-- **WHEN** a config document declares `kind: Asset` with `source: discovered`
-- **THEN** validation fails, naming the asset, because ingest is the only writer of
-  discovered assets
-
-#### Scenario: Authoring a discovered-only field in config is rejected
-
-- **WHEN** a `kind: Asset` document authors a discovered-only field (`identity_kind`,
-  `identity_value`, `state`, `first_seen`, or `last_seen`)
-- **THEN** validation fails with an `Error` naming the asset and the discovered-only
-  field, distinct from the `source: discovered` rejection, because those fields are
-  written only by ingest
-
-#### Scenario: Parent and owner are mutually exclusive
-
-- **WHEN** an `Asset` declares both `parent` and `owner`
-- **THEN** validation fails, naming the asset
-
-#### Scenario: Parent target must be Company or Department
-
-- **WHEN** an `Asset.parent` names an asset that is not a `Company` or `Department`
-- **THEN** validation fails, naming the asset and the invalid parent target
-
-#### Scenario: Vendor owner target must be Company or Department
-
-- **WHEN** a `Vendor` asset's `owner` names an asset that is not a `Company` or
-  `Department`
-- **THEN** validation fails, naming the vendor and the invalid owner target
-
-#### Scenario: Dangling parent or owner is a non-blocking warning
-
-- **WHEN** an `Asset.parent` or `Asset.owner` names an id that no asset defines
-- **THEN** a non-blocking `Warning` diagnostic names the dangling reference and
-  validation does not fail on it
-
-#### Scenario: Missing required edge is a non-blocking warning
-
-- **WHEN** a declared `Vendor` carries no `owner`, or a `Machine` carries no
-  `parent`
-- **THEN** a non-blocking `Warning` diagnostic names the asset as unreachable and
-  validation does not fail on it, while a parent-less `Company` or `Department`
-  produces no diagnostic
-
-### Requirement: Integration authorship
-
-The system SHALL support an `Integration` kind that defines an
-integration's connection: one base URL and one discovery cadence, backing an
-integration's discovery and its per-control collectors. `Integration` is the seventh
-declared kind of the object model, alongside `Standard`, `Requirement`, `Control`,
-`Asset`, `Scope`, and `Collector`. An `Integration`
-has an `id` (its permanent identity), a `title` (display only), a required
-`provider`, a required `base_url`, a required `discovery_cadence`, and an optional
-`vendor` (a `Vendor` id linking the connection to a vendor record).
-
-`provider` SHALL be drawn from a single, closed, case-sensitive provider token set
-whose only value in this increment is `fleet`. That one closed set governs exactly three
-things: it validates `Integration.provider`, it validates the `provider` a `Collector` of
-`type: integration` authors, and it selects the runner for an
-integration `Collector` that names this connection. There is no separate
-provider token set for collectors. `provider` is distinct from `vendor` and is NOT
-unique - one provider MAY back many connections; identity is the `id`.
-
-The closed set does NOT govern a machine's `asset_source.source` broadly.
-`asset_source.source` accepts any nonblank token (validated only as nonblank, up to 64
-characters) and is NOT checked against `IntegrationProvider.Tokens`; a machine reported
-by some other source carries whatever source token that source emits. The tie to
-`provider` is narrower and forward-looking: when the future integration runner writes a
-machine observation discovered through this connection, it SHALL write the exact
-`Integration.provider` token as that observation's `asset_source.source`. That equality
-is a contract for the integration runner, not a runtime validation of every
-`asset_source.source`. Because a machine's source attachment is keyed by
-`(organisation_id, source, external_id)` and carries no connection id, a machine does
-not resolve to one connection when several connections share a provider;
-connection-level disambiguation is future work. `base_url` SHALL be an absolute
-`http`/`https` URL (the same
-URL rule as `Requirement.citation_url` and `Standard.source_url`).
-`discovery_cadence` SHALL be one of the collection-cadence tokens `continuous`,
-`daily`, `weekly`, `monthly`, `quarterly`, or `annual` (the same set a
-`Collector.frequency` uses). The connection SHALL NOT carry an API token or
-any other credential field; its token is resolved out-of-band at runtime, keyed by
-the connection id.
-
-#### Scenario: Integration loads with provider, base URL, and cadence
-
-- **WHEN** an `Integration` document names an `id`, a `title`, a `provider`
-  of `fleet`, an absolute `http`/`https` `base_url`, and a `discovery_cadence`
-- **THEN** it loads as an `Integration` with those fields populated and its
-  optional `vendor` populated when present, and it declares no token field
-
-#### Scenario: Integration links to a vendor
-
-- **WHEN** an `Integration` names a `vendor` that a `Vendor` document defines
-- **THEN** it loads with that vendor link, distinct from its `provider`
-
-### Requirement: Integration validation
-
-The system SHALL validate integrations and report every error as a
-structured diagnostic, consistent with the rest of config validation. Validation
-SHALL fail when any of the following hold: an `Integration` is missing or
-blank on `id`, `title`, `provider`, `base_url`, or `discovery_cadence`; an
-`Integration` id is duplicated within its kind; an unknown field is present
-on an `Integration`; an `Integration.provider` is not the token
-`fleet`; an `Integration.base_url` is not a well-formed absolute
-`http`/`https` URL; an `Integration.discovery_cadence` is not one of
-`continuous`, `daily`, `weekly`, `monthly`, `quarterly`, or `annual`; an
-`Integration.id` contains a `:` character or a `__` sequence, or two
-`Integration` ids collide case-insensitively; or an
-`Integration.vendor` is present but references a `Vendor` id that no document
-defines. An omitted `vendor` is treated as absent and does NOT fail validation.
-
-The `id` rules exist because the connection id is interpolated into the out-of-band
-token configuration key `Freeboard:Integrations:<id>:ApiToken`, and .NET configuration
-keys are case-insensitive and `:`-delimited (the environment-variable provider maps `__`
-to `:`). An id containing `:` or `__`, or two ids that differ only in case, would resolve
-an ambiguous or wrong token. These id constraints apply only to the
-`Integration` kind, because only its id resolves a secret.
-
-#### Scenario: Integration missing a required field
-
-- **WHEN** an `Integration` document omits its `provider`, `base_url`, or
-  `discovery_cadence`
-- **THEN** validation fails and the error list names the connection and the missing
-  field
-
-#### Scenario: Integration unknown provider rejected
-
-- **WHEN** an `Integration` declares a `provider` other than `fleet`
-- **THEN** validation fails and the error list names the connection and the bad
-  provider
-
-#### Scenario: Integration malformed base URL rejected
-
-- **WHEN** an `Integration.base_url` is not a well-formed absolute
-  `http`/`https` URL
-- **THEN** validation fails and the error list names the connection and the malformed
-  base URL
-
-#### Scenario: Integration unknown cadence rejected
-
-- **WHEN** an `Integration.discovery_cadence` is outside the cadence set
-- **THEN** validation fails and the error list names the connection and the bad cadence
-
-#### Scenario: Integration references an unknown vendor
-
-- **WHEN** an `Integration` names a `vendor` id that no `Vendor` document
-  defines
-- **THEN** validation fails and the error list names the connection and the unknown
-  vendor reference
-
-#### Scenario: Duplicate connection id rejected
-
-- **WHEN** two `Integration` documents share the same `id`
-- **THEN** validation fails and the error list names the duplicated id
-
-#### Scenario: Connection id that is an unsafe configuration-key segment rejected
-
-- **WHEN** an `Integration.id` contains a `:` character or a `__` sequence, or
-  two `Integration` ids differ only in letter case
-- **THEN** validation fails and the error list names the connection and the unsafe or
-  colliding id, because the id would resolve an ambiguous or wrong out-of-band token
-
-### Requirement: Unified Scope authorship
-
-The system SHALL support one `Scope` kind that records whether a target applies to a
-subject, replacing the previous `Scope`, `RequirementScope`, and `VendorScope` kinds. A
-`Scope` has an immutable `id`, a mutable `title`, a `subject` (an asset id), exactly one
-of a `standard` (a `Standard` id), a `requirement` (a `Requirement` id), or a `control`
-(a `Control` id), a `disposition` (`In` or `Out`), and an optional `justification`. The
-`subject` names the asset the scope is about; the one target names what it scopes the
-subject in or out of. `disposition` `In` means the target applies to the subject; `Out`
-means the subject is excepted from it. A `justification` is REQUIRED on every `Out` scope
-(it records the exception rationale) and optional on `In`.
-
-The `subject` is a scalar asset reference with NO foreign key, validated at write and
-dangling-tolerated (see Unified Scope validation): it MAY name a Company, Department, Machine,
-or Vendor asset (a group later). A `Scope` whose `subject` resolves to a `Vendor` asset MAY
-target only a `requirement` or a `control`, never a `standard`, because a vendor has no
-standard-level disposition; an organisation (Company/Department) subject MAY target a
-standard, a requirement, or a control. At most one `Scope` SHALL exist per `(subject,
-standard)`, per `(subject, requirement)`, and per `(subject, control)` pair.
-
-#### Scenario: Scope targeting a standard loads
-
-- **WHEN** a `kind: Scope` document names a `subject`, a `standard`, and a `disposition`
-- **THEN** it loads as a `Scope` bound to that subject and standard with that disposition,
-  and no `requirement` or `control` field is expected on it
-
-#### Scenario: Scope targeting a requirement loads
-
-- **WHEN** a `kind: Scope` document names a `subject`, a `requirement`, and a `disposition`
-- **THEN** it loads as a `Scope` bound to that subject and requirement, and no `standard`
-  or `control` field is expected on it
-
-#### Scenario: Scope targeting a control loads
-
-- **WHEN** a `kind: Scope` document names a `subject`, a `control`, and a `disposition`
-- **THEN** it loads as a `Scope` bound to that subject and control, and no `standard` or
-  `requirement` field is expected on it
-
-#### Scenario: Out scope carries a justification
-
-- **WHEN** a `kind: Scope` document declares `disposition: Out` with a non-empty
-  `justification`
-- **THEN** it loads with that justification, which the read surfaces always show so an
-  exception is never silent
-
-#### Scenario: Unknown field on a Scope is rejected
-
-- **WHEN** a `kind: Scope` document carries a field not defined for the kind (for example
-  the removed `organisation` or `vendor` field)
-- **THEN** the loader reports the document and the unknown field
-
-### Requirement: Unified Scope validation
-
-The system SHALL validate scopes and report every error as a structured diagnostic.
-Validation SHALL fail (an `Error` diagnostic) when any of the following hold: a `Scope` is
-missing or blank on `id`, `title`, `subject`, or `disposition`; a `Scope` id is
-duplicated; an unknown field is present on a `Scope`; a `Scope` names neither `standard`
-nor `requirement` nor `control`, or names more than one of them (exactly one target is
-required); a `Scope.standard` references a `Standard` id that no document defines; a
-`Scope.requirement` references a `Requirement` id that no document defines; a
-`Scope.control` references a `Control` id that no document defines; a `Scope.disposition`
-is not `In` or `Out`; a `Scope` whose disposition is `Out` has a missing or
-whitespace-only `justification`; a `Scope` whose `subject` resolves to a `Vendor` asset
-targets a `standard`; or two scopes share the same `(subject, standard)`, `(subject,
-requirement)`, or `(subject, control)` pair. A `Scope` whose disposition is `In` SHALL NOT
-require a `justification`.
-
-A `Scope.subject` that names an id absent from the resolved asset set (a dangling subject)
-SHALL NOT be an error: it SHALL be reported as a NON-BLOCKING `Warning` diagnostic that
-does not fail `validate`, `apply`, or `sync`, because the subject is a scalar asset
-reference and an asset may be retired or not-yet-discovered. The three target references
-(`standard`, `requirement`, `control`) keep referential integrity and remain hard errors
-when they do not resolve. The Vendor-subject-targets-a-standard cross-field check is
-evaluated only when the subject resolves to an asset; a dangling subject warns and is not
-additionally checked against the cross-field rule.
-
-#### Scenario: Scope must name exactly one target
-
-- **WHEN** a `Scope` names none of `standard`/`requirement`/`control`, or names more than
-  one
-- **THEN** validation fails and the error list names the scope and the target problem
-
-#### Scenario: Out disposition requires a justification
-
-- **WHEN** a `Scope` declares `disposition: Out` with no `justification` (or a
-  whitespace-only one)
-- **THEN** validation fails and the error list names the scope and the missing
-  justification, for every target kind (standard, requirement, or control)
-
-#### Scenario: In disposition does not require a justification
-
-- **WHEN** a `Scope` declares `disposition: In` with no `justification`
-- **THEN** it loads and validates, with `justification` absent
-
-#### Scenario: Vendor subject may not target a standard
-
-- **WHEN** a `Scope` whose `subject` resolves to a `Vendor` asset names a `standard`
-- **THEN** validation fails and the error list names the scope, because a vendor has no
-  standard-level disposition
-
-#### Scenario: Dangling subject is a non-blocking warning
-
-- **WHEN** a `Scope.subject` names an id that no asset defines
-- **THEN** the error list contains no error for it; a non-blocking `Warning` names the
-  dangling subject and validation still passes
-
-#### Scenario: Dangling target is an error
-
-- **WHEN** a `Scope.standard`, `Scope.requirement`, or `Scope.control` names an id that no
-  document defines
-- **THEN** validation fails and the error list names the scope and the unknown target
-  reference
-
-#### Scenario: Duplicate subject-target pair rejected
-
-- **WHEN** two `Scope` documents name the same `(subject, standard)`, `(subject,
-  requirement)`, or `(subject, control)` pair
-- **THEN** validation fails and the error list names the duplicated pair
+## ADDED Requirements
 
 ### Requirement: Collector authorship and Control evaluation rule
 
@@ -1309,3 +842,38 @@ present but is not an integer from 0 to 100. A `body` is optional and free text.
 - **WHEN** a `Control` has no attached `Collector` and declares no `evaluation`
 - **THEN** it validates without an evaluation error
 
+## REMOVED Requirements
+
+### Requirement: EvidenceCollector authorship and Control evaluation rule
+
+**Reason**: The `EvidenceCollector` kind is merged into the unified `Collector` kind.
+**Migration**: Author `kind: Collector` instead of `kind: EvidenceCollector`; move the
+`checks` list under `config`; and, for `type: integration`, add a `provider` matching the
+referenced connection's. The remaining fields are unchanged. A `checks` list left at the
+top level is rejected as an unknown field. See the ADDED "Collector authorship and Control
+evaluation rule" requirement.
+
+### Requirement: EvidenceCollector and Control evaluation validation
+
+**Reason**: Replaced by the unified collector validation, which adds the provider rules and
+delegates `config` key checking to the registered `(type, provider)` schema.
+**Migration**: See the ADDED "Collector and Control evaluation validation" and "Typed
+Collector config schema per type and provider" requirements.
+
+### Requirement: AttestationTemplate authorship
+
+**Reason**: The `AttestationTemplate` kind is merged into the unified `Collector` kind; an
+attestation is a collector of `type: manual` or `type: training`.
+**Migration**: Author `kind: Collector` with `type: manual` or `type: training`, add a
+`frequency` (required on every type, because ingest records a collector's cadence on the
+evidence it posts), and move `body`, `fields`, `pass_mark`, and `quiz` under `config`. Any
+of those four left at the top level is rejected as an unknown field. See the ADDED
+"Collector authorship and Control evaluation rule" requirement.
+
+### Requirement: AttestationTemplate validation
+
+**Reason**: Replaced by the manual/training half of the unified collector validation, which
+keeps every rule verbatim but reads the form from `config`.
+**Migration**: See the ADDED "Collector and Control evaluation validation" requirement; the
+`manual`-must-not-declare-`pass_mark`/`quiz` rule is now enforced by the registered
+`(manual, -)` config schema not naming those keys.

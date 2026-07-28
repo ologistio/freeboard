@@ -1,7 +1,7 @@
 # Freeboard collectors
 
 A collector is a self-contained container that gathers evidence for one
-evidence-collector and POSTs it to Freeboard's ingest endpoint. The container
+collector and POSTs it to Freeboard's ingest endpoint. The container
 carries no .NET runtime: transport is `curl` and the only local validation is a
 `jq` syntactic-JSON check plus a `collector_id` assertion. Freeboard is the
 authoritative validator (it returns `422` on any semantic violation); the wrapper
@@ -17,7 +17,7 @@ worked mock example (`example/collect.sh`). The full request contract is
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `FREEBOARD_BASE_URL` | yes | Base URL of the Freeboard web app, e.g. `https://freeboard.example`. The ingest URL is derived as `<base>/api/v1/freeboard/evidence`. |
-| `FREEBOARD_COLLECTOR_ID` | yes | The evidence-collector id this container reports for. The wrapper asserts the payload's `collector_id` equals this. |
+| `FREEBOARD_COLLECTOR_ID` | yes | The collector id this container reports for. The wrapper asserts the payload's `collector_id` equals this. |
 | `FREEBOARD_INGEST_TOKEN` | yes | The per-collector machine credential (raw bearer token) issued by an admin. Never baked into the image. |
 | `FREEBOARD_ORGANISATION_ID` | example | The organisation the run reports for. Required by the contract; the mock example reads it from here. A real collector emits it directly. |
 | `FREEBOARD_REQUIREMENT_ID` | example | The requirement the run reports for. Required by the contract; the mock example reads it from here. A real collector emits it directly. |
