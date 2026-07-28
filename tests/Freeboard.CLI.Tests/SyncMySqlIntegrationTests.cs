@@ -157,11 +157,11 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM standards;"));
     }
 
-    // A full config persists the new-kind rows; re-syncing a config that drops one scope, one
-    // evidence-collector, and one attestation-template hard-removes exactly those rows while keeping their
-    // FK targets (the vendor subject, control, and requirement they referenced) and the other retained rows.
-    // This covers the "drop only the resource, keep its FK target" case at the command surface and exercises
-    // both removal paths: the whole-set scope replace and the DeleteAbsent collector/template prunes.
+    // A full config persists the new-kind rows; re-syncing a config that drops one scope and two
+    // collectors hard-removes exactly those rows while keeping their FK targets (the vendor subject,
+    // control, and requirement they referenced) and the other retained rows. This covers the "drop only
+    // the resource, keep its FK target" case at the command surface and exercises both removal paths: the
+    // whole-set scope replace and the DeleteAbsent collector prune.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncRoundTripThenDropRemovesDroppedNewKindRowsKeepingTargets()
     {
@@ -179,33 +179,30 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             await conn.OpenAsync();
 
             Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
-            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_collectors;"));
-            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM attestation_templates;"));
+            Assert.Equal(4, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM collectors;"));
 
             // Read back a persisted field value on a retained row to prove a true round-trip, not just
             // row identity: ec-keep's type must equal the config's 'integration'.
             Assert.Equal("integration", await conn.ExecuteScalarAsync<string>(
-                "SELECT type FROM evidence_collectors WHERE id = 'ec-keep';"));
+                "SELECT type FROM collectors WHERE id = 'ec-keep';"));
+            // And its config round-trips through the merged column under the stored member name.
+            Assert.Equal("keep-check", await conn.ExecuteScalarAsync<string>(
+                "SELECT config->>'$.Checks[0].Name' FROM collectors WHERE id = 'ec-keep';"));
 
             var (dropExit, _, _) = Capture(() => new GitOpsCommands().Sync(dropped));
             Assert.Equal(0, dropExit);
 
             // The dropped rows are gone; the retained ones remain.
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
-            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM evidence_collectors;"));
-            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM attestation_templates;"));
+            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM collectors;"));
             Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM scopes WHERE id = 'vs-drop';"));
             Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM evidence_collectors WHERE id = 'ec-drop';"));
-            Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM attestation_templates WHERE id = 'at-drop';"));
+                "SELECT COUNT(*) FROM collectors WHERE id IN ('ec-drop', 'at-drop');"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM scopes WHERE id = 'vs-keep';"));
-            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM evidence_collectors WHERE id = 'ec-keep';"));
-            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM attestation_templates WHERE id = 'at-keep';"));
+            Assert.Equal(2, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM collectors WHERE id IN ('ec-keep', 'at-keep');"));
 
             // The FK targets of the dropped rows survive: the vendor, control, and requirement are kept.
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
@@ -269,8 +266,8 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         source: declared
         """;
 
-    // Standard/requirement/control plus a vendor, two vendor-subject scopes, two evidence-collectors, and two
-    // attestation-templates. ctrl-a declares evaluation because it has attached collectors.
+    // Standard/requirement/control plus a vendor, two vendor-subject scopes, and four collectors - two
+    // data sources and two attestations. ctrl-a declares evaluation because it has attached collectors.
     private const string FullConfig = """
         apiVersion: freeboard.dev/v1alpha1
         kind: Standard
@@ -329,21 +326,23 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         disposition: In
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: EvidenceCollector
+        kind: Collector
         id: ec-keep
         title: Keep collector
         control: ctrl-a
         vendor: vendor-a
         type: integration
+        provider: fleet
         frequency: daily
         connection: conn-a
-        checks:
-          - source_key: "1"
-            name: keep-check
-            severity: Hard
+        config:
+          checks:
+            - source_key: "1"
+              name: keep-check
+              severity: Hard
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: EvidenceCollector
+        kind: Collector
         id: ec-drop
         title: Drop collector
         control: ctrl-a
@@ -352,18 +351,20 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         frequency: weekly
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: AttestationTemplate
+        kind: Collector
         id: at-keep
-        title: Keep template
+        title: Keep attestation
         control: ctrl-a
         type: manual
+        frequency: annual
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: AttestationTemplate
+        kind: Collector
         id: at-drop
-        title: Drop template
+        title: Drop attestation
         control: ctrl-a
         type: manual
+        frequency: annual
         """;
 
     // The full config with vs-drop, ec-drop, and at-drop removed; every FK target is retained.
@@ -417,24 +418,27 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         disposition: In
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: EvidenceCollector
+        kind: Collector
         id: ec-keep
         title: Keep collector
         control: ctrl-a
         vendor: vendor-a
         type: integration
+        provider: fleet
         frequency: daily
         connection: conn-a
-        checks:
-          - source_key: "1"
-            name: keep-check
-            severity: Hard
+        config:
+          checks:
+            - source_key: "1"
+              name: keep-check
+              severity: Hard
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: AttestationTemplate
+        kind: Collector
         id: at-keep
-        title: Keep template
+        title: Keep attestation
         control: ctrl-a
         type: manual
+        frequency: annual
         """;
 }

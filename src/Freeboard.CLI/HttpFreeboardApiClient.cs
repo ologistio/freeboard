@@ -85,16 +85,10 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json => json.EnumerateArray().Select(ReadControl).ToList(),
             ct);
 
-    public Task<ApiResult<IReadOnlyList<ApiEvidenceCollector>>> ListEvidenceCollectorsAsync(CancellationToken ct)
-        => SendAsync<IReadOnlyList<ApiEvidenceCollector>>(
-            HttpMethod.Get, $"{ApiRoutePrefix}/evidence-collectors", body: null,
-            json => json.EnumerateArray().Select(ReadEvidenceCollector).ToList(),
-            ct);
-
-    public Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct)
-        => SendAsync<IReadOnlyList<ApiAttestationTemplate>>(
-            HttpMethod.Get, $"{ApiRoutePrefix}/attestation-templates", body: null,
-            json => json.EnumerateArray().Select(ReadAttestationTemplate).ToList(),
+    public Task<ApiResult<IReadOnlyList<ApiCollector>>> ListCollectorsAsync(CancellationToken ct)
+        => SendAsync<IReadOnlyList<ApiCollector>>(
+            HttpMethod.Get, $"{ApiRoutePrefix}/collectors", body: null,
+            json => json.EnumerateArray().Select(ReadCollector).ToList(),
             ct);
 
     public Task<ApiResult<IReadOnlyList<ApiIntegrationConnection>>> ListIntegrationConnectionsAsync(CancellationToken ct)
@@ -107,7 +101,7 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
         string collectorId, string? expiresAt, CancellationToken ct)
         => SendAsync(
             HttpMethod.Post,
-            $"{ApiRoutePrefix}/evidence-collectors/{Uri.EscapeDataString(collectorId)}/credentials",
+            $"{ApiRoutePrefix}/collectors/{Uri.EscapeDataString(collectorId)}/credentials",
             string.IsNullOrWhiteSpace(expiresAt) ? new { } : new { expires_at = expiresAt },
             json => new IssuedCredential(
                 json.GetProperty("credential_id").GetString()!,
@@ -120,7 +114,7 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
         string collectorId, string credentialId, CancellationToken ct)
         => SendAsync(
             HttpMethod.Delete,
-            $"{ApiRoutePrefix}/evidence-collectors/{Uri.EscapeDataString(collectorId)}/credentials/{Uri.EscapeDataString(credentialId)}",
+            $"{ApiRoutePrefix}/collectors/{Uri.EscapeDataString(collectorId)}/credentials/{Uri.EscapeDataString(credentialId)}",
             body: null,
             _ => Unit.Value,
             ct);
@@ -218,31 +212,44 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
                 : [],
             OptionalString(json, "evaluation"));
 
-    private static ApiEvidenceCollector ReadEvidenceCollector(JsonElement json) =>
+    private static ApiCollector ReadCollector(JsonElement json) =>
         new(
             json.GetProperty("id").GetString()!,
             json.GetProperty("title").GetString()!,
             json.GetProperty("control").GetString()!,
             OptionalString(json, "vendor"),
             json.GetProperty("type").GetString()!,
+            OptionalString(json, "provider"),
             json.GetProperty("frequency").GetString()!,
             json.TryGetProperty("threshold", out var threshold) && threshold.ValueKind == JsonValueKind.Number
                 ? threshold.GetInt32()
                 : null,
-            ReadConfig(json));
+            ReadCollectorConfig(json));
 
-    private static ApiAttestationTemplate ReadAttestationTemplate(JsonElement json) =>
-        new(
-            json.GetProperty("id").GetString()!,
-            json.GetProperty("title").GetString()!,
-            json.GetProperty("control").GetString()!,
-            json.GetProperty("type").GetString()!,
-            OptionalString(json, "body"),
-            ReadArray(json, "fields", ReadAttestationField),
-            json.TryGetProperty("pass_mark", out var passMark) && passMark.ValueKind == JsonValueKind.Number
+    // Every member is read as optional: the endpoint writes a config key only when the member carries a
+    // value, so a script collector's config is `{}` and an attestation's carries no `checks`.
+    private static ApiCollectorConfig ReadCollectorConfig(JsonElement json)
+    {
+        if (!json.TryGetProperty("config", out var config) || config.ValueKind != JsonValueKind.Object)
+        {
+            return new ApiCollectorConfig(null, [], null, [], []);
+        }
+
+        return new ApiCollectorConfig(
+            OptionalString(config, "body"),
+            ReadArray(config, "fields", ReadAttestationField),
+            config.TryGetProperty("pass_mark", out var passMark) && passMark.ValueKind == JsonValueKind.Number
                 ? passMark.GetInt32()
                 : null,
-            ReadArray(json, "quiz", ReadQuizItem));
+            ReadArray(config, "quiz", ReadQuizItem),
+            ReadArray(config, "checks", ReadCheck));
+    }
+
+    private static ApiCheck ReadCheck(JsonElement json) =>
+        new(
+            json.GetProperty("source_key").GetString()!,
+            json.GetProperty("name").GetString()!,
+            json.GetProperty("severity").GetString()!);
 
     private static ApiIntegrationConnection ReadIntegrationConnection(JsonElement json) =>
         new(
@@ -275,20 +282,6 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
         json.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
             ? value.EnumerateArray().Select(e => e.GetString() ?? string.Empty).ToList()
             : [];
-
-    private static IReadOnlyDictionary<string, string> ReadConfig(JsonElement json)
-    {
-        var config = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (json.TryGetProperty("config", out var value) && value.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var entry in value.EnumerateObject())
-            {
-                config[entry.Name] = entry.Value.GetString() ?? string.Empty;
-            }
-        }
-
-        return config;
-    }
 
     /// <summary>Reads a property that may be JSON null or absent, returning null in either case.</summary>
     private static string? OptionalString(JsonElement json, string name) =>

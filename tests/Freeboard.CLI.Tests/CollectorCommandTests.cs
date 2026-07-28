@@ -47,7 +47,7 @@ public sealed class CollectorCommandTests : IDisposable
     }
 
     [Fact]
-    public void ListPrintsControlsEvaluationCollectorsAndConfigAndExitsZero()
+    public void ListPrintsControlsEvaluationCollectorsAndTheirConfigAndExitsZero()
     {
         var fake = Install(new FakeApiClient
         {
@@ -55,11 +55,6 @@ public sealed class CollectorCommandTests : IDisposable
             [
                 new ApiControl("ctrl-a", "Control A", ["req-a"], "all"),
                 new ApiControl("ctrl-b", "Control B", ["req-b"], null),
-            ]),
-            CollectorListResult = ApiResult<IReadOnlyList<ApiEvidenceCollector>>.Success(
-            [
-                new ApiEvidenceCollector("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "daily", 100,
-                    new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
             ]),
         });
 
@@ -73,10 +68,88 @@ public sealed class CollectorCommandTests : IDisposable
         Assert.Contains("collector-a", output, StringComparison.Ordinal);
         Assert.Contains("Endpoint MFA", output, StringComparison.Ordinal);
         Assert.Contains("integration", output, StringComparison.Ordinal);
+        Assert.Contains("fleet", output, StringComparison.Ordinal);
         Assert.Contains("vendor-a", output, StringComparison.Ordinal);
-        // The config key/value pairs of a seeded collector appear in the output.
-        Assert.Contains("endpoint", output, StringComparison.Ordinal);
-        Assert.Contains("policies.mfa", output, StringComparison.Ordinal);
+        // An integration collector's tracked checks, by name and severity.
+        Assert.Contains("check mfa-enforced", output, StringComparison.Ordinal);
+        Assert.Contains("Hard", output, StringComparison.Ordinal);
+    }
+
+    // The merge's point at the command surface: a former template lists under the same command, in the
+    // same control block, as a data source.
+    [Fact]
+    public void ListPrintsAnAttestationsFormAndATrainingCollectorsQuiz()
+    {
+        Install(new FakeApiClient());
+
+        var (exit, output, _) = Capture(() => new CollectorCommands().List());
+
+        Assert.Equal(0, exit);
+        Assert.Contains("attest-manual", output, StringComparison.Ordinal);
+        Assert.Contains("Ruleset reviewed?", output, StringComparison.Ordinal);
+        Assert.Contains("attest-training", output, StringComparison.Ordinal);
+        Assert.Contains("pass mark: 80%", output, StringComparison.Ordinal);
+        Assert.Contains("What should you do with an unexpected attachment?", output, StringComparison.Ordinal);
+    }
+
+    // The body itself is rendered by the register page, so the CLI only reports whether one is authored.
+    [Fact]
+    public void ListPrintsTheBodyIndicatorForBothCasesAndForNoOtherType()
+    {
+        Install(new FakeApiClient());
+
+        var (_, output, _) = Capture(() => new CollectorCommands().List());
+
+        var manual = output[output.IndexOf("attest-manual", StringComparison.Ordinal)..];
+        Assert.Contains("has body", manual[..manual.IndexOf("attest-training", StringComparison.Ordinal)], StringComparison.Ordinal);
+        Assert.Contains("no body", output[output.IndexOf("attest-training", StringComparison.Ordinal)..], StringComparison.Ordinal);
+
+        // A script collector's schema registers no config key, so its block carries no indicator at all
+        // rather than falling through to "no body".
+        var script = output[output.IndexOf("collector-script", StringComparison.Ordinal)..];
+        Assert.DoesNotContain("body", script[..script.IndexOf("attest-manual", StringComparison.Ordinal)], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ListOutputCarriesNoQuizAnswer()
+    {
+        // The sentinel is not in the fixture and structurally cannot be: ApiQuizItem has no answer member
+        // (asserted directly below). It is belt-and-braces against a future wire record that gains one -
+        // a distinctive value to search for that no prompt, option, field, or label would ever contain.
+        const string answerSentinel = "SECRET_ANSWER_SENTINEL";
+        Install(new FakeApiClient
+        {
+            CollectorListResult = ApiResult<IReadOnlyList<ApiCollector>>.Success(
+            [
+                new ApiCollector(
+                    "attest-training", "Phishing awareness", "ctrl-a", null, "training", null, "annual", null,
+                    new ApiCollectorConfig(
+                        null, [], 80, [new ApiQuizItem("q1", "Pick the safe action", ["alpha", "bravo"])], [])),
+            ]),
+        });
+
+        var (exit, output, _) = Capture(() => new CollectorCommands().List());
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Pick the safe action", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(answerSentinel, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QuizWireRecordHasNoAnswerProperty()
+    {
+        // Structural guarantee: the CLI wire record cannot carry a quiz answer, so the redacted answer
+        // can never reach the CLI read surface regardless of formatting.
+        Assert.DoesNotContain("Answer", typeof(ApiQuizItem).GetProperties().Select(p => p.Name));
+    }
+
+    // The retired group is gone from the command surface, not merely unused.
+    [Fact]
+    public void TheAttestationTemplateCommandGroupIsRemoved()
+    {
+        Assert.DoesNotContain(
+            typeof(CollectorCommands).Assembly.GetTypes(),
+            t => t.Name.Contains("AttestationTemplate", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -85,7 +158,7 @@ public sealed class CollectorCommandTests : IDisposable
         Install(new FakeApiClient
         {
             ControlListResult = ApiResult<IReadOnlyList<ApiControl>>.Success([]),
-            CollectorListResult = ApiResult<IReadOnlyList<ApiEvidenceCollector>>.Success([]),
+            CollectorListResult = ApiResult<IReadOnlyList<ApiCollector>>.Success([]),
         });
 
         var (exit, _, _) = Capture(() => new CollectorCommands().List());
@@ -139,7 +212,7 @@ public sealed class CollectorCommandTests : IDisposable
     {
         Install(new FakeApiClient
         {
-            CollectorListResult = ApiResult<IReadOnlyList<ApiEvidenceCollector>>.Failure("Could not reach the API."),
+            CollectorListResult = ApiResult<IReadOnlyList<ApiCollector>>.Failure("Could not reach the API."),
         });
 
         var (exit, _, err) = Capture(() => new CollectorCommands().List());
@@ -173,7 +246,7 @@ public sealed class CollectorCommandTests : IDisposable
     {
         Install(new FakeApiClient
         {
-            IssueResult = ApiResult<IssuedCredential>.Validation("Evidence-collector 'nope' does not exist."),
+            IssueResult = ApiResult<IssuedCredential>.Validation("Collector 'nope' does not exist."),
         });
 
         var (exit, _, err) = Capture(() => new CollectorCommands().CredentialIssue("nope"));

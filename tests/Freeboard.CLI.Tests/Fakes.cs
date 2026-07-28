@@ -106,8 +106,6 @@ internal sealed class FakeApiClient : IFreeboardApiClient
 
     public int CollectorListCalls { get; private set; }
 
-    public int TemplateListCalls { get; private set; }
-
     public int ConnectionListCalls { get; private set; }
 
     public int CredentialIssueCalls { get; private set; }
@@ -150,11 +148,9 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public ApiResult<IReadOnlyList<ApiControl>> ControlListResult { get; init; } =
         ApiResult<IReadOnlyList<ApiControl>>.Success([SampleControl]);
 
-    public ApiResult<IReadOnlyList<ApiEvidenceCollector>> CollectorListResult { get; init; } =
-        ApiResult<IReadOnlyList<ApiEvidenceCollector>>.Success([SampleCollector]);
-
-    public ApiResult<IReadOnlyList<ApiAttestationTemplate>> TemplateListResult { get; init; } =
-        ApiResult<IReadOnlyList<ApiAttestationTemplate>>.Success([SampleManualTemplate, SampleTrainingTemplate]);
+    public ApiResult<IReadOnlyList<ApiCollector>> CollectorListResult { get; init; } =
+        ApiResult<IReadOnlyList<ApiCollector>>.Success(
+            [SampleCollector, SampleScriptCollector, SampleManualCollector, SampleTrainingCollector]);
 
     public ApiResult<IReadOnlyList<ApiIntegrationConnection>> ConnectionListResult { get; init; } =
         ApiResult<IReadOnlyList<ApiIntegrationConnection>>.Success([SampleConnection]);
@@ -172,17 +168,29 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public static ApiIntegrationConnection SampleConnection { get; } =
         new("fleet-prod", "fleet", "https://fleet.example.com", "daily", "vendor-a", true);
 
-    public static ApiEvidenceCollector SampleCollector { get; } =
-        new("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "daily", 100,
-            new Dictionary<string, string> { ["endpoint"] = "policies.mfa" });
+    public static ApiCollector SampleCollector { get; } =
+        new("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "fleet", "daily", 100,
+            new ApiCollectorConfig(null, [], null, [], [new ApiCheck("12", "mfa-enforced", "Hard")]));
 
-    public static ApiAttestationTemplate SampleManualTemplate { get; } =
-        new("attest-manual", "Firewall attestation", "ctrl-a", "manual", "Confirm review.",
-            [new ApiAttestationField("reviewed", "Ruleset reviewed?", "boolean", [])], null, []);
+    // A type whose schema registers no config key: the endpoint sends `"config": {}`, so every member
+    // reads absent.
+    public static ApiCollector SampleScriptCollector { get; } =
+        new("collector-script", "Nightly script", "ctrl-a", null, "script", null, "daily", null,
+            new ApiCollectorConfig(null, [], null, [], []));
 
-    public static ApiAttestationTemplate SampleTrainingTemplate { get; } =
-        new("attest-training", "Phishing awareness", "ctrl-a", "training", null, [], 80,
-            [new ApiQuizItem("q1", "What should you do with an unexpected attachment?", ["Open it", "Report it"])]);
+    public static ApiCollector SampleManualCollector { get; } =
+        new("attest-manual", "Firewall attestation", "ctrl-a", null, "manual", null, "annual", null,
+            new ApiCollectorConfig(
+                "Confirm review.", [new ApiAttestationField("reviewed", "Ruleset reviewed?", "boolean", [])],
+                null, [], []));
+
+    // No body authored, so the has/no-body indicator has both cases across the two attestations.
+    public static ApiCollector SampleTrainingCollector { get; } =
+        new("attest-training", "Phishing awareness", "ctrl-a", null, "training", null, "annual", null,
+            new ApiCollectorConfig(
+                null, [], 80,
+                [new ApiQuizItem("q1", "What should you do with an unexpected attachment?", ["Open it", "Report it"])],
+                []));
 
     public Task<ApiResult<CreatedUser>> CreateUserAsync(string email, string name, string role, CancellationToken ct)
     {
@@ -242,16 +250,10 @@ internal sealed class FakeApiClient : IFreeboardApiClient
         return Task.FromResult(ControlListResult);
     }
 
-    public Task<ApiResult<IReadOnlyList<ApiEvidenceCollector>>> ListEvidenceCollectorsAsync(CancellationToken ct)
+    public Task<ApiResult<IReadOnlyList<ApiCollector>>> ListCollectorsAsync(CancellationToken ct)
     {
         CollectorListCalls++;
         return Task.FromResult(CollectorListResult);
-    }
-
-    public Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct)
-    {
-        TemplateListCalls++;
-        return Task.FromResult(TemplateListResult);
     }
 
     public Task<ApiResult<IReadOnlyList<ApiIntegrationConnection>>> ListIntegrationConnectionsAsync(CancellationToken ct)

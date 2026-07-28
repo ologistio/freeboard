@@ -35,19 +35,22 @@ public sealed class GitOpsCommandTests
         title: Control A
         maps_to:
           - req-a
+        evaluation: all
         ---
         apiVersion: freeboard.dev/v1alpha1
-        kind: AttestationTemplate
+        kind: Collector
         id: attest-training
         title: Phishing awareness
         control: ctrl-a
         type: training
-        pass_mark: 90
-        quiz:
-          - id: q1
-            prompt: What should you do with an unexpected attachment?
-            options: [Open it, {{SentinelAnswer}}]
-            answer: {{SentinelAnswer}}
+        frequency: annual
+        config:
+          pass_mark: 90
+          quiz:
+            - id: q1
+              prompt: What should you do with an unexpected attachment?
+              options: [Open it, {{SentinelAnswer}}]
+              answer: {{SentinelAnswer}}
         """;
 
     private static string WriteTempConfig(string content)
@@ -315,11 +318,11 @@ public sealed class GitOpsCommandTests
     }
 
     [Fact]
-    public void ValidateEvidenceCollectorWithUnknownControlExitsOneNamingTheControl()
+    public void ValidateCollectorWithUnknownControlExitsOneNamingTheControl()
     {
         var dir = WriteTempConfig("""
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: ec-a
             title: Collector A
             control: ctrl-missing
@@ -369,17 +372,19 @@ public sealed class GitOpsCommandTests
             evaluation: all
             ---
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: ec-a
             title: Collector A
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
             connection: conn-missing
-            checks:
-              - source_key: "1"
-                name: check-a
-                severity: Hard
+            config:
+              checks:
+                - source_key: "1"
+                  name: check-a
+                  severity: Hard
             """);
         try
         {
@@ -395,15 +400,16 @@ public sealed class GitOpsCommandTests
     }
 
     [Fact]
-    public void ValidateAttestationTemplateWithUnknownControlExitsOneNamingTheControl()
+    public void ValidateAttestationCollectorWithUnknownControlExitsOneNamingTheControl()
     {
         var dir = WriteTempConfig("""
             apiVersion: freeboard.dev/v1alpha1
-            kind: AttestationTemplate
+            kind: Collector
             id: attest-a
             title: Template A
             control: ctrl-missing
             type: manual
+            frequency: annual
             """);
         try
         {
@@ -411,6 +417,105 @@ public sealed class GitOpsCommandTests
 
             Assert.Equal(1, exit);
             Assert.Contains("ctrl-missing", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // Two merged-model rejections, at the command surface rather than only in Core, so a document that
+    // the new model refuses is proved to stop at `gitops validate`.
+    [Theory]
+    [InlineData("provider: intune", "checks", "intune")]
+    [InlineData("provider: fleet", "nonsense", "nonsense")]
+    public void ValidateRejectsAProviderMismatchAndAnUnknownConfigKey(
+        string providerLine, string configKey, string expected)
+    {
+        var dir = WriteTempConfig($"""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Standard
+            id: std-a
+            title: Standard A
+            version: "1.0"
+            authority: Example Authority
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Requirement
+            id: req-a
+            title: Requirement A
+            standard: std-a
+            theme: Theme A
+            statement: Do the thing.
+            citation_label: Source A
+            citation_url: https://example.com/a
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Control
+            id: ctrl-a
+            title: Control A
+            maps_to:
+              - req-a
+            evaluation: all
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Integration
+            id: conn-a
+            title: Connection A
+            provider: fleet
+            base_url: https://fleet.example.com
+            discovery_cadence: daily
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Collector
+            id: ec-a
+            title: Collector A
+            control: ctrl-a
+            type: integration
+            {providerLine}
+            frequency: daily
+            connection: conn-a
+            config:
+              {configKey}:
+                - source_key: "1"
+                  name: check-a
+                  severity: Hard
+            """);
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(1, exit);
+            Assert.Contains(expected, stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // A retired kind must stop at the command surface, not be silently ignored: the loader drops the
+    // document, so only the command's exit code proves the operator is told rather than left with a
+    // config that quietly lost a collector.
+    [Theory]
+    [InlineData("EvidenceCollector")]
+    [InlineData("AttestationTemplate")]
+    public void ValidateRejectsARetiredCollectorKind(string kind)
+    {
+        var dir = WriteTempConfig($"""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: {kind}
+            id: collector-a
+            title: Collector A
+            control: ctrl-a
+            type: manual
+            """);
+        try
+        {
+            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+
+            Assert.Equal(1, exit);
+            Assert.Contains($"Unknown kind '{kind}'", stderr, StringComparison.Ordinal);
         }
         finally
         {
@@ -427,15 +532,17 @@ public sealed class GitOpsCommandTests
             // validate: the count-only summary must not carry the answer.
             var (validateExit, validateOut, _) = CliRunner.Run("gitops", "validate", dir);
             Assert.Equal(0, validateExit);
-            Assert.Contains("attestation-template(s)", validateOut);
+            Assert.Contains("collector(s)", validateOut);
             Assert.DoesNotContain(SentinelAnswer, validateOut, StringComparison.Ordinal);
 
-            // apply --dry-run: the per-template line shows id/title/control/type/pass_mark, never the answer.
+            // apply --dry-run: the per-collector line shows identity and references only. The pass mark now
+            // lives in `config`, which authoring output omits entirely along with the quiz and its answer.
             var (applyExit, applyOut, _) = CliRunner.Run("gitops", "apply", dir, "--dry-run");
             Assert.Equal(0, applyExit);
             Assert.Contains("attest-training", applyOut, StringComparison.Ordinal);
             Assert.Contains("training", applyOut, StringComparison.Ordinal);
-            Assert.Contains("90", applyOut, StringComparison.Ordinal);
+            Assert.DoesNotContain("pass mark", applyOut, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("90%", applyOut, StringComparison.Ordinal);
             Assert.DoesNotContain(SentinelAnswer, applyOut, StringComparison.Ordinal);
 
             // sync: the success line is count-only. Without a database it exits before the line prints;
