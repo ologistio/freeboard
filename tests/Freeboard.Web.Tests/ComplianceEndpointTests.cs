@@ -22,8 +22,7 @@ public sealed class ComplianceEndpointTests
         "/api/v1/freeboard/organisations",
         "/api/v1/freeboard/scopes",
         "/api/v1/freeboard/vendors",
-        "/api/v1/freeboard/evidence-collectors",
-        "/api/v1/freeboard/attestation-templates",
+        "/api/v1/freeboard/collectors",
         "/api/v1/freeboard/statement-of-applicability/std-a",
     ];
 
@@ -63,17 +62,23 @@ public sealed class ComplianceEndpointTests
         ],
         Collectors =
         [
-            new EvidenceCollectorRow("collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "daily", 100,
-                new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
-            new EvidenceCollectorRow("collector-b", "Annual attestation", "ctrl-a", null, "manual-attestation", "annual", null,
-                new Dictionary<string, string>()),
-        ],
-        Templates =
-        [
-            new AttestationTemplateRow("attest-manual", "Firewall attestation", "ctrl-a", "manual", "Confirm review.",
-                [new AttestationField { Id = "reviewed", Label = "Ruleset reviewed?", Type = "boolean" }], null, []),
-            new AttestationTemplateRow("attest-training", "Phishing awareness", "ctrl-a", "training", null,
-                [], 80, [new QuizItemView("q1", "What should you do?", ["Open it", "Report it"])]),
+            new CollectorRow(
+                "collector-a", "Endpoint MFA", "ctrl-a", "vendor-a", "integration", "fleet", "daily", 100,
+                new CollectorConfigView(
+                    null, [], null, [], [new Check { SourceKey = "12", Name = "mfa-enforced", Severity = "Hard" }])),
+            new CollectorRow(
+                "collector-script", "Nightly script", "ctrl-a", null, "script", null, "daily", null,
+                CollectorConfigView.Empty),
+            new CollectorRow(
+                "attest-manual", "Firewall attestation", "ctrl-a", null, "manual", null, "annual", null,
+                new CollectorConfigView(
+                    "Confirm review.",
+                    [new AttestationField { Id = "reviewed", Label = "Ruleset reviewed?", Type = "boolean" }],
+                    null, [], [])),
+            new CollectorRow(
+                "attest-training", "Phishing awareness", "ctrl-a", null, "training", null, "annual", null,
+                new CollectorConfigView(
+                    null, [], 80, [new QuizItemView("q1", "What should you do?", ["Open it", "Report it"])], [])),
         ],
     };
 
@@ -172,48 +177,114 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
-    public async Task EvidenceCollectorsEndpointReturnsRowsWithConfig()
+    public async Task CollectorsEndpointReturnsEveryRowWithItsTypedConfig()
     {
         using var factory = Factory(PopulatedStore());
         using var client = MemberClient(factory);
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/evidence-collectors");
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/collectors");
 
-        Assert.Equal(2, json.GetArrayLength());
+        Assert.Equal(4, json.GetArrayLength());
 
-        var first = json[0];
-        Assert.Equal("collector-a", first.GetProperty("id").GetString());
-        Assert.Equal("ctrl-a", first.GetProperty("control").GetString());
-        Assert.Equal("vendor-a", first.GetProperty("vendor").GetString());
-        Assert.Equal("integration", first.GetProperty("type").GetString());
-        Assert.Equal("daily", first.GetProperty("frequency").GetString());
-        Assert.Equal(100, first.GetProperty("threshold").GetInt32());
-        Assert.Equal("policies.mfa", first.GetProperty("config").GetProperty("endpoint").GetString());
+        var integration = json[0];
+        Assert.Equal("collector-a", integration.GetProperty("id").GetString());
+        Assert.Equal("ctrl-a", integration.GetProperty("control").GetString());
+        Assert.Equal("vendor-a", integration.GetProperty("vendor").GetString());
+        Assert.Equal("integration", integration.GetProperty("type").GetString());
+        Assert.Equal("fleet", integration.GetProperty("provider").GetString());
+        Assert.Equal("daily", integration.GetProperty("frequency").GetString());
+        Assert.Equal(100, integration.GetProperty("threshold").GetInt32());
+        var check = integration.GetProperty("config").GetProperty("checks")[0];
+        Assert.Equal("12", check.GetProperty("source_key").GetString());
+        Assert.Equal("mfa-enforced", check.GetProperty("name").GetString());
+        Assert.Equal("Hard", check.GetProperty("severity").GetString());
 
-        // Optional vendor/threshold null when absent; empty config serializes as an empty object.
-        var second = json[1];
-        Assert.Equal(JsonValueKind.Null, second.GetProperty("vendor").ValueKind);
-        Assert.Equal(JsonValueKind.Null, second.GetProperty("threshold").ValueKind);
-        Assert.Equal(JsonValueKind.Object, second.GetProperty("config").ValueKind);
-        Assert.Empty(second.GetProperty("config").EnumerateObject());
+        var manual = json[2];
+        Assert.Equal("manual", manual.GetProperty("type").GetString());
+        Assert.Equal("Confirm review.", manual.GetProperty("config").GetProperty("body").GetString());
+        var field = manual.GetProperty("config").GetProperty("fields")[0];
+        Assert.Equal("reviewed", field.GetProperty("id").GetString());
+        Assert.Equal("boolean", field.GetProperty("type").GetString());
+
+        var training = json[3];
+        Assert.Equal("training", training.GetProperty("type").GetString());
+        Assert.Equal(80, training.GetProperty("config").GetProperty("pass_mark").GetInt32());
+        var item = training.GetProperty("config").GetProperty("quiz")[0];
+        Assert.Equal("q1", item.GetProperty("id").GetString());
+        Assert.Equal("What should you do?", item.GetProperty("prompt").GetString());
+        Assert.Equal(["Open it", "Report it"], item.GetProperty("options").EnumerateArray().Select(o => o.GetString()!).ToArray());
+    }
+
+    // A config key is written only when its member carries a value, so `config` holds exactly the keys the
+    // collector's schema can register - never five keys with three nulls.
+    [Fact]
+    public async Task CollectorConfigOmitsEveryAbsentMember()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/collectors");
+
+        // A script collector registers no config key at all.
+        var script = json[1].GetProperty("config");
+        Assert.Equal(JsonValueKind.Object, script.ValueKind);
+        Assert.Empty(script.EnumerateObject());
+
+        // A training collector carries no checks key; an integration one carries no attestation key.
+        var training = json[3].GetProperty("config");
+        Assert.False(training.TryGetProperty("checks", out _));
+        Assert.False(training.TryGetProperty("body", out _));
+        var integration = json[0].GetProperty("config");
+        Assert.Equal(["checks"], integration.EnumerateObject().Select(p => p.Name).ToArray());
+    }
+
+    // The omission stops at `config`: a top-level member every collector has stays an explicit null.
+    [Fact]
+    public async Task TopLevelNullablesStayExplicitNull()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/collectors");
+
+        var script = json[1];
+        Assert.Equal(JsonValueKind.Null, script.GetProperty("vendor").ValueKind);
+        Assert.Equal(JsonValueKind.Null, script.GetProperty("provider").ValueKind);
+        Assert.Equal(JsonValueKind.Null, script.GetProperty("threshold").ValueKind);
     }
 
     [Fact]
-    public async Task EvidenceCollectorsReadServedInReadOnlyModeToAuthenticatedUser()
+    public async Task CollectorsEndpointNeverExposesQuizAnswer()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var raw = await client.GetStringAsync("/api/v1/freeboard/collectors");
+        var json = JsonSerializer.Deserialize<JsonElement>(raw);
+        var item = json[3].GetProperty("config").GetProperty("quiz")[0];
+
+        Assert.False(item.TryGetProperty("answer", out _));
+        // Redaction is proved by the absence of the `answer` key, not by the absence of the answer's
+        // text: the correct answer is legitimately present in the JSON as one of the quiz options.
+        Assert.DoesNotContain("answer", raw, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CollectorsReadServedInReadOnlyModeToAuthenticatedUser()
     {
         using var factory = Factory(PopulatedStore(), readOnly: true);
         using var client = MemberClient(factory);
 
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/evidence-collectors")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/collectors")).StatusCode);
     }
 
     [Fact]
-    public async Task EvidenceCollectorsEndpointReturns503WhenStoreUnreachable()
+    public async Task CollectorsEndpointReturns503WhenStoreUnreachable()
     {
         using var factory = Factory(new FakeComplianceStore { Unreachable = true });
         using var client = MemberClient(factory);
 
-        var response = await client.GetAsync("/api/v1/freeboard/evidence-collectors");
+        var response = await client.GetAsync("/api/v1/freeboard/collectors");
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -222,90 +293,31 @@ public sealed class ComplianceEndpointTests
     [Fact]
     public async Task ZeroGrantEnforceCallerStillReadsEveryCollector()
     {
-        // The evidence-collectors endpoint does NOT narrow by IOrgAccess. Under strict Enforce with no
-        // grants a member still reads every collector.
+        // The collectors endpoint does NOT narrow by IOrgAccess. Under strict Enforce with no grants a
+        // member still reads every collector.
         using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/evidence-collectors");
-        Assert.Equal(["collector-a", "collector-b"], json.EnumerateArray().Select(c => c.GetProperty("id").GetString()!).ToArray());
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/collectors");
+        Assert.Equal(
+            ["collector-a", "collector-script", "attest-manual", "attest-training"],
+            json.EnumerateArray().Select(c => c.GetProperty("id").GetString()!).ToArray());
     }
 
-    [Fact]
-    public async Task AttestationTemplatesEndpointReturnsRowsWithFieldsAndQuiz()
+    // The credential routes are exercised as an admin, so a route that came back would answer rather
+    // than 403 and the 404 assertion would bite.
+    [Theory]
+    [InlineData("GET", "/api/v1/freeboard/evidence-collectors")]
+    [InlineData("GET", "/api/v1/freeboard/attestation-templates")]
+    [InlineData("POST", "/api/v1/freeboard/evidence-collectors/collector-a/credentials")]
+    [InlineData("DELETE", "/api/v1/freeboard/evidence-collectors/collector-a/credentials/cred-1")]
+    public async Task RetiredRoutesAreUnmapped(string method, string retired)
     {
         using var factory = Factory(PopulatedStore());
-        using var client = MemberClient(factory);
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("admin1", role: "admin"));
 
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/attestation-templates");
-
-        Assert.Equal(2, json.GetArrayLength());
-
-        var manual = json[0];
-        Assert.Equal("attest-manual", manual.GetProperty("id").GetString());
-        Assert.Equal("ctrl-a", manual.GetProperty("control").GetString());
-        Assert.Equal("manual", manual.GetProperty("type").GetString());
-        Assert.Equal("Confirm review.", manual.GetProperty("body").GetString());
-        var field = manual.GetProperty("fields")[0];
-        Assert.Equal("reviewed", field.GetProperty("id").GetString());
-        Assert.Equal("boolean", field.GetProperty("type").GetString());
-        Assert.Equal(JsonValueKind.Null, manual.GetProperty("pass_mark").ValueKind);
-
-        var training = json[1];
-        Assert.Equal("training", training.GetProperty("type").GetString());
-        Assert.Equal(80, training.GetProperty("pass_mark").GetInt32());
-        var item = training.GetProperty("quiz")[0];
-        Assert.Equal("q1", item.GetProperty("id").GetString());
-        Assert.Equal("What should you do?", item.GetProperty("prompt").GetString());
-        Assert.Equal(["Open it", "Report it"], item.GetProperty("options").EnumerateArray().Select(o => o.GetString()!).ToArray());
-    }
-
-    [Fact]
-    public async Task AttestationTemplatesEndpointNeverExposesQuizAnswer()
-    {
-        using var factory = Factory(PopulatedStore());
-        using var client = MemberClient(factory);
-
-        var raw = await client.GetStringAsync("/api/v1/freeboard/attestation-templates");
-        var json = JsonSerializer.Deserialize<JsonElement>(raw);
-        var item = json[1].GetProperty("quiz")[0];
-
-        Assert.False(item.TryGetProperty("answer", out _));
-        // The correct answer is "Report it"; it must not appear anywhere in the JSON.
-        Assert.DoesNotContain("answer", raw, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task AttestationTemplatesReadServedInReadOnlyModeToAuthenticatedUser()
-    {
-        using var factory = Factory(PopulatedStore(), readOnly: true);
-        using var client = MemberClient(factory);
-
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/freeboard/attestation-templates")).StatusCode);
-    }
-
-    [Fact]
-    public async Task AttestationTemplatesEndpointReturns503WhenStoreUnreachable()
-    {
-        using var factory = Factory(new FakeComplianceStore { Unreachable = true });
-        using var client = MemberClient(factory);
-
-        var response = await client.GetAsync("/api/v1/freeboard/attestation-templates");
-
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-    }
-
-    [Fact]
-    public async Task ZeroGrantEnforceCallerStillReadsEveryTemplate()
-    {
-        // The attestation-templates endpoint does NOT narrow by IOrgAccess. Under strict Enforce with no
-        // grants a member still reads every template.
-        using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
-        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
-
-        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/attestation-templates");
-        Assert.Equal(["attest-manual", "attest-training"], json.EnumerateArray().Select(t => t.GetProperty("id").GetString()!).ToArray());
+        using var request = new HttpRequestMessage(new HttpMethod(method), retired);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(request)).StatusCode);
     }
 
     [Fact]
@@ -586,12 +598,15 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(2, persisted.GetProperty("organisations").GetInt32());
         Assert.Equal(5, persisted.GetProperty("scopes").GetInt32());
         Assert.Equal(2, persisted.GetProperty("vendors").GetInt32());
-        Assert.Equal(2, persisted.GetProperty("evidenceCollectors").GetInt32());
-        Assert.Equal(2, persisted.GetProperty("attestationTemplates").GetInt32());
+        Assert.Equal(4, persisted.GetProperty("collectors").GetInt32());
 
-        // The merged persisted shape carries one scopes count and no requirementScopes/vendorScopes keys.
+        // The merged persisted shape carries one scopes count and one collectors count: no separate
+        // requirementScopes/vendorScopes keys, and no separate evidenceCollectors/attestationTemplates
+        // keys. The shape is a hand-written anonymous object, so re-adding a key is a live regression.
         Assert.False(persisted.TryGetProperty("requirementScopes", out _));
         Assert.False(persisted.TryGetProperty("vendorScopes", out _));
+        Assert.False(persisted.TryGetProperty("evidenceCollectors", out _));
+        Assert.False(persisted.TryGetProperty("attestationTemplates", out _));
     }
 
     [Fact]
@@ -630,8 +645,7 @@ public sealed class ComplianceEndpointTests
                      "/api/v1/freeboard/organisations",
                      "/api/v1/freeboard/scopes",
                      "/api/v1/freeboard/vendors",
-                     "/api/v1/freeboard/evidence-collectors",
-                     "/api/v1/freeboard/attestation-templates",
+                     "/api/v1/freeboard/collectors",
                  })
         {
             var response = await client.GetAsync(path);
@@ -664,12 +678,13 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("organisations").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("scopes").ValueKind);
         Assert.Equal(JsonValueKind.Null, persisted.GetProperty("vendors").ValueKind);
-        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("evidenceCollectors").ValueKind);
-        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("attestationTemplates").ValueKind);
+        Assert.Equal(JsonValueKind.Null, persisted.GetProperty("collectors").ValueKind);
 
-        // The degraded shape also drops the two legacy scope-count keys.
+        // The degraded shape drops the same four retired keys as the populated one.
         Assert.False(persisted.TryGetProperty("requirementScopes", out _));
         Assert.False(persisted.TryGetProperty("vendorScopes", out _));
+        Assert.False(persisted.TryGetProperty("evidenceCollectors", out _));
+        Assert.False(persisted.TryGetProperty("attestationTemplates", out _));
     }
 
     [Fact]

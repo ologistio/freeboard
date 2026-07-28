@@ -132,11 +132,8 @@ public sealed class OrgSelectionTests
         public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<VendorRow>)[]);
 
-        public Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<EvidenceCollectorRow>)[]);
-
-        public Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<AttestationTemplateRow>)[]);
+        public Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult((IReadOnlyList<CollectorRow>)[]);
 
         public Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<IntegrationConnectionRow>)[]);
@@ -145,9 +142,9 @@ public sealed class OrgSelectionTests
             Task.FromResult(new SoaInputs(Organisations, [], [], new HashSet<string>(StringComparer.Ordinal)));
 
         public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SoaDrilldownInputs([], [], [], new HashSet<string>(StringComparer.Ordinal), [], [], [], []));
+            Task.FromResult(new SoaDrilldownInputs([], [], [], new HashSet<string>(StringComparer.Ordinal), [], [], []));
 
         public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0, 0));
+            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0));
     }
 }

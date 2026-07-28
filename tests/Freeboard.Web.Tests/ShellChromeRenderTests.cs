@@ -103,7 +103,7 @@ public sealed class ShellChromeRenderTests
 
         // Group segment links to the Platform group's primary destination; the page segment names Users.
         Assert.Contains("aria-label=\"Breadcrumb\"", html, StringComparison.Ordinal);
-        Assert.Contains("/settings/evidence-collectors", html, StringComparison.Ordinal);
+        Assert.Contains("/settings/collectors", html, StringComparison.Ordinal);
         Assert.Contains("Platform", html, StringComparison.Ordinal);
     }
 

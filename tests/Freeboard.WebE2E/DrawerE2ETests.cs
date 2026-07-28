@@ -33,7 +33,7 @@ public sealed class DrawerE2ETests : E2ETestBase
         App.Compliance.Controls = [new ControlRow("ctrl-a", "Control A", ["req-a"], "all")];
         App.Compliance.Collectors =
         [
-            new EvidenceCollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "daily", null, new Dictionary<string, string>()),
+            new CollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "fleet", "daily", null, CollectorConfigView.Empty),
         ];
     }
 

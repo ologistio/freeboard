@@ -30,9 +30,7 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public IReadOnlyList<VendorRow> Vendors { get; set; } = [];
 
-    public IReadOnlyList<EvidenceCollectorRow> Collectors { get; set; } = [];
-
-    public IReadOnlyList<AttestationTemplateRow> Templates { get; set; } = [];
+    public IReadOnlyList<CollectorRow> Collectors { get; set; } = [];
 
     public IReadOnlyList<IntegrationConnectionRow> Connections { get; set; } = [];
 
@@ -83,11 +81,8 @@ internal sealed class FakeComplianceStore : IComplianceStore
     public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Vendors);
 
-    public Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default) =>
+    public Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Collectors);
-
-    public Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Templates);
 
     public Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Connections);
@@ -110,13 +105,13 @@ internal sealed class FakeComplianceStore : IComplianceStore
         }
 
         return Guard(() => new SoaDrilldownInputs(
-            Organisations, Scopes, Requirements, ResolvableAssets(), Controls, Collectors, Templates, Vendors));
+            Organisations, Scopes, Requirements, ResolvableAssets(), Controls, Collectors, Vendors));
     }
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => new ComplianceCounts(
             Standards.Count, Controls.Count, Requirements.Count, Organisations.Count, Scopes.Count,
-            Vendors.Count, Collectors.Count, Templates.Count));
+            Vendors.Count, Collectors.Count));
 
     private IReadOnlySet<string> ResolvableAssets() =>
         ResolvableAssetIds ?? Organisations.Select(o => o.Id)

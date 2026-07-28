@@ -1,13 +1,13 @@
-@page "/settings/evidence-collectors"
-@model Freeboard.Pages.Compliance.EvidenceCollectorsModel
+@page "/settings/collectors"
+@model Freeboard.Pages.Compliance.CollectorsModel
 @{
-    ViewData["Title"] = "Evidence Collector Register";
+    ViewData["Title"] = "Collector Register";
     ViewData["NavGroup"] = "Platform";
-    ViewData["NavItem"] = "evidence-collectors";
+    ViewData["NavItem"] = "collectors";
 }
 <div class="mb-6">
-    <h1 class="text-2xl font-bold">Evidence Collector Register</h1>
-    <p class="mt-1 text-sm text-muted">Controls, their evaluation rule, and the data sources attached to each.</p>
+    <h1 class="text-2xl font-bold">Collector Register</h1>
+    <p class="mt-1 text-sm text-muted">Controls, their evaluation rule, and the collectors attached to each - data sources, attestation forms, and training quizzes alike.</p>
 </div>
 
 @if (Model.StoreUnreachable)
@@ -32,7 +32,7 @@ else
                     </div>
                     <span class="text-xs text-muted">
                         Evaluation:
-                        <span class="badge badge-brand" data-evaluation>@Freeboard.Pages.Compliance.EvidenceCollectorsModel.EvaluationLabel(control)</span>
+                        <span class="badge badge-brand" data-evaluation>@Freeboard.Pages.Compliance.CollectorsModel.EvaluationLabel(control)</span>
                     </span>
                 </div>
                 @if (collectors.Count == 0)
@@ -41,69 +41,97 @@ else
                 }
                 else
                 {
-                    <table class="evidence-collectors w-full text-sm">
-                        <thead class="border-b border-neutral-200 text-left text-muted">
-                            <tr>
-                                <th class="px-4 py-3 font-medium">Collector</th>
-                                <th class="px-4 py-3 font-medium">Type</th>
-                                <th class="px-4 py-3 font-medium">Vendor</th>
-                                <th class="px-4 py-3 font-medium">Frequency</th>
-                                <th class="px-4 py-3 font-medium">Threshold</th>
-                                <th class="px-4 py-3 font-medium">Config</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-neutral-100">
-                            @foreach (var collector in collectors)
-                            {
-                                <tr data-collector-id="@collector.Id">
-                                    <td class="px-4 py-3">
+                    <div class="divide-y divide-neutral-100">
+                        @foreach (var collector in collectors)
+                        {
+                            <div class="px-4 py-3" data-collector-id="@collector.Id">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
                                         <span>@collector.Title</span>
                                         <span class="block font-mono text-xs text-neutral-500">@collector.Id</span>
-                                    </td>
-                                    <td class="px-4 py-3"><span class="font-mono text-xs" data-type>@collector.Type</span></td>
-                                    <td class="px-4 py-3">
-                                        @if (!string.IsNullOrEmpty(collector.Vendor))
+                                    </div>
+                                    <span class="badge badge-brand" data-type>@collector.Type</span>
+                                </div>
+                                <dl class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted">
+                                    <div class="flex gap-1">
+                                        <dt>Frequency:</dt>
+                                        <dd data-frequency>@collector.Frequency</dd>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(collector.Provider))
+                                    {
+                                        <div class="flex gap-1">
+                                            <dt>Provider:</dt>
+                                            <dd class="font-mono" data-provider>@collector.Provider</dd>
+                                        </div>
+                                    }
+                                    @if (!string.IsNullOrEmpty(collector.Vendor))
+                                    {
+                                        <div class="flex gap-1">
+                                            <dt>Vendor:</dt>
+                                            <dd class="font-mono" data-vendor>@collector.Vendor</dd>
+                                        </div>
+                                    }
+                                    @if (collector.Threshold is int threshold)
+                                    {
+                                        <div class="flex gap-1">
+                                            <dt>Threshold:</dt>
+                                            <dd data-threshold>@threshold%</dd>
+                                        </div>
+                                    }
+                                </dl>
+                                @if (!string.IsNullOrEmpty(collector.Config.Body))
+                                {
+                                    @* Body is authored markdown rendered as HTML-encoded text: a git-authored *@
+                                    @* body must never become live HTML (stored-XSS). No @@Html.Raw, no markdown step. *@
+                                    <p class="mt-2 whitespace-pre-line text-sm text-neutral-700" data-body>@collector.Config.Body</p>
+                                }
+                                @if (collector.Config.Fields.Count > 0)
+                                {
+                                    <ul class="mt-2 space-y-1 text-sm" data-fields>
+                                        @foreach (var field in collector.Config.Fields)
                                         {
-                                            <span class="font-mono text-xs" data-vendor>@collector.Vendor</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-neutral-500">-</span>
-                                        }
-                                    </td>
-                                    <td class="px-4 py-3"><span data-frequency>@collector.Frequency</span></td>
-                                    <td class="px-4 py-3">
-                                        @if (collector.Threshold is int threshold)
-                                        {
-                                            <span data-threshold>@threshold%</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-neutral-500">-</span>
-                                        }
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        @if (collector.Config.Count == 0)
-                                        {
-                                            <span class="text-neutral-500">-</span>
-                                        }
-                                        else
-                                        {
-                                            <dl class="space-y-0.5">
-                                                @foreach (var entry in collector.Config)
+                                            <li data-field-id="@field.Id">
+                                                <span>@field.Label</span>
+                                                <span class="font-mono text-xs text-neutral-500" data-field-type>[@field.Type]</span>
+                                                @if (field.Options.Count > 0)
                                                 {
-                                                    <div class="flex gap-1 font-mono text-xs" data-config-key="@entry.Key">
-                                                        <dt class="text-muted">@entry.Key:</dt>
-                                                        <dd>@entry.Value</dd>
-                                                    </div>
+                                                    <span class="text-xs text-neutral-500" data-field-options>(@string.Join(", ", field.Options))</span>
                                                 }
-                                            </dl>
+                                            </li>
                                         }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+                                    </ul>
+                                }
+                                @if (collector.Config.PassMark is int passMark)
+                                {
+                                    <p class="mt-2 text-sm text-neutral-700">Pass mark: <span data-pass-mark>@passMark%</span></p>
+                                }
+                                @if (collector.Config.Quiz.Count > 0)
+                                {
+                                    <ul class="mt-2 space-y-1 text-sm" data-quiz>
+                                        @foreach (var item in collector.Config.Quiz)
+                                        {
+                                            <li data-quiz-id="@item.Id">
+                                                <span data-quiz-prompt>@item.Prompt</span>
+                                                <span class="text-xs text-neutral-500" data-quiz-options>(@string.Join(", ", item.Options))</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                                @if (collector.Config.Checks.Count > 0)
+                                {
+                                    <ul class="mt-2 space-y-1 text-sm" data-checks>
+                                        @foreach (var check in collector.Config.Checks)
+                                        {
+                                            <li data-check-name="@check.Name">
+                                                <span>@check.Name</span>
+                                                <span class="font-mono text-xs text-neutral-500" data-check-severity>[@check.Severity]</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                            </div>
+                        }
+                    </div>
                 }
             </section>
         }

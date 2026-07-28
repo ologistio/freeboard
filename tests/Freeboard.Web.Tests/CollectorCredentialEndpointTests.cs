@@ -12,10 +12,10 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class CollectorCredentialEndpointTests
 {
-    private static EvidenceCollectorRow Collector(string id) =>
-        new(id, $"{id} title", "ctrl-mfa", null, "integration", "daily", null, new Dictionary<string, string>());
+    private static CollectorRow Collector(string id) =>
+        new(id, $"{id} title", "ctrl-mfa", null, "integration", "fleet", "daily", null, CollectorConfigView.Empty);
 
-    private static string IssueRoute(string id) => $"/api/v1/freeboard/evidence-collectors/{id}/credentials";
+    private static string IssueRoute(string id) => $"/api/v1/freeboard/collectors/{id}/credentials";
 
     [Fact]
     public async Task AdminIssuesCredentialAndGetsRawTokenOnce()

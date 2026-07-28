@@ -102,16 +102,16 @@ public static class EvidenceIngestEndpoints
 
             // 5. Resolve the registration and scope. Every well-formed request that cannot be satisfied
             // against the collector's current registration is a 422.
-            EvidenceCollectorRow collector;
+            CollectorRow collector;
             string vendor;
             try
             {
-                var collectors = await reads.GetEvidenceCollectorsAsync(ct).ConfigureAwait(false);
+                var collectors = await reads.GetCollectorsAsync(ct).ConfigureAwait(false);
                 var found = collectors.FirstOrDefault(c =>
                     string.Equals(c.Id, validated.CollectorId, StringComparison.Ordinal));
                 if (found is null)
                 {
-                    return Semantic($"collector_id '{validated.CollectorId}' is not a registered evidence-collector.");
+                    return Semantic($"collector_id '{validated.CollectorId}' is not a registered collector.");
                 }
 
                 collector = found;
@@ -580,7 +580,7 @@ public static class EvidenceIngestEndpoints
 
     private static IResult MissingVendor(string collectorId) => Results.Problem(
         title: "Collector not configured for ingest",
-        detail: $"Evidence-collector '{collectorId}' has no vendor set. Set its vendor in GitOps config before ingest.",
+        detail: $"Collector '{collectorId}' has no vendor set. Set its vendor in GitOps config before ingest.",
         statusCode: StatusCodes.Status422UnprocessableEntity,
         type: "https://freeboard.dev/problems/collector-missing-vendor");
 

@@ -107,11 +107,8 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
         App.Compliance.Controls = [new ControlRow("ctrl-a", "Control A", ["req-a"], "all")];
         App.Compliance.Collectors =
         [
-            new EvidenceCollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "daily", null, new Dictionary<string, string>()),
-        ];
-        App.Compliance.Templates =
-        [
-            new AttestationTemplateRow("tmpl-a", "Template A", "ctrl-a", "manual", null, [], null, []),
+            new CollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "fleet", "daily", null, CollectorConfigView.Empty),
+            new CollectorRow("tmpl-a", "Template A", "ctrl-a", null, "manual", null, "annual", null, CollectorConfigView.Empty),
         ];
 
         await using var context = await NewContextAsync();

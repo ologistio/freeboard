@@ -164,11 +164,8 @@ public sealed class StatementOfApplicabilityPageTests
         ],
         Collectors =
         [
-            new EvidenceCollectorRow("coll-a", "Collector A", "ctrl-a", "vendor-x", "integration", "daily", null, new Dictionary<string, string>()),
-        ],
-        Templates =
-        [
-            new AttestationTemplateRow("tmpl-a", "Template A", "ctrl-a", "manual", null, [], null, []),
+            new CollectorRow("coll-a", "Collector A", "ctrl-a", "vendor-x", "integration", "fleet", "daily", null, CollectorConfigView.Empty),
+            new CollectorRow("tmpl-a", "Template A", "ctrl-a", null, "manual", null, "annual", null, CollectorConfigView.Empty),
         ],
         Vendors = [new VendorRow("vendor-x", "Vendor X", null)],
     };
@@ -193,6 +190,17 @@ public sealed class StatementOfApplicabilityPageTests
         Assert.Contains("data-check-kind=\"attestation\"", table, StringComparison.Ordinal);
         // The collector's vendor shows by title, not the raw id.
         Assert.Contains("Vendor X", table, StringComparison.Ordinal);
+
+        // The tag is derived from the collector's type, and it carries the cadence with it: tmpl-a is a
+        // manual collector with an "annual" frequency of its own, and the page shows none - a cadence
+        // beside a check that carries no evidence status would be a collection promise it cannot back.
+        var attestation = table[table.IndexOf("data-check-id=\"tmpl-a\"", StringComparison.Ordinal)..];
+        attestation = attestation[..attestation.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.DoesNotContain("annual", attestation, StringComparison.Ordinal);
+
+        var collector = table[table.IndexOf("data-check-id=\"coll-a\"", StringComparison.Ordinal)..];
+        collector = collector[..collector.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.Contains("daily", collector, StringComparison.Ordinal);
     }
 
     [Fact]

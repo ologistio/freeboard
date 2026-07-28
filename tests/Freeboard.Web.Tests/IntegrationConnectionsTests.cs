@@ -225,10 +225,10 @@ public sealed class IntegrationConnectionsTests
             ],
             Collectors =
             [
-                new EvidenceCollectorRow("collector-prod", "MFA", "ctrl-a", null, "integration", "daily", null,
-                    new Dictionary<string, string>(), "fleet-prod"),
-                new EvidenceCollectorRow("collector-dev", "MFA", "ctrl-a", null, "integration", "daily", null,
-                    new Dictionary<string, string>(), "fleet-dev"),
+                new CollectorRow("collector-prod", "MFA", "ctrl-a", null, "integration", "fleet", "daily", null,
+                    CollectorConfigView.Empty, "fleet-prod"),
+                new CollectorRow("collector-dev", "MFA", "ctrl-a", null, "integration", "fleet", "daily", null,
+                    CollectorConfigView.Empty, "fleet-dev"),
             ],
         };
         using var factory = Factory(store);

@@ -16,7 +16,7 @@ public sealed class ShellNavCatalogTests
 {
     private static readonly string[] MovedSettingsRoutes =
     [
-        "/settings/evidence-collectors", "/settings/attestation-templates",
+        "/settings/collectors",
         "/settings/users", "/settings/custom-roles",
     ];
 

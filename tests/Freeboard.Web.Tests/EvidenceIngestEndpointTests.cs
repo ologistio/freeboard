@@ -23,30 +23,33 @@ public sealed class EvidenceIngestEndpointTests
     private const string Control = "ctrl-mfa";
     private const string Standard = "std-1";
 
-    private static EvidenceCollectorRow Collector(string id, string? vendor = "vendor-google") =>
-        new(id, $"{id} title", Control, vendor, "integration", "daily", null, new Dictionary<string, string>());
+    private static CollectorRow Collector(string id, string? vendor = "vendor-google", string type = "integration") =>
+        new(id, $"{id} title", Control, vendor, type, type == "integration" ? "fleet" : null, "daily", null,
+            CollectorConfigView.Empty);
 
     /// <summary>
     /// Seeds the register + scope so a valid payload for <paramref name="collectorId"/> reporting
     /// (org-acme, req-mfa) passes: the collector's control maps to req-mfa, req-mfa belongs to std-1,
     /// and org-acme resolves In for std-1.
     /// </summary>
-    private static FakeComplianceStore Store(string collectorId, string? vendor = "vendor-google") => new()
-    {
-        Collectors = [Collector(collectorId, vendor)],
-        Controls = [new ControlRow(Control, "MFA", [ExampleRequirement], null)],
-        Requirements =
+    private static FakeComplianceStore Store(
+        string collectorId, string? vendor = "vendor-google", string type = "integration") => new()
+        {
+            Collectors = [Collector(collectorId, vendor, type)],
+            Controls = [new ControlRow(Control, "MFA", [ExampleRequirement], null)],
+            Requirements =
         [
             new RequirementRow(ExampleRequirement, "MFA", Standard, "Access", "Enforce MFA", null, "A.5", "https://x/r"),
         ],
-        Organisations = [new OrganisationRow(ExampleOrg, "Acme", "Company", null)],
-        Scopes = [new ScopeRow("scope-1", "Acme in", ExampleOrg, Standard, null, null, "In", null)],
-    };
+            Organisations = [new OrganisationRow(ExampleOrg, "Acme", "Company", null)],
+            Scopes = [new ScopeRow("scope-1", "Acme in", ExampleOrg, Standard, null, null, "In", null)],
+        };
 
-    private static AuthWebFactory FactoryFor(string collectorId, string? vendor = "vendor-google") => new()
-    {
-        Compliance = Store(collectorId, vendor),
-    };
+    private static AuthWebFactory FactoryFor(
+        string collectorId, string? vendor = "vendor-google", string type = "integration") => new()
+        {
+            Compliance = Store(collectorId, vendor, type),
+        };
 
     private static HttpClient ClientWith(AuthWebFactory factory, string token)
     {
@@ -90,6 +93,23 @@ public sealed class EvidenceIngestEndpointTests
 
     internal static string ExamplePayload() =>
         File.ReadAllText(Path.GetFullPath(Path.Join(RepoRoot(), "docs", "schemas", "evidence-ingest.v1.example.json")));
+
+    // Ingest is blind to the collector's type: what admits a run is a credential and a vendor, and a
+    // merged collector of any type may hold both. Nothing in the endpoint may start filtering on type.
+    [Fact]
+    public async Task RunFromANonIntegrationCollectorIsAppended()
+    {
+        using var factory = FactoryFor("attest-manual", type: "manual");
+        var token = factory.SeedCollectorCredential("attest-manual");
+        using var client = ClientWith(factory, token);
+
+        var response = await client.PostAsync(Route, Body(Valid(collectorId: "attest-manual")));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var run = Assert.Single(factory.EvidenceStore.Appended);
+        Assert.Equal("attest-manual", run.CollectorId);
+        Assert.Equal("vendor-google", run.Vendor);
+    }
 
     [Fact]
     public async Task ValidExampleLandsAsCreatedWithMappedRun()

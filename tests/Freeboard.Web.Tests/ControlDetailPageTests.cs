@@ -48,7 +48,7 @@ public sealed class ControlDetailPageTests
         Controls = [new ControlRow("ctrl-a", "Control A", ["req-a"], "all")],
         Collectors =
         [
-            new EvidenceCollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "daily", null, new Dictionary<string, string>()),
+            new CollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "fleet", "daily", null, CollectorConfigView.Empty),
         ],
     };
 
@@ -193,6 +193,45 @@ public sealed class ControlDetailPageTests
         Assert.Contains("Not collected", unknownRegion, StringComparison.Ordinal);
         Assert.DoesNotContain("Drifting", unknownRegion, StringComparison.Ordinal);
         Assert.NotEqual(staleRegion, unknownRegion);
+    }
+
+    // The accepted regression from the collector merge, pinned on BOTH surfaces the shared projection
+    // feeds. The tag is derived from the collector's type, so a manual or training collector's check is
+    // attestation-tagged and gets the bare "Attestation" note instead of an evidence status and a
+    // status-derived note - even when the evidence read has a status for its id. An integration
+    // collector's check still carries its status, which is what makes this a tag rule and not a
+    // projection outage.
+    [Fact]
+    public async Task AnAttestationCollectorsProvingCheckCarriesNoStatusOnTheFullPageOrInTheDrawer()
+    {
+        var store = SingleOrgStore();
+        store.Collectors =
+        [
+            new CollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "fleet", "daily", null, CollectorConfigView.Empty),
+            new CollectorRow("attest-a", "Attestation A", "ctrl-a", null, "manual", null, "annual", null, CollectorConfigView.Empty),
+        ];
+        var evidence = new FakeEvidenceStore()
+            .AddCollectorRun("org-a", "req-a", "coll-a", "daily", DateTime.UtcNow, ("Hard", "Pass"))
+            .AddCollectorRun("org-a", "req-a", "attest-a", "annual", DateTime.UtcNow, ("Hard", "Pass"));
+
+        using var factory = new AuthWebFactory { Compliance = store, EvidenceReads = evidence };
+        using var client = NoRedirectClient(factory);
+        var url = $"{DetailPath}?standard=std-a&org=org-a&requirement=req-a&control=ctrl-a";
+
+        var full = FacetRegion(await (await GetAsync(factory, client, url)).Content.ReadAsStringAsync());
+        var drawer = FacetRegion(await (await GetAsync(factory, client, $"{SoaPath}?standard=std-a")).Content.ReadAsStringAsync());
+
+        foreach (var region in new[] { full, drawer })
+        {
+            var attestation = region[region.IndexOf("Attestation A", StringComparison.Ordinal)..];
+            // The bare kind note, and no status seal on that row.
+            Assert.Contains("Attestation", attestation, StringComparison.Ordinal);
+            var collector = region[region.IndexOf("Collector A", StringComparison.Ordinal)..];
+            Assert.Contains("Passing", collector[..collector.IndexOf("Attestation A", StringComparison.Ordinal)], StringComparison.Ordinal);
+            // One status seal only - the integration check's - even though the evidence read has a run
+            // for both ids.
+            Assert.Equal(1, region.Split("<span class=\"fb-status ok\">").Length - 1);
+        }
     }
 
     [Fact]

@@ -26,8 +26,8 @@ public static class CollectorCredentialEndpoints
         var group = app.MapGroup(ApiRoutes.ApiRoutePrefix).RequireAuthorization();
         group.RequirePermission(AuthzActions.SystemAdmin, AuthzSelectors.System, alwaysEnforce: true);
 
-        group.MapPost("/evidence-collectors/{id}/credentials", IssueAsync);
-        group.MapDelete("/evidence-collectors/{id}/credentials/{credId}", RevokeAsync);
+        group.MapPost("/collectors/{id}/credentials", IssueAsync);
+        group.MapDelete("/collectors/{id}/credentials/{credId}", RevokeAsync);
     }
 
     private static async Task<IResult> IssueAsync(
@@ -49,7 +49,7 @@ public static class CollectorCredentialEndpoints
         bool exists;
         try
         {
-            exists = (await reads.GetEvidenceCollectorsAsync(ct).ConfigureAwait(false))
+            exists = (await reads.GetCollectorsAsync(ct).ConfigureAwait(false))
                 .Any(c => string.Equals(c.Id, id, StringComparison.Ordinal));
         }
         catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
@@ -60,7 +60,7 @@ public static class CollectorCredentialEndpoints
         if (!exists)
         {
             return ApiResponses.ValidationProblem(
-                "collector_id", $"Evidence-collector '{id}' does not exist.");
+                "collector_id", $"Collector '{id}' does not exist.");
         }
 
         var minted = tokenHasher.MintPrefixed();

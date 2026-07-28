@@ -70,8 +70,7 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
         // Authenticated (full session).
         { "/home", Access.Full },
         { "/compliance/vendors", Access.Full },
-        { "/settings/evidence-collectors", Access.Full },
-        { "/settings/attestation-templates", Access.Full },
+        { "/settings/collectors", Access.Full },
         { "/settings/integration-connections", Access.Full },
         { "/account", Access.Full },
         { "/account/mfa", Access.Full },
