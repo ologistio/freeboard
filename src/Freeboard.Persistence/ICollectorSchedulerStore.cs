@@ -2,7 +2,9 @@ namespace Freeboard.Persistence;
 
 /// <summary>
 /// A collector to ensure a scheduler-state row for. <see cref="ConfigFingerprint"/> is a hash over the
-/// scheduling-relevant config (frequency + type); a change to it revives a dead/error row.
+/// scheduling-relevant config (type, frequency, provider, connection, and the typed config); a change to
+/// it revives a dead/error row. Threshold is outside it: it is a scoring input, not a collection
+/// instruction.
 /// </summary>
 public sealed record ScheduledCollectorItem(string CollectorId, string ConfigFingerprint);
 

@@ -188,157 +188,182 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void EvidenceCollectorRowCarriesFieldsAndSerializesConfig()
+    public void CollectorRowCarriesItsTopLevelFields()
     {
         var config = new GitOpsConfig
         {
-            EvidenceCollectors =
+            Collectors =
             [
-                new EvidenceCollector
+                new Collector
                 {
                     Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a", Vendor = "vendor-a",
-                    Type = "integration", Frequency = "daily", Threshold = "100",
-                    Config = new Dictionary<string, string> { ["endpoint"] = "policies.mfa" },
+                    Type = "integration", Provider = "fleet", Frequency = "daily", Threshold = "100",
+                    Connection = "fleet-prod",
+                    Config = new CollectorConfig
+                    {
+                        Checks = [new Check { SourceKey = "12", Name = "mfa-enforced", Severity = "Hard" }],
+                    },
                 },
             ],
         };
 
-        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
+        var plan = ImportPlan.From(config);
+        var row = Assert.Single(plan.Collectors);
 
         Assert.Equal("ctrl-a", row.Control);
         Assert.Equal("vendor-a", row.Vendor);
+        Assert.Equal("fleet-prod", row.Connection);
         Assert.Equal("integration", row.Type);
+        Assert.Equal("fleet", row.Provider);
         Assert.Equal("daily", row.Frequency);
         Assert.Equal(100, row.Threshold);
-        Assert.Equal("{\"endpoint\":\"policies.mfa\"}", row.ConfigJson);
-        Assert.Equal(["collector-a"], ImportPlan.From(config).EvidenceCollectorIds);
+        Assert.Equal(["collector-a"], plan.CollectorIds);
     }
 
     [Fact]
-    public void EvidenceCollectorRowNullsOptionalFieldsWhenAbsent()
+    public void CollectorRowNullsOptionalFieldsWhenAbsent()
     {
         var config = new GitOpsConfig
         {
-            EvidenceCollectors =
+            Collectors =
             [
-                new EvidenceCollector
+                new Collector
                 {
                     Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
-                    Type = "manual-attestation", Frequency = "annual",
+                    Type = "manual", Frequency = "annual",
                 },
             ],
         };
 
-        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
+        var row = Assert.Single(ImportPlan.From(config).Collectors);
 
         Assert.Null(row.Vendor);
+        Assert.Null(row.Connection);
+        Assert.Null(row.Provider);
         Assert.Null(row.Threshold);
-        // An empty config map serializes to null (stored as SQL NULL), never throwing.
+        // A config with no member present serializes to null (stored as SQL NULL), never to "{}".
         Assert.Null(row.ConfigJson);
     }
 
     [Fact]
-    public void AttestationTemplateRowSerializesFieldsQuizAndParsesPassMark()
+    public void StoredConfigUsesMemberNamesOmitsAbsentMembersAndNumbersThePassMark()
     {
         var config = new GitOpsConfig
         {
-            AttestationTemplates =
+            Collectors =
             [
-                new AttestationTemplate
+                new Collector
                 {
-                    Id = "attest-training", ApiVersion = "v1", Title = "T", Control = "ctrl-a", Type = "training",
-                    Body = "Read this.", PassMark = "80",
-                    Quiz =
-                    [
-                        new QuizItem { Id = "q1", Prompt = "P", Options = ["a", "b"], Answer = "a" },
-                    ],
+                    Id = "attest-training", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
+                    Type = "training", Frequency = "annual",
+                    Config = new CollectorConfig
+                    {
+                        Body = "Read this.", PassMark = "80",
+                        Quiz = [new QuizItem { Id = "q1", Prompt = "P", Options = ["a", "b"], Answer = "a" }],
+                    },
                 },
             ],
         };
 
-        var row = Assert.Single(ImportPlan.From(config).AttestationTemplates);
+        var json = Assert.Single(ImportPlan.From(config).Collectors).ConfigJson;
 
-        Assert.Equal("ctrl-a", row.Control);
-        Assert.Equal("training", row.Type);
-        Assert.Equal("Read this.", row.Body);
-        Assert.Equal(80, row.PassMark);
-        Assert.Null(row.FieldsJson);
-        // The serialized quiz keeps the answer for the grading runtime; redaction happens at read.
-        Assert.Contains("\"Answer\":\"a\"", row.QuizJson);
-        Assert.Equal(["attest-training"], ImportPlan.From(config).AttestationTemplateIds);
+        Assert.NotNull(json);
+        // The stored keys are the C# member names, which is what migration 021 composes in SQL.
+        Assert.Contains("\"Body\":\"Read this.\"", json);
+        // The pass mark is a JSON NUMBER, not the raw authored text the config record holds.
+        Assert.Contains("\"PassMark\":80", json);
+        // The stored quiz keeps the answer for the grading runtime; redaction happens at read.
+        Assert.Contains("\"Answer\":\"a\"", json);
+        // Absent members are omitted, never written as JSON null or as an empty array.
+        Assert.DoesNotContain("Fields", json);
+        Assert.DoesNotContain("Checks", json);
     }
 
     [Fact]
-    public void AttestationTemplateRowNullsOptionalFieldsWhenAbsent()
+    public void StoredConfigTreatsABlankBodyAndAnEmptyListAsAbsent()
     {
         var config = new GitOpsConfig
         {
-            AttestationTemplates =
+            Collectors =
             [
-                new AttestationTemplate
+                new Collector
                 {
-                    Id = "attest-manual", ApiVersion = "v1", Title = "T", Control = "ctrl-a", Type = "manual",
+                    Id = "attest-manual", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
+                    Type = "manual", Frequency = "annual",
+                    Config = new CollectorConfig { Body = "   ", Fields = [] },
                 },
             ],
         };
 
-        var row = Assert.Single(ImportPlan.From(config).AttestationTemplates);
-
-        Assert.Null(row.Body);
-        Assert.Null(row.PassMark);
-        // Empty field and quiz lists serialize to null (stored as SQL NULL), never throwing.
-        Assert.Null(row.FieldsJson);
-        Assert.Null(row.QuizJson);
+        // A blank scalar and an empty list are both absent, so no member is present and the whole
+        // config is SQL NULL - the same rule the read model and the wire projection apply.
+        Assert.Null(Assert.Single(ImportPlan.From(config).Collectors).ConfigJson);
     }
 
     [Fact]
-    public void ExplicitNullNestedListsLoadedFromYamlSerializeToNull()
+    public void StoredConfigRoundTripsThroughTheReadProjection()
     {
-        // A template authored with explicit-null `fields:`/`quiz:` normalizes to empty lists on load,
-        // then serializes to null (SQL NULL) in the import plan without throwing.
-        var dir = Directory.CreateTempSubdirectory("fb-importplan-");
-        try
+        // The writer and the reader are the pair the storage contract binds together, so what one
+        // writes the other must read back - answer excepted, which the read model has no member for.
+        var config = new GitOpsConfig
         {
-            File.WriteAllText(Path.Join(dir.FullName, "template.yaml"), """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: AttestationTemplate
-                id: attest-manual
-                title: T
-                control: ctrl-a
-                type: manual
-                fields:
-                quiz:
-                """);
+            Collectors =
+            [
+                new Collector
+                {
+                    Id = "attest-training", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
+                    Type = "training", Frequency = "annual",
+                    Config = new CollectorConfig
+                    {
+                        Body = "Read this.", PassMark = "80",
+                        Fields = [new AttestationField { Id = "f1", Label = "L", Type = "single-choice", Options = ["a", "b"] }],
+                        Quiz = [new QuizItem { Id = "q1", Prompt = "P", Options = ["a", "b"], Answer = "a" }],
+                    },
+                },
+            ],
+        };
 
-            var loaded = ConfigLoader.Load(dir.FullName);
-            Assert.Empty(loaded.Diagnostics);
+        var view = StoredCollectorConfig.Read(Assert.Single(ImportPlan.From(config).Collectors).ConfigJson);
 
-            var row = Assert.Single(ImportPlan.From(loaded.Config).AttestationTemplates);
+        Assert.Equal("Read this.", view.Body);
+        Assert.Equal(80, view.PassMark);
+        var field = Assert.Single(view.Fields);
+        Assert.Equal(("f1", "L", "single-choice"), (field.Id, field.Label, field.Type));
+        Assert.Equal(["a", "b"], field.Options);
+        var item = Assert.Single(view.Quiz);
+        Assert.Equal(("q1", "P"), (item.Id, item.Prompt));
+        Assert.Equal(["a", "b"], item.Options);
+        Assert.Empty(view.Checks);
+    }
 
-            Assert.Null(row.FieldsJson);
-            Assert.Null(row.QuizJson);
-        }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+    [Fact]
+    public void NullStoredConfigReadsAsTheEmptyView()
+    {
+        // The path a script collector and a migrated form-less attestation both take.
+        var view = StoredCollectorConfig.Read(null);
+
+        Assert.Null(view.Body);
+        Assert.Null(view.PassMark);
+        Assert.Empty(view.Fields);
+        Assert.Empty(view.Quiz);
+        Assert.Empty(view.Checks);
     }
 
     [Fact]
     public void ExplicitNullConfigLoadedFromYamlSerializesToNullConfigJson()
     {
-        // A collector authored with an explicit-null `config:` normalizes to an empty map on load,
+        // A collector authored with an explicit-null `config:` normalizes to an empty config on load,
         // then serializes to null (SQL NULL) in the import plan without throwing.
         var dir = Directory.CreateTempSubdirectory("fb-importplan-");
         try
         {
             File.WriteAllText(Path.Combine(dir.FullName, "collector.yaml"), """
                 apiVersion: freeboard.dev/v1alpha1
-                kind: EvidenceCollector
+                kind: Collector
                 id: collector-a
                 title: T
                 control: ctrl-a
-                type: integration
+                type: script
                 frequency: daily
                 config:
                 """);
@@ -346,7 +371,7 @@ public sealed class ImportPlanTests
             var loaded = ConfigLoader.Load(dir.FullName);
             Assert.Empty(loaded.Diagnostics);
 
-            var row = Assert.Single(ImportPlan.From(loaded.Config).EvidenceCollectors);
+            var row = Assert.Single(ImportPlan.From(loaded.Config).Collectors);
 
             Assert.Null(row.ConfigJson);
         }
@@ -389,53 +414,37 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void IntegrationCollectorSerializesChecksAndMapsConnection()
+    public void IntegrationCollectorStoresItsChecksUnderTheConfigChecksKey()
     {
         var config = new GitOpsConfig
         {
-            EvidenceCollectors =
+            Collectors =
             [
-                new EvidenceCollector
+                new Collector
                 {
                     Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
-                    Type = "integration", Frequency = "daily", Connection = "fleet-prod",
-                    Checks =
-                    [
-                        new Check { SourceKey = "12", Name = "mfa-enforced", Severity = "Hard" },
-                        new Check { SourceKey = "34", Name = "disk-encrypted", Severity = "Soft" },
-                    ],
+                    Type = "integration", Provider = "fleet", Frequency = "daily", Connection = "fleet-prod",
+                    Config = new CollectorConfig
+                    {
+                        Checks =
+                        [
+                            new Check { SourceKey = "12", Name = "mfa-enforced", Severity = "Hard" },
+                            new Check { SourceKey = "34", Name = "disk-encrypted", Severity = "Soft" },
+                        ],
+                    },
                 },
             ],
         };
 
-        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
+        var row = Assert.Single(ImportPlan.From(config).Collectors);
 
         Assert.Equal("fleet-prod", row.Connection);
-        Assert.NotNull(row.ChecksJson);
-        Assert.Contains("\"SourceKey\":\"12\"", row.ChecksJson);
-        Assert.Contains("\"Severity\":\"Hard\"", row.ChecksJson);
-    }
-
-    [Fact]
-    public void NonIntegrationCollectorNullsConnectionAndChecksJson()
-    {
-        var config = new GitOpsConfig
-        {
-            EvidenceCollectors =
-            [
-                new EvidenceCollector
-                {
-                    Id = "collector-a", ApiVersion = "v1", Title = "T", Control = "ctrl-a",
-                    Type = "script", Frequency = "weekly",
-                },
-            ],
-        };
-
-        var row = Assert.Single(ImportPlan.From(config).EvidenceCollectors);
-
-        Assert.Null(row.Connection);
-        // An empty checks list serializes to null (stored as SQL NULL), never throwing.
-        Assert.Null(row.ChecksJson);
+        Assert.NotNull(row.ConfigJson);
+        // Each item keeps the key names the pre-merge checks column already held, which is what lets
+        // migration 021 carry that column value across verbatim.
+        Assert.Contains("\"SourceKey\":\"12\"", row.ConfigJson);
+        Assert.Contains("\"Severity\":\"Hard\"", row.ConfigJson);
+        Assert.Equal(2, StoredCollectorConfig.Read(row.ConfigJson).Checks.Count);
     }
 
     [Fact]

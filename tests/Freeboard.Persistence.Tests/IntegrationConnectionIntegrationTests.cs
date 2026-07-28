@@ -8,12 +8,13 @@ using MySqlConnector;
 namespace Freeboard.Persistence.Tests;
 
 /// <summary>
-/// Integration tests for the IntegrationConnection persisted entity and the two integration EvidenceCollector fields
-/// against a real MySQL discovered via FREEBOARD_TEST_DB. Each test SKIPS cleanly (not fails) when the
-/// env var is absent and gets a fresh throwaway database. Covers migration 018 (table, collector columns,
-/// FKs), the connection round-trip through the importer and read model (exposed subset, no token state),
-/// the collector's connection_id round-trip, the persisted checks column asserted directly via SQL, and
-/// the FK-safe hard-remove ordering (absent collector, then absent connection, then absent vendor).
+/// Integration tests for the IntegrationConnection persisted entity and an integration Collector's
+/// connection and checks against a real MySQL discovered via FREEBOARD_TEST_DB. Each test SKIPS cleanly
+/// (not fails) when the env var is absent and gets a fresh throwaway database. Covers the connection
+/// table and its FKs, the connection round-trip through the importer and read model (exposed subset, no
+/// token state), the collector's connection_id and provider round-trip, the tracked checks read back from
+/// the config column, and the FK-safe hard-remove ordering (absent collector, then absent connection,
+/// then absent vendor).
 /// </summary>
 [Trait("Category", TestCategories.Integration)]
 public sealed class IntegrationConnectionIntegrationTests
@@ -62,7 +63,7 @@ public sealed class IntegrationConnectionIntegrationTests
             Vendor = vendor,
         };
 
-    private static EvidenceCollector IntegrationEc(string id, string connection, List<Check> checks) =>
+    private static Collector IntegrationColl(string id, string connection, List<Check> checks) =>
         new()
         {
             Id = id,
@@ -70,14 +71,15 @@ public sealed class IntegrationConnectionIntegrationTests
             ApiVersion = "v1",
             Control = "ctrl-a",
             Type = "integration",
+            Provider = "fleet",
             Frequency = "daily",
             Connection = connection,
-            Checks = checks,
+            Config = new CollectorConfig { Checks = checks },
         };
 
     private static GitOpsConfig Config(
         IEnumerable<IntegrationConnection>? connections = null,
-        IEnumerable<EvidenceCollector>? collectors = null,
+        IEnumerable<Collector>? collectors = null,
         IEnumerable<Asset>? vendors = null) => new()
         {
             Standards = [Std("std-a")],
@@ -85,11 +87,11 @@ public sealed class IntegrationConnectionIntegrationTests
             Controls = [Ctrl("ctrl-a", ["req-a"], "all")],
             Assets = (vendors ?? [Vnd("vendor-a")]).ToList(),
             IntegrationConnections = connections?.ToList() ?? [],
-            EvidenceCollectors = collectors?.ToList() ?? [],
+            Collectors = collectors?.ToList() ?? [],
         };
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task Migration018CreatesTableCollectorColumnsAndForeignKeys()
+    public async Task ConnectionTableAndCollectorForeignKeysExist()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -118,21 +120,21 @@ public sealed class IntegrationConnectionIntegrationTests
             + "WHERE constraint_schema = DATABASE() AND table_name = 'integration_connections';");
         Assert.Equal("RESTRICT", connectionFkRule);
 
-        // evidence_collectors gains connection_id and a JSON checks column.
+        // collectors carries connection_id and provider; the tracked checks live in the config column.
         var connectionColumn = await conn.ExecuteScalarAsync<string>(
             "SELECT collation_name FROM information_schema.columns "
-            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_collectors' AND column_name = 'connection_id';");
+            + "WHERE table_schema = DATABASE() AND table_name = 'collectors' AND column_name = 'connection_id';");
         Assert.Equal("utf8mb4_bin", connectionColumn);
 
-        var checksType = await conn.ExecuteScalarAsync<string>(
-            "SELECT data_type FROM information_schema.columns "
-            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_collectors' AND column_name = 'checks';");
-        Assert.Equal("json", checksType);
+        var providerColumn = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            + "WHERE table_schema = DATABASE() AND table_name = 'collectors' AND column_name = 'provider';");
+        Assert.Equal(1, providerColumn);
 
         // The collector -> integration_connections FK exists and is RESTRICT.
         var collectorConnectionFk = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.referential_constraints "
-            + "WHERE constraint_schema = DATABASE() AND table_name = 'evidence_collectors' "
+            + "WHERE constraint_schema = DATABASE() AND table_name = 'collectors' "
             + "AND referenced_table_name = 'integration_connections' AND delete_rule = 'RESTRICT';");
         Assert.Equal(1, collectorConnectionFk);
     }
@@ -153,7 +155,7 @@ public sealed class IntegrationConnectionIntegrationTests
         };
         await importer.ImportAsync(Config(
             connections: [Conn("fleet-prod")],
-            collectors: [IntegrationEc("collector-a", "fleet-prod", checks)]));
+            collectors: [IntegrationColl("collector-a", "fleet-prod", checks)]));
 
         // The read model exposes only the persisted subset; there is no token state.
         var connection = Assert.Single(await store.GetIntegrationConnectionsAsync());
@@ -163,25 +165,24 @@ public sealed class IntegrationConnectionIntegrationTests
         Assert.Equal("daily", connection.DiscoveryCadence);
         Assert.Equal("vendor-a", connection.Vendor);
 
-        // The collector's connection_id round-trips through the read model.
-        var collector = Assert.Single(await store.GetEvidenceCollectorsAsync());
+        // The collector's connection_id and provider round-trip through the read model, and its checks
+        // come back inside the typed config view.
+        var collector = Assert.Single(await store.GetCollectorsAsync());
         Assert.Equal("fleet-prod", collector.Connection);
+        Assert.Equal("fleet", collector.Provider);
+        // The tracked set equals exactly the authored checks, in author order.
+        Assert.Equal(["12", "34"], collector.Config.Checks.Select(c => c.SourceKey).ToArray());
+        // A Fleet policy id outside the authored list is absent, so it tracks nothing.
+        Assert.DoesNotContain("99", collector.Config.Checks.Select(c => c.SourceKey));
 
-        // Nothing renders checks in V1, so assert the persisted JSON column directly.
+        // Each item keeps the stored key names migration 021 composes, asserted on the column itself.
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
-        var checksJson = await conn.ExecuteScalarAsync<string>(
-            "SELECT checks FROM evidence_collectors WHERE id = 'collector-a';");
-        Assert.NotNull(checksJson);
-
         var sourceKeys = (await conn.QueryAsync<string>(
-            "SELECT jt.source_key FROM evidence_collectors ec, "
-            + "JSON_TABLE(ec.checks, '$[*]' COLUMNS (source_key VARCHAR(190) PATH '$.SourceKey')) AS jt "
-            + "WHERE ec.id = 'collector-a';")).ToList();
-        // The stored set equals exactly the authored checks.
+            "SELECT jt.source_key FROM collectors c, "
+            + "JSON_TABLE(c.config->'$.Checks', '$[*]' COLUMNS (source_key VARCHAR(190) PATH '$.SourceKey')) AS jt "
+            + "WHERE c.id = 'collector-a';")).ToList();
         Assert.Equal(["12", "34"], sourceKeys);
-        // A Fleet policy id outside the authored list is absent from the column, so it tracks nothing.
-        Assert.DoesNotContain("99", sourceKeys);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -198,7 +199,7 @@ public sealed class IntegrationConnectionIntegrationTests
         // prune order is genuinely exercised: a wrong order raises the RESTRICT foreign-key violation.
         await importer.ImportAsync(Config(
             connections: [Conn("fleet-prod", "vendor-b"), Conn("fleet-dev")],
-            collectors: [IntegrationEc("collector-a", "fleet-prod", checks)],
+            collectors: [IntegrationColl("collector-a", "fleet-prod", checks)],
             vendors: [Vnd("vendor-a"), Vnd("vendor-b")]));
 
         // Re-sync dropping the collector and the now-unreferenced fleet-prod connection and vendor-b.
@@ -209,7 +210,7 @@ public sealed class IntegrationConnectionIntegrationTests
             collectors: [],
             vendors: [Vnd("vendor-a")]));
 
-        Assert.Empty(await store.GetEvidenceCollectorsAsync());
+        Assert.Empty(await store.GetCollectorsAsync());
         var connection = Assert.Single(await store.GetIntegrationConnectionsAsync());
         Assert.Equal("fleet-dev", connection.Id);
         var vendor = Assert.Single(await store.GetVendorsAsync());
