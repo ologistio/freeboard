@@ -26,12 +26,11 @@ Freeboard borrows Fleet's structure but renames the nouns for compliance:
 | (n/a)    | controls                | an implemented control mapped to one or more requirements                   |
 | (n/a)    | requirements            | a standard's published normative statements                                 |
 | (n/a)    | standards               | a compliance standard in scope                                              |
-| (n/a)    | evidence-collectors     | attaches a data source to a control                                         |
-| (n/a)    | attestation-templates   | a form or quiz attached to a control                                        |
+| (n/a)    | collectors              | attaches a proving mechanism - a data source or a form - to a control       |
 | (n/a)    | integration-connections | a provider connection driving discovery and integration collectors          |
 
 This increment ships `standards`, `requirements`, `controls`, `assets`, `scopes`,
-`evidence-collectors`, `attestation-templates`, and `integration-connections`.
+`collectors`, and `integration-connections`.
 `checks` are authored per integration collector (the tracked-check list) but their
 execution runner is not yet built.
 
@@ -42,7 +41,7 @@ or more documents separated by `---`. Every document declares:
 
 - `apiVersion` - must be exactly `freeboard.dev/v1alpha1`.
 - `kind` - one of `Standard`, `Requirement`, `Control`, `Asset`, `Scope`,
-  `EvidenceCollector`, `AttestationTemplate`, or `Integration`.
+  `Collector`, or `Integration`.
 
 `apiVersion` and `kind` stay camelCase (Kubernetes-style). All other fields are
 snake_case (so `maps_to`, not `mapsTo`). Unknown fields are rejected so typos
@@ -246,27 +245,60 @@ source: declared
 owner: ologist-products
 ```
 
-### EvidenceCollector
+### Collector
 
-An evidence-collector attaches a data source to one `Control` (the attach point
-named by the required `control` field) and, optionally, to one `Vendor` (the
-optional `vendor` field). `type` is one of `integration`, `script`,
-`manual-attestation`, `training-attestation`, or `agent`. `frequency` is the
-collection cadence, one of `continuous`, `daily`, `weekly`, `monthly`,
-`quarterly`, or `annual`. `threshold` is optional; when present it is an integer
-percent from 0 to 100. `config` is an optional free-form map of type-specific
-settings; it holds no secret material.
+A `Collector` attaches a proving mechanism - a data source or an attestation form -
+to one `Control` (the attach point named by the required `control` field) and,
+optionally, to one `Vendor` (the optional `vendor` field).
 
-A collector of `type: integration` additionally requires a `connection` (the id of
-an `Integration`) and a non-empty `checks` list. Each `checks` item is a
-tracked check with a `source_key` (the provider-native id, e.g. a Fleet policy id),
-a `name` (the Freeboard check name), and a `severity` of `Hard` or `Soft`. The
-authored `checks` list is the exhaustive tracked set: a provider result whose id is
-not authored here is not a tracked check and changes nothing. `name` and `source_key`
-are each unique within the collector. A collector of any other type must not declare
-`connection` or `checks`.
+A top-level field is identity, the attach point, a cross-document reference, or the
+collection cadence. Every type-specific payload lives under `config`:
 
-A control that has at least one attached evidence-collector must declare an
+- `id`, `title` - identity and display text.
+- `control` - required attach-point `Control` id.
+- `vendor` - optional `Vendor` id.
+- `type` - required, one of `integration`, `script`, `agent`, `manual`, `training`.
+- `provider` - the adapter token; required for `type: integration`, rejected on
+  every other type. Its only value is `fleet`.
+- `connection` - the `Integration` id; required for `type: integration`, rejected on
+  every other type. The collector's `provider` must equal that connection's.
+- `frequency` - required on EVERY type, one of `continuous`, `daily`, `weekly`,
+  `monthly`, `quarterly`, `annual`. Evidence ingest stamps the collector's cadence
+  onto each run it appends and staleness is judged from that stamp, so an
+  attestation needs one too.
+- `threshold` - optional; an integer percent from 0 to 100.
+- `config` - the type-specific payload. It holds no secret material.
+
+The `config` key set is closed per `(type, provider)` pair. Any key the pair does
+not register is rejected, so a payload authored at the top level, or on a type that
+cannot carry it, fails validation instead of being silently dropped:
+
+| `type`        | `provider` | accepted `config` keys                | required            |
+| ------------- | ---------- | ------------------------------------- | ------------------- |
+| `integration` | `fleet`    | `checks`                              | `checks`            |
+| `manual`      | (none)     | `body`, `fields`                      | (none)              |
+| `training`    | (none)     | `body`, `fields`, `pass_mark`, `quiz` | `pass_mark`, `quiz` |
+| `script`      | (none)     | (none)                                | (none)              |
+| `agent`       | (none)     | (none)                                | (none)              |
+
+Requiredness is a value test, not a key-presence test: `checks: []`, `quiz: []`, and
+`pass_mark: ""` each read as absent.
+
+`config.checks` is the exhaustive tracked-check set for an integration collector.
+Each item carries a `source_key` (the provider-native id, e.g. a Fleet policy id), a
+`name` (the Freeboard check name), and a `severity` of `Hard` or `Soft`. A provider
+result whose id is not authored here is not a tracked check and changes nothing.
+`name` and `source_key` are each unique within the collector.
+
+`config.body` is optional markdown stored verbatim. `config.fields` is an ordered
+list of form fields, each with an `id`, a `label`, and a `type` (`boolean`,
+`single-choice`, or `short-text`); a `single-choice` field carries two or more
+`options` and other field types carry none. `config.quiz` is an ordered list of
+items, each with an `id`, a `prompt`, two or more `options`, and an `answer` that is
+one of those options; the answer is persisted for grading but redacted from every
+read surface. `config.pass_mark` is an integer percent from 0 to 100.
+
+A control that has at least one attached collector of ANY type must declare an
 `evaluation` roll-up rule (`all`, `any`, or `manual`) saying how its collectors
 combine into a status.
 
@@ -280,68 +312,74 @@ maps_to:
 evaluation: all
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: EvidenceCollector
+kind: Collector
 id: ec-okta-mfa
 title: Okta MFA enrolment
 control: ctrl-mfa
 vendor: vendor-okta
 type: integration
+provider: fleet
 frequency: daily
 threshold: 95
 connection: conn-fleet-prod
 config:
-  policy: default
-checks:
-  - source_key: "42"
-    name: mfa-enforced
-    severity: Hard
-```
-
-### AttestationTemplate
-
-An attestation-template is a form or quiz attached to one `Control` (the attach
-point named by the required `control` field). A template references only its
-attach-point control; its standard is reached through the control's mapped
-requirements, so there is no `requirement` or `standard` field. `type` is `manual`
-or `training`. `body` is optional markdown stored verbatim.
-
-A `manual` template collects `fields`: an ordered list of form fields, each with
-an `id`, a `label`, and a `type` (`boolean`, `single-choice`, or `short-text`). A
-`single-choice` field carries two or more `options`; other field types carry none.
-A `manual` template must not declare `pass_mark` or `quiz`.
-
-A `training` template requires a `pass_mark` (an integer percent from 0 to 100)
-and a non-empty `quiz`: an ordered list of items, each with an `id`, a `prompt`,
-two or more `options`, and an `answer` that is one of those options. The answer is
-persisted for grading but redacted from every read surface.
-
-```yaml
+  checks:
+    - source_key: "42"
+      name: mfa-enforced
+      severity: Hard
+---
 apiVersion: freeboard.dev/v1alpha1
-kind: AttestationTemplate
+kind: Collector
 id: attest-mfa-review
 title: MFA enforcement review
 control: ctrl-mfa
 type: manual
-fields:
-  - id: enforced
-    label: Is MFA enforced for all cloud services?
-    type: boolean
+frequency: quarterly
+config:
+  body: Confirm the MFA ruleset was reviewed this quarter.
+  fields:
+    - id: enforced
+      label: Is MFA enforced for all cloud services?
+      type: boolean
 ---
 apiVersion: freeboard.dev/v1alpha1
-kind: AttestationTemplate
+kind: Collector
 id: attest-phishing
 title: Phishing awareness
 control: ctrl-mfa
 type: training
-pass_mark: 90
-quiz:
-  - id: q1
-    prompt: What should you do with an unexpected attachment?
-    options:
-      - Open it immediately
-      - Report it and do not open it
-    answer: Report it and do not open it
+frequency: annual
+config:
+  pass_mark: 90
+  quiz:
+    - id: q1
+      prompt: What should you do with an unexpected attachment?
+      options:
+        - Open it immediately
+        - Report it and do not open it
+      answer: Report it and do not open it
 ```
+
+#### Migrating an existing config
+
+`Collector` replaces the retired `EvidenceCollector` and `AttestationTemplate`
+kinds. `gitops sync` is a REQUIRED migration step and refuses a config that still
+carries any of the following, so hand-migrate first:
+
+- both retired kinds become `kind: Collector`;
+- the `manual-attestation` and `training-attestation` type tokens become `manual`
+  and `training`;
+- a template's `body`, `fields`, `pass_mark`, and `quiz`, and an integration
+  collector's `checks`, all move under `config`;
+- a former template gains a `frequency`;
+- an integration collector gains a `provider` matching its connection's;
+- a collector-plus-template PAIR on one control becomes ONE document. Keep the
+  collector's id where a machine credential hangs off it;
+- a `Control` whose only proving mechanism was an `AttestationTemplate` must gain an
+  `evaluation` rule. `evaluation` is now required on a control with at least one
+  attached collector of any type, and such a control needed none before the merge;
+- ids must be unique across the merged kind, so a collector and a template that
+  share an id without being a pair need one renamed.
 
 ### Integration
 
@@ -401,23 +439,35 @@ Validation collects every error in one pass (not just the first). It fails when:
   vendor has no standard-level disposition);
 - two scopes name the same `(subject, standard)`, `(subject, requirement)`, or
   `(subject, control)` pair;
-- an `EvidenceCollector.control` names a `Control` id that does not exist;
-- an `EvidenceCollector.vendor` is present but names a `Vendor` id that does not
-  exist;
-- an `EvidenceCollector.type` is not one of `integration`, `script`,
-  `manual-attestation`, `training-attestation`, `agent`;
-- an `EvidenceCollector.frequency` is not one of `continuous`, `daily`, `weekly`,
-  `monthly`, `quarterly`, `annual`;
-- an `EvidenceCollector.threshold` is present but not an integer percent from 0 to
-  100;
-- a `Control` has at least one attached evidence-collector but omits `evaluation`
+- a `Collector.control` names a `Control` id that does not exist;
+- a `Collector.vendor` is present but names a `Vendor` id that does not exist;
+- a `Collector.type` is not one of `integration`, `script`, `agent`, `manual`,
+  `training`;
+- a `Collector.frequency` is missing, or is not one of `continuous`, `daily`,
+  `weekly`, `monthly`, `quarterly`, `annual` (it is required on every type);
+- a `Collector.threshold` is present but not an integer percent from 0 to 100;
+- a `Control` has at least one attached collector of any type but omits `evaluation`
   (which must be `all`, `any`, or `manual`);
-- an `EvidenceCollector` of `type: integration` omits `connection`, names an
-  `Integration` id that does not exist, or omits a non-empty `checks`;
-- an `EvidenceCollector` of any other type declares `connection` or `checks`;
-- an `EvidenceCollector` `checks` item omits `source_key`/`name`/`severity`, has a
+- a `Collector` of `type: integration` omits `provider` or `connection`, has a
+  `provider` other than `fleet`, names an `Integration` id that does not exist, or
+  has a `provider` that differs from that connection's;
+- a `Collector` of any other type declares `provider` or `connection`;
+- a `Collector` authors a `config` key its `(type, provider)` pair does not register,
+  or omits one that pair requires (`checks` on `(integration, fleet)`; `pass_mark`
+  and `quiz` on `training`);
+- a `Collector` authors `checks`, `body`, `fields`, `pass_mark`, or `quiz` at the top
+  level instead of under `config`;
+- a `Collector` `config.checks` item omits `source_key`/`name`/`severity`, has a
   `severity` other than `Hard` or `Soft`, or repeats a `name` or `source_key` within
   the collector;
+- a `Collector.config.pass_mark` is present but not an integer percent from 0 to 100;
+- a `Collector.config.fields` item is malformed - the validator rejects, among other
+  cases, a missing `id`/`label`/`type`, a duplicate field `id`, an unknown field
+  type, a `single-choice` field with fewer than two options or with duplicate
+  options, and a non-`single-choice` field that declares options;
+- a `Collector.config.quiz` item is malformed - the validator rejects, among other
+  cases, a missing `id`/`prompt`/`answer`, a duplicate quiz `id`, fewer than two
+  options, duplicate options, and an `answer` that is not one of its options;
 - an `Integration` omits a required field (`provider`, `base_url`,
   `discovery_cadence`), has a `provider` other than `fleet`, a `base_url` that is not
   an absolute `http`/`https` URL, or a `discovery_cadence` outside the frequency set;
@@ -425,19 +475,6 @@ Validation collects every error in one pass (not just the first). It fails when:
   exist;
 - an `Integration.id` contains `:` or `__`, or two connection ids collide
   case-insensitively (the id resolves an out-of-band configuration token key);
-- an `AttestationTemplate.control` names a `Control` id that does not exist;
-- an `AttestationTemplate.type` is not `manual` or `training`;
-- an `AttestationTemplate.pass_mark` is present but not an integer percent from 0
-  to 100;
-- an `AttestationTemplate` of type `training` omits `pass_mark` or a non-empty
-  `quiz`, or one of type `manual` declares `pass_mark` or `quiz`;
-- an `AttestationTemplate` field is malformed - the validator rejects, among other
-  cases, a missing `id`/`label`/`type`, a duplicate field `id`, an unknown field
-  type, a `single-choice` field with fewer than two options or with duplicate
-  options, and a non-`single-choice` field that declares options;
-- an `AttestationTemplate` quiz item is malformed - the validator rejects, among
-  other cases, a missing `id`/`prompt`/`answer`, a duplicate quiz `id`, fewer than
-  two options, duplicate options, and an `answer` that is not one of its options;
 - `apiVersion` is not exactly `freeboard.dev/v1alpha1`.
 
 A missing or unknown `kind`, and malformed YAML, are reported as diagnostics by
@@ -484,9 +521,8 @@ persisted in MySQL. The data is the general compliance store; GitOps
 
 ### Schema
 
-Eight domain tables (`standards`, `requirements`, `controls`, `assets`,
-`scopes`, `evidence_collectors`, `attestation_templates`,
-`integration_connections`), each keyed on `id`
+Seven domain tables (`standards`, `requirements`, `controls`, `assets`,
+`scopes`, `collectors`, `integration_connections`), each keyed on `id`
 with `api_version`, `title`, `created_at`, and `updated_at`. `standards` also
 carries nullable `version`, `authority`, `publisher`, and `source_url` metadata
 columns. `requirements` has a `standard_id` foreign key (`ON DELETE RESTRICT`), a
@@ -507,17 +543,17 @@ that exactly one of the three target columns is set, and three unique keys on
 `(subject_id, standard_id)`, `(subject_id, requirement_id)`, and
 `(subject_id, control_id)` bound each target pair (MySQL treats each `NULL` as
 distinct, so a key constrains only the rows whose own target column is non-null).
-`evidence_collectors` has a required `control_id` foreign key and a nullable
-`vendor_id` foreign key (both `ON DELETE RESTRICT`), the `type`/`frequency` token
-columns, a nullable `threshold`, and a native JSON `config` column.
-`attestation_templates` has a required `control_id` foreign key (`ON DELETE
-RESTRICT`), a `type` column, a nullable `body`, a nullable `pass_mark`, and native
-JSON `fields`/`quiz` columns. `integration_connections` has a `provider`, a
-`base_url`, a `discovery_cadence`, and a nullable `vendor_id` foreign key to the
-`Vendor` assets; an evidence collector references it through a nullable
-`connection_id` foreign key. The `evidence_collectors` and `attestation_templates`
-`RESTRICT` foreign keys are why `gitops sync` prunes an absent collector or
-template before deleting the control or vendor it referenced.
+`collectors` is the one table behind every proving mechanism: a required
+`control_id` foreign key, nullable `vendor_id` and `connection_id` foreign keys (all
+three `ON DELETE RESTRICT`), the `type`/`frequency` token columns, a nullable
+`provider`, a nullable `threshold`, and a native JSON `config` column holding the
+type-specific payload (an empty config is SQL `NULL`, not `{}`). A `CHECK` constraint
+enforces that a `type: integration` row carries a `provider`.
+`integration_connections` has a `provider`, a `base_url`, a `discovery_cadence`, and
+a nullable `vendor_id` foreign key to the `Vendor` assets; a collector references it
+through its nullable `connection_id`. The `collectors` `RESTRICT` foreign keys are
+why `gitops sync` prunes an absent collector before deleting the control, vendor, or
+connection it referenced.
 One relation table
 (`control_requirements` for `Control.maps_to`) with a composite primary key and
 `ON DELETE CASCADE` foreign keys. One migration-tracking table
@@ -603,6 +639,12 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
   owner access: a vendor is returned only when its `owner` (a Company/Department
   asset) is in the caller's accessible-organisation set; a vendor with a null or
   dangling owner is hidden from everyone (fail-closed).
+- `GET /api/v1/freeboard/collectors` - persisted collectors (`id`, `title`,
+  `control`, `vendor`, `type`, `provider`, `frequency`, `threshold`, and a `config`
+  object carrying only the payload keys the row actually holds; an absent one is
+  omitted). Each quiz item carries its `id`, `prompt`, and `options` and NEVER its
+  `answer`. `connection` is not projected. These are not narrowed by organisation
+  access - any authenticated user reads every row.
 - `GET /api/v1/freeboard/integration-connections` - persisted integration
   connections (`id`, `provider`, `base_url`, `discovery_cadence`, `vendor`, and a
   read-time `token_resolvable` health flag). The API token is never returned. These
@@ -628,7 +670,7 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
 Resources are ordered by `id`; relation arrays are ordered by id. When the store
 is unreachable, the read endpoints return HTTP 503 with an RFC 7807 problem body,
 and `/api/v1/freeboard/compliance/status` returns HTTP 200 with
-`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "vendors": null, "evidenceCollectors": null, "attestationTemplates": null } }`
+`{ "persisted": { "standards": null, "controls": null, "requirements": null, "organisations": null, "scopes": null, "vendors": null, "collectors": null } }`
 (`null` marks the count as unknown, not zero). Both the healthy and unreachable-store
 shapes carry the same keys, including a single `scopes` count and no
 `requirementScopes` or `vendorScopes` keys. `GET /api/v1/freeboard/gitops/status` is unchanged and does not depend on the

@@ -295,11 +295,12 @@ rest of the UI. This implements `web-ux-conventions` A6 for the pre-auth surface
 
 Landing the shell SHALL apply the information-architecture re-home that moves
 configuration and administration pages under `/settings`, and the nav map SHALL
-point at each destination's new route. The moves are: evidence collectors
-`/compliance/evidence-collectors` to `/settings/evidence-collectors`; attestation
-templates `/compliance/attestation-templates` to `/settings/attestation-templates`;
-users `/admin/users` to `/settings/users` (and the one-time credential display
-`/admin/usercredential` to `/settings/usercredential`); custom roles
+point at each destination's new route. The moves are: the collector register
+`/compliance/evidence-collectors` and `/compliance/attestation-templates` to one
+`/settings/collectors` page (the two legacy registers merge with the collector kind, so
+the shell carries ONE `Collectors` nav entry rather than separate evidence-collector and
+attestation-template entries); users `/admin/users` to `/settings/users` (and the one-time
+credential display `/admin/usercredential` to `/settings/usercredential`); custom roles
 `/admin/custom-roles` to `/settings/custom-roles` (and the role editor
 `/admin/custom-roles/designer/{slug?}` to
 `/settings/custom-roles/designer/{slug?}`); and role assignments
@@ -312,7 +313,10 @@ page files SHALL stay in their current Razor Pages folders (`Pages/Compliance`,
 (`AuthorizeFolder("/Compliance")`, `AuthorizeFolder("/Admin")`) still gate them and
 in-page enforcement is unchanged. No redirect from an old path SHALL be added: the
 prior URLs cease to exist (a deliberate clean break, acceptable in pre-release
-software). The path-asserting web and end-to-end tests SHALL be updated to the new
+software). This applies equally to the two retired register URLs
+`/settings/evidence-collectors` and `/settings/attestation-templates`, which cease to
+exist with no redirect to `/settings/collectors`.
+The path-asserting web and end-to-end tests SHALL be updated to the new
 paths, and the preserved test markers (`temp-password`, `soa-nodes`,
 `data-node-id`, `btn-primary`, `badge`, `badge-danger`, `badge-success`) SHALL
 remain intact - the asserted path changes, the markers do not.
@@ -329,6 +333,13 @@ merge the page bodies into one Settings page.
 - **WHEN** the shell change is applied
 - **THEN** each moved page answers at its new `/settings` route, the nav map links to
   the new route, and the old path returns no page and no redirect
+
+#### Scenario: One collector nav entry replaces the two register entries
+
+- **WHEN** the nav map is built
+- **THEN** it carries a single `Collectors` destination at `/settings/collectors` under
+  its group, and carries no evidence-collector or attestation-template destination, so no
+  page appears twice and the palette index derived from the same map lists one entry
 
 #### Scenario: Path-asserting tests and markers stay green
 

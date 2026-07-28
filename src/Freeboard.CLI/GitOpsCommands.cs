@@ -139,8 +139,7 @@ public sealed class GitOpsCommands
             $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Requirements.Count} requirement(s), "
             + $"{result.Config.Controls.Count} control(s), {AssetSummary(result.Config)}, "
             + $"{result.Config.Scopes.Count} scope(s), "
-            + $"{result.Config.EvidenceCollectors.Count} evidence-collector(s), "
-            + $"{result.Config.AttestationTemplates.Count} attestation-template(s).");
+            + $"{result.Config.Collectors.Count} collector(s).");
         return 0;
     }
 
@@ -181,8 +180,7 @@ public sealed class GitOpsCommands
             $"OK: {config.Standards.Count} standard(s), {config.Requirements.Count} requirement(s), "
             + $"{config.Controls.Count} control(s), {AssetSummary(config)}, "
             + $"{config.Scopes.Count} scope(s), "
-            + $"{config.EvidenceCollectors.Count} evidence-collector(s), "
-            + $"{config.AttestationTemplates.Count} attestation-template(s).");
+            + $"{config.Collectors.Count} collector(s).");
     }
 
     private static void PrintPlannedState(GitOpsConfig config)
@@ -226,25 +224,17 @@ public sealed class GitOpsCommands
                 $"  - {scope.Id}: {scope.Title} -> {scope.Subject} / {target} = {scope.Disposition}");
         }
 
-        Console.WriteLine($"EvidenceCollectors ({config.EvidenceCollectors.Count}):");
-        foreach (var collector in config.EvidenceCollectors)
+        // Per-collector line only (identity, attach point, references, type, provider, cadence); the whole
+        // config payload - body, fields, pass mark, quiz, the confidential quiz answer, and the tracked
+        // checks - is deliberately omitted from authoring output.
+        Console.WriteLine($"Collectors ({config.Collectors.Count}):");
+        foreach (var collector in config.Collectors)
         {
             var vendor = string.IsNullOrEmpty(collector.Vendor) ? "-" : collector.Vendor;
+            var provider = string.IsNullOrEmpty(collector.Provider) ? "-" : collector.Provider;
             Console.WriteLine(
                 $"  - {collector.Id}: {collector.Title} -> control {collector.Control} / vendor {vendor} "
-                + $"[{collector.Type}, {collector.Frequency}]");
-        }
-
-        // Per-template line only (id/title/control/type, plus pass_mark for training); body, fields, quiz,
-        // and the confidential quiz answer are deliberately omitted from authoring output.
-        Console.WriteLine($"AttestationTemplates ({config.AttestationTemplates.Count}):");
-        foreach (var template in config.AttestationTemplates)
-        {
-            var passMark = template.Type == "training" && !string.IsNullOrWhiteSpace(template.PassMark)
-                ? $", pass_mark {template.PassMark}"
-                : string.Empty;
-            Console.WriteLine(
-                $"  - {template.Id}: {template.Title} -> control {template.Control} [{template.Type}{passMark}]");
+                + $"[{collector.Type}, provider {provider}, {collector.Frequency}]");
         }
     }
 }

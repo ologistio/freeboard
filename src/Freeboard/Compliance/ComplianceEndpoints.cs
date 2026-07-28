@@ -132,7 +132,7 @@ public static class ComplianceEndpoints
 
         // A vendor is visible only when its owner (a Company/Department asset) is in the caller's
         // accessible-org set; a vendor with a null or dangling owner is visible to no one (fail-closed).
-        // This narrowing covers /vendors only; /evidence-collectors and /integration-connections still
+        // This narrowing covers /vendors only; /collectors and /integration-connections still
         // expose a hidden vendor's id.
         reads.MapGet("/vendors", async (IComplianceStore store, IOrgAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
@@ -149,14 +149,17 @@ public static class ComplianceEndpoints
             }
         });
 
-        // Evidence-collectors are org-independent reference data (no organisation dimension), so - like
+        // Collectors are org-independent reference data (no organisation dimension), so - like
         // /vendors - they are intentionally NOT narrowed by IOrgAccess: any authenticated user reads
-        // every collector, including its config map. Revisit if a later change adds an org dimension.
-        reads.MapGet("/evidence-collectors", async (IComplianceStore store, CancellationToken ct) =>
+        // every collector, including its config. Revisit if a later change adds an org dimension.
+        // The quiz items carry no answer: the store returns an answer-free QuizItemView, so the correct
+        // answer never appears in the JSON. `connection` is deliberately not projected - it is sourced
+        // only to drive the startup token-resolvability warning.
+        reads.MapGet("/collectors", async (IComplianceStore store, CancellationToken ct) =>
         {
             try
             {
-                var rows = await store.GetEvidenceCollectorsAsync(ct);
+                var rows = await store.GetCollectorsAsync(ct);
                 return Results.Ok(rows.Select(r => new
                 {
                     id = r.Id,
@@ -164,36 +167,10 @@ public static class ComplianceEndpoints
                     control = r.Control,
                     vendor = r.Vendor,
                     type = r.Type,
+                    provider = r.Provider,
                     frequency = r.Frequency,
                     threshold = r.Threshold,
-                    config = r.Config,
-                }));
-            }
-            catch (Exception ex) when (IsStoreFailure(ex))
-            {
-                return Unreachable();
-            }
-        });
-
-        // Attestation-templates are org-independent reference data (no organisation dimension), so - like
-        // /vendors and /evidence-collectors - they are intentionally NOT narrowed by IOrgAccess: any
-        // authenticated user reads every template. The quiz items carry no answer: the store returns an
-        // answer-free QuizItemView, so the correct answer never appears in the JSON.
-        reads.MapGet("/attestation-templates", async (IComplianceStore store, CancellationToken ct) =>
-        {
-            try
-            {
-                var rows = await store.GetAttestationTemplatesAsync(ct);
-                return Results.Ok(rows.Select(r => new
-                {
-                    id = r.Id,
-                    title = r.Title,
-                    control = r.Control,
-                    type = r.Type,
-                    body = r.Body,
-                    fields = r.Fields.Select(f => new { id = f.Id, label = f.Label, type = f.Type, options = f.Options }),
-                    pass_mark = r.PassMark,
-                    quiz = r.Quiz.Select(q => new { id = q.Id, prompt = q.Prompt, options = q.Options }),
+                    config = CollectorConfigPayload(r.Config),
                 }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
@@ -203,7 +180,7 @@ public static class ComplianceEndpoints
         });
 
         // Integration-connections are org-independent reference data (no organisation dimension), so - like
-        // /vendors and /evidence-collectors - they are intentionally NOT narrowed by IOrgAccess. token_resolvable
+        // /vendors and /collectors - they are intentionally NOT narrowed by IOrgAccess. token_resolvable
         // is composed at read time from the out-of-band token resolver; the token value never appears here.
         reads.MapGet("/integration-connections", async (IComplianceStore store, IIntegrationTokenResolver tokens, CancellationToken ct) =>
         {
@@ -289,8 +266,7 @@ public static class ComplianceEndpoints
                         organisations = (int?)counts.Organisations,
                         scopes = (int?)counts.Scopes,
                         vendors = (int?)counts.Vendors,
-                        evidenceCollectors = (int?)counts.EvidenceCollectors,
-                        attestationTemplates = (int?)counts.AttestationTemplates,
+                        collectors = (int?)counts.Collectors,
                     },
                 });
             }
@@ -307,12 +283,54 @@ public static class ComplianceEndpoints
                         organisations = (int?)null,
                         scopes = (int?)null,
                         vendors = (int?)null,
-                        evidenceCollectors = (int?)null,
-                        attestationTemplates = (int?)null,
+                        collectors = (int?)null,
                     },
                 });
             }
         });
+    }
+
+    // A config key is written only when its member carries a value, so a collector serializes exactly
+    // the keys its (type, provider) schema can register: `{}` for script and agent, no `checks` on an
+    // attestation, no attestation key on an integration collector. Serializing the fixed five-member
+    // view directly would emit all five on every collector and contradict that. The omission stops at
+    // `config`: the top-level `vendor`, `provider`, and `threshold` stay explicit nulls, because those
+    // are members every collector has and merely leaves unset.
+    private static Dictionary<string, object> CollectorConfigPayload(CollectorConfigView config)
+    {
+        var payload = new Dictionary<string, object>(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(config.Body))
+        {
+            payload["body"] = config.Body;
+        }
+
+        if (config.Fields.Count > 0)
+        {
+            payload["fields"] = config.Fields
+                .Select(f => new { id = f.Id, label = f.Label, type = f.Type, options = f.Options })
+                .ToList();
+        }
+
+        if (config.PassMark is not null)
+        {
+            payload["pass_mark"] = config.PassMark;
+        }
+
+        if (config.Quiz.Count > 0)
+        {
+            payload["quiz"] = config.Quiz
+                .Select(q => new { id = q.Id, prompt = q.Prompt, options = q.Options })
+                .ToList();
+        }
+
+        if (config.Checks.Count > 0)
+        {
+            payload["checks"] = config.Checks
+                .Select(c => new { source_key = c.SourceKey, name = c.Name, severity = c.Severity })
+                .ToList();
+        }
+
+        return payload;
     }
 
     // The unified subject-readability rule with one branch per parent-anchored subject family, fail-closed.

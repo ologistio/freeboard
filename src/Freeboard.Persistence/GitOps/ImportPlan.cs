@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using Freeboard.Core.GitOps;
 
 namespace Freeboard.Persistence.GitOps;
@@ -11,23 +10,24 @@ namespace Freeboard.Persistence.GitOps;
 public sealed record ControlRowPlan(string Id, string ApiVersion, string Title, string? Evaluation);
 
 /// <summary>
-/// An evidence-collector row to upsert: a required control foreign key, an optional vendor foreign key
-/// (null when blank), the type/frequency tokens, an optional <see cref="Threshold"/> integer percent
-/// (null when blank), and <see cref="ConfigJson"/> - the type-specific settings map serialized to a
-/// JSON string (null when the map is empty).
+/// A collector row to upsert: a required control foreign key, optional vendor and connection foreign
+/// keys (null when blank), the type/provider/frequency tokens (provider null off the integration path),
+/// an optional <see cref="Threshold"/> integer percent (null when blank), and <see cref="ConfigJson"/> -
+/// the type-specific payload serialized to the storage shape (null when no member is present). There is
+/// no separate checks column: tracked checks are a <c>config</c> key.
 /// </summary>
-public sealed record EvidenceCollectorRowPlan(
+public sealed record CollectorRowPlan(
     string Id,
     string ApiVersion,
     string Title,
     string Control,
     string? Vendor,
+    string? Connection,
     string Type,
+    string? Provider,
     string Frequency,
     int? Threshold,
-    string? ConfigJson,
-    string? Connection,
-    string? ChecksJson);
+    string? ConfigJson);
 
 /// <summary>
 /// An integration-connection row to upsert: the provider and discovery-cadence tokens, an absolute
@@ -42,24 +42,6 @@ public sealed record IntegrationConnectionRowPlan(
     string BaseUrl,
     string DiscoveryCadence,
     string? Vendor);
-
-/// <summary>
-/// An attestation-template row to upsert: a required control foreign key, the type token, an optional
-/// <see cref="Body"/> (null when blank), an optional <see cref="PassMark"/> integer percent (null when
-/// blank), and <see cref="FieldsJson"/>/<see cref="QuizJson"/> - the ordered field and quiz lists
-/// serialized to a JSON array string (null when the list is empty). The serialized quiz includes each
-/// item's answer for the later grading runtime; the answer is redacted at the read-model boundary.
-/// </summary>
-public sealed record AttestationTemplateRowPlan(
-    string Id,
-    string ApiVersion,
-    string Title,
-    string Control,
-    string Type,
-    string? Body,
-    string? FieldsJson,
-    int? PassMark,
-    string? QuizJson);
 
 /// <summary>
 /// A standard row to upsert. Carries the metadata columns; optional <see cref="Publisher"/> and
@@ -126,9 +108,7 @@ public sealed class ImportPlan
 
     public IReadOnlyList<ControlRequirementRow> ControlRequirements { get; }
 
-    public IReadOnlyList<EvidenceCollectorRowPlan> EvidenceCollectors { get; }
-
-    public IReadOnlyList<AttestationTemplateRowPlan> AttestationTemplates { get; }
+    public IReadOnlyList<CollectorRowPlan> Collectors { get; }
 
     public IReadOnlyList<IntegrationConnectionRowPlan> IntegrationConnections { get; }
 
@@ -170,29 +150,21 @@ public sealed class ImportPlan
             .Distinct()
             .ToList();
 
-        // Threshold is parsed to int? only here, after Core validation has range-checked the raw text;
-        // a blank stays null. config serializes to a JSON object string, null when the map is empty.
-        // connection is the connection foreign key (null when blank); checks serializes to a JSON array
-        // string, null when the list is empty.
-        EvidenceCollectors = config.EvidenceCollectors
-            .Select(c => new EvidenceCollectorRowPlan(
-                c.Id, c.ApiVersion, c.Title, c.Control, NullIfBlank(c.Vendor), c.Type, c.Frequency,
-                ParseThreshold(c.Threshold), SerializeConfig(c.Config), NullIfBlank(c.Connection), SerializeList(c.Checks)))
+        // threshold and the config pass_mark are parsed to int? only here, after Core validation has
+        // range-checked the raw text; a blank stays null. The optional vendor, connection, and provider
+        // normalize to null (blank means absent). config serializes to the storage shape, which is a
+        // projection of the authored record rather than the record itself - see StoredCollectorConfig.
+        Collectors = config.Collectors
+            .Select(c => new CollectorRowPlan(
+                c.Id, c.ApiVersion, c.Title, c.Control, NullIfBlank(c.Vendor), NullIfBlank(c.Connection),
+                c.Type, NullIfBlank(c.Provider), c.Frequency, ParseThreshold(c.Threshold),
+                StoredCollectorConfig.Write(c.Config, ParseThreshold(c.Config.PassMark))))
             .ToList();
 
         // Optional vendor normalizes to null (blank means absent), like the collector's vendor.
         IntegrationConnections = config.IntegrationConnections
             .Select(c => new IntegrationConnectionRowPlan(
                 c.Id, c.ApiVersion, c.Title, c.Provider, c.BaseUrl, c.DiscoveryCadence, NullIfBlank(c.Vendor)))
-            .ToList();
-
-        // pass_mark is parsed to int? only here, after Core validation has range-checked the raw text; a
-        // blank stays null. fields/quiz serialize to a JSON array string, null when the list is empty. The
-        // serialized quiz keeps each item's answer for the later grading runtime.
-        AttestationTemplates = config.AttestationTemplates
-            .Select(t => new AttestationTemplateRowPlan(
-                t.Id, t.ApiVersion, t.Title, t.Control, t.Type, NullIfBlank(t.Body),
-                SerializeList(t.Fields), ParseThreshold(t.PassMark), SerializeList(t.Quiz)))
             .ToList();
     }
 
@@ -202,12 +174,6 @@ public sealed class ImportPlan
 
     private static int? ParseThreshold(string value) =>
         int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
-
-    private static string? SerializeConfig(IReadOnlyDictionary<string, string> config) =>
-        config.Count == 0 ? null : JsonSerializer.Serialize(config);
-
-    private static string? SerializeList<T>(IReadOnlyList<T> items) =>
-        items.Count == 0 ? null : JsonSerializer.Serialize(items);
 
     public IReadOnlyList<string> StandardIds => Standards.Select(r => r.Id).ToList();
 
@@ -222,9 +188,7 @@ public sealed class ImportPlan
     public IReadOnlyList<string> OrganisationIds =>
         Assets.Where(r => r.Type is "Company" or "Department").Select(r => r.Id).ToList();
 
-    public IReadOnlyList<string> EvidenceCollectorIds => EvidenceCollectors.Select(r => r.Id).ToList();
-
-    public IReadOnlyList<string> AttestationTemplateIds => AttestationTemplates.Select(r => r.Id).ToList();
+    public IReadOnlyList<string> CollectorIds => Collectors.Select(r => r.Id).ToList();
 
     public IReadOnlyList<string> IntegrationConnectionIds => IntegrationConnections.Select(r => r.Id).ToList();
 }

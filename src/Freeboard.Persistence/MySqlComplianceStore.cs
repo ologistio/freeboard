@@ -1,8 +1,6 @@
 using System.Data;
 using System.Data.Common;
-using System.Text.Json;
 using Dapper;
-using Freeboard.Core.GitOps;
 
 namespace Freeboard.Persistence;
 
@@ -110,19 +108,43 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         return rows.ToList();
     }
 
-    public async Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<(string Id, string Title, string Control, string? Vendor, string Type, string Frequency, int? Threshold, string? Config, string? Connection)>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, control_id AS Control, vendor_id AS Vendor, type AS Type, "
-            + "frequency AS Frequency, threshold AS Threshold, config AS Config, connection_id AS Connection "
-            + "FROM evidence_collectors ORDER BY id;",
+        var rows = await connection.QueryAsync<CollectorColumns>(new CommandDefinition(
+            CollectorSelect,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return rows
-            .Select(r => new EvidenceCollectorRow(
-                r.Id, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, DeserializeConfig(r.Config), r.Connection))
-            .ToList();
+        return rows.Select(ToCollectorRow).ToList();
     }
+
+    /// <summary>
+    /// The `collectors` column list, shared by the list read and the drill-down snapshot read so the two
+    /// cannot diverge on which columns a collector row carries.
+    /// </summary>
+    private const string CollectorSelect =
+        "SELECT id AS Id, title AS Title, control_id AS Control, vendor_id AS Vendor, type AS Type, "
+        + "provider AS Provider, frequency AS Frequency, threshold AS Threshold, config AS Config, "
+        + "connection_id AS Connection FROM collectors ORDER BY id;";
+
+    private sealed record CollectorColumns(
+        string Id,
+        string Title,
+        string Control,
+        string? Vendor,
+        string Type,
+        string? Provider,
+        string Frequency,
+        int? Threshold,
+        string? Config,
+        string? Connection);
+
+    /// <summary>
+    /// Projects a raw collector row, binding the stored `config` through the single store-boundary
+    /// redaction so no caller can reach a quiz answer.
+    /// </summary>
+    private static CollectorRow ToCollectorRow(CollectorColumns r) => new(
+        r.Id, r.Title, r.Control, r.Vendor, r.Type, r.Provider, r.Frequency, r.Threshold,
+        StoredCollectorConfig.Read(r.Config), r.Connection);
 
     public async Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default)
     {
@@ -132,49 +154,6 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             + "vendor_id AS Vendor FROM integration_connections ORDER BY id;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
-    }
-
-    /// <summary>Deserializes the stored config JSON to a string map; empty when the column is NULL.</summary>
-    private static IReadOnlyDictionary<string, string> DeserializeConfig(string? json) =>
-        string.IsNullOrEmpty(json)
-            ? new Dictionary<string, string>(StringComparer.Ordinal)
-            : JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>(StringComparer.Ordinal);
-
-    public async Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<(string Id, string Title, string Control, string Type, string? Body, string? Fields, int? PassMark, string? Quiz)>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, control_id AS Control, type AS Type, body AS Body, "
-            + "fields AS Fields, pass_mark AS PassMark, quiz AS Quiz "
-            + "FROM attestation_templates ORDER BY id;",
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return rows
-            .Select(r => new AttestationTemplateRow(
-                r.Id, r.Title, r.Control, r.Type, r.Body,
-                DeserializeFields(r.Fields), r.PassMark, DeserializeQuiz(r.Quiz)))
-            .ToList();
-    }
-
-    /// <summary>Deserializes the stored fields JSON to the typed list; empty when the column is NULL.</summary>
-    private static IReadOnlyList<AttestationField> DeserializeFields(string? json) =>
-        string.IsNullOrEmpty(json)
-            ? []
-            : JsonSerializer.Deserialize<List<AttestationField>>(json) ?? [];
-
-    /// <summary>
-    /// Deserializes the stored quiz JSON and projects each item to an answer-free <see cref="QuizItemView"/>.
-    /// The stored quiz carries the correct answer for the grading runtime; dropping it here is what keeps
-    /// the answer off every read surface. Empty when the column is NULL.
-    /// </summary>
-    private static IReadOnlyList<QuizItemView> DeserializeQuiz(string? json)
-    {
-        if (string.IsNullOrEmpty(json))
-        {
-            return [];
-        }
-
-        var items = JsonSerializer.Deserialize<List<QuizItem>>(json) ?? [];
-        return items.Select(q => new QuizItemView(q.Id, q.Prompt, q.Options)).ToList();
     }
 
     public async Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
@@ -263,29 +242,11 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .Select(c => new ControlRow(c.Id, c.Title, mapsTo.TryGetValue(c.Id, out var ids) ? ids : [], c.Evaluation))
             .ToList();
 
-        var collectorRows = (await connection.QueryAsync<(string Id, string Title, string Control, string? Vendor, string Type, string Frequency, int? Threshold, string? Config)>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, control_id AS Control, vendor_id AS Vendor, type AS Type, "
-            + "frequency AS Frequency, threshold AS Threshold, config AS Config "
-            + "FROM evidence_collectors ORDER BY id;",
+        var collectors = (await connection.QueryAsync<CollectorColumns>(new CommandDefinition(
+            CollectorSelect,
             transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
-
-        var collectors = collectorRows
-            .Select(r => new EvidenceCollectorRow(
-                r.Id, r.Title, r.Control, r.Vendor, r.Type, r.Frequency, r.Threshold, DeserializeConfig(r.Config)))
-            .ToList();
-
-        var templateRows = (await connection.QueryAsync<(string Id, string Title, string Control, string Type, string? Body, string? Fields, int? PassMark, string? Quiz)>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, control_id AS Control, type AS Type, body AS Body, "
-            + "fields AS Fields, pass_mark AS PassMark, quiz AS Quiz "
-            + "FROM attestation_templates ORDER BY id;",
-            transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
-
-        var templates = templateRows
-            .Select(r => new AttestationTemplateRow(
-                r.Id, r.Title, r.Control, r.Type, r.Body,
-                DeserializeFields(r.Fields), r.PassMark, DeserializeQuiz(r.Quiz)))
+            cancellationToken: cancellationToken)).ConfigureAwait(false))
+            .Select(ToCollectorRow)
             .ToList();
 
         var vendors = (await connection.QueryAsync<VendorRow>(new CommandDefinition(
@@ -295,7 +256,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new SoaDrilldownInputs(organisations, scopes, requirements, resolvableAssetIds, controls, collectors, templates, vendors);
+        return new SoaDrilldownInputs(organisations, scopes, requirements, resolvableAssetIds, controls, collectors, vendors);
     }
 
     public async Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default)
@@ -306,7 +267,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
 
     private static async Task<ComplianceCounts> ReadCountsAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int Vendors, int EvidenceCollectors, int AttestationTemplates)>(new CommandDefinition(
+        var counts = await connection.QuerySingleAsync<(int Standards, int Controls, int Requirements, int Organisations, int Scopes, int Vendors, int Collectors)>(new CommandDefinition(
             "SELECT "
             + "(SELECT COUNT(*) FROM standards) AS Standards, "
             + "(SELECT COUNT(*) FROM controls) AS Controls, "
@@ -314,11 +275,10 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             + "(SELECT COUNT(*) FROM assets WHERE type IN ('Company', 'Department')) AS Organisations, "
             + "(SELECT COUNT(*) FROM scopes) AS Scopes, "
             + "(SELECT COUNT(*) FROM assets WHERE type = 'Vendor') AS Vendors, "
-            + "(SELECT COUNT(*) FROM evidence_collectors) AS EvidenceCollectors, "
-            + "(SELECT COUNT(*) FROM attestation_templates) AS AttestationTemplates;",
+            + "(SELECT COUNT(*) FROM collectors) AS Collectors;",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return new ComplianceCounts(
             counts.Standards, counts.Controls, counts.Requirements, counts.Organisations, counts.Scopes,
-            counts.Vendors, counts.EvidenceCollectors, counts.AttestationTemplates);
+            counts.Vendors, counts.Collectors);
     }
 }

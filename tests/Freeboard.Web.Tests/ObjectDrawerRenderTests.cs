@@ -40,7 +40,7 @@ public sealed class ObjectDrawerRenderTests
         Controls = [new ControlRow("ctrl-a", "Control A", ["req-a"], "all")],
         Collectors =
         [
-            new EvidenceCollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "daily", null, new Dictionary<string, string>()),
+            new CollectorRow("coll-a", "Collector A", "ctrl-a", null, "integration", "fleet", "daily", null, CollectorConfigView.Empty),
         ],
     };
 
@@ -77,6 +77,33 @@ public sealed class ObjectDrawerRenderTests
         Assert.Contains("data-detail-template=\"fb-detail-tmpl-0\"", html, StringComparison.Ordinal);
         // The anatomy is server-rendered into an adjacent inert template, not fetched.
         Assert.Contains("<template id=\"fb-detail-tmpl-0\">", html, StringComparison.Ordinal);
+    }
+
+    // The accepted regression from the collector merge, named here as well as on the full page because
+    // the drawer template is a second surface the shared projection feeds. A check tags Attestation from
+    // its collector's type, and an attestation-tagged check gets the bare kind note in place of the
+    // evidence status and status-derived note a collector-tagged one gets.
+    [Fact]
+    public async Task AnAttestationCollectorsProvingCheckCarriesNoStatusInTheDrawerTemplate()
+    {
+        var store = DrilldownStore();
+        store.Collectors =
+        [
+            .. store.Collectors,
+            new CollectorRow("attest-a", "Attestation A", "ctrl-a", null, "manual", null, "annual", null, CollectorConfigView.Empty),
+        ];
+        using var factory = new AuthWebFactory { Compliance = store };
+        using var client = NoRedirectClient(factory);
+
+        var html = await GetHtmlAsync(factory, client, $"{SoaPath}?standard=std-a");
+
+        var template = html[html.IndexOf("<template id=\"fb-detail-tmpl-0\">", StringComparison.Ordinal)..];
+        template = template[..template.IndexOf("</template>", StringComparison.Ordinal)];
+        Assert.Contains("Attestation A", template, StringComparison.Ordinal);
+        // The row's only note is the bare kind; it never gains a status seal.
+        var row = template[template.IndexOf("Attestation A", StringComparison.Ordinal)..];
+        Assert.Contains("Attestation", row, StringComparison.Ordinal);
+        Assert.DoesNotContain("fb-status", row, StringComparison.Ordinal);
     }
 
     [Fact]

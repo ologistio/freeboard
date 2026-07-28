@@ -10,11 +10,11 @@ namespace Freeboard.Persistence.GitOps;
 /// row is never rewritten). FK-safe order: upsert standards (with metadata), requirements (reference
 /// standards), controls (with their evaluation rule), declared assets (Company/Department/Vendor, one id
 /// space, no parent-before-child order since assets.parent has no FK), integration-connections (reference
-/// vendor assets), evidence-collectors (reference controls, vendor assets, and integration-connections),
-/// attestation-templates (reference controls); replace the whole unified scope set (delete-all then insert,
+/// vendor assets), collectors (reference controls, vendor assets, and integration-connections);
+/// replace the whole unified scope set (delete-all then insert,
 /// one table with a scalar subject and three nullable target FKs); replace all control->requirement join
-/// rows; then hard-remove absent rows: org role assignments, absent evidence-collectors and
-/// attestation-templates, absent integration-connections, then ONE source = 'declared'-guarded
+/// rows; then hard-remove absent rows: org role assignments, absent collectors,
+/// absent integration-connections, then ONE source = 'declared'-guarded
 /// declared-asset prune (which never touches a discovered row) after every asset-referencing row is gone,
 /// then controls, requirements before standards. Finally, before commit, compute the DB-accurate
 /// unresolved-scope-subject set and return it. Matches on id only.
@@ -49,21 +49,16 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await UpsertAssetsAsync(connection, transaction, plan.Assets, now, cancellationToken).ConfigureAwait(false);
 
         // Integration-connections reference vendors, so upsert them after vendors and before the
-        // evidence-collectors that reference them. Absent connections are pruned after absent collectors
+        // collectors that reference them. Absent connections are pruned after absent collectors
         // and before absent vendors in step 6, keeping both RESTRICT FKs safe.
         await UpsertIntegrationConnectionsAsync(
             connection, transaction, plan.IntegrationConnections, now, cancellationToken).ConfigureAwait(false);
 
-        // Evidence-collectors reference controls, vendors, and integration-connections, so upsert them
+        // Collectors reference controls, vendors, and integration-connections, so upsert them
         // after all three. Upsert by id (no secondary unique key); absent collectors are pruned before
         // their target rows in step 6.
-        await UpsertEvidenceCollectorsAsync(
-            connection, transaction, plan.EvidenceCollectors, now, cancellationToken).ConfigureAwait(false);
-
-        // Attestation-templates reference controls, so upsert them after controls. Upsert by id (no
-        // secondary unique key); absent templates are pruned before their target controls in step 6.
-        await UpsertAttestationTemplatesAsync(
-            connection, transaction, plan.AttestationTemplates, now, cancellationToken).ConfigureAwait(false);
+        await UpsertCollectorsAsync(
+            connection, transaction, plan.Collectors, now, cancellationToken).ConfigureAwait(false);
 
         // 2. Replace the whole unified scope set (delete-all then insert). A plain upsert is unsafe: the
         //    table has a primary key (id) plus three (subject, target) unique keys, so a row that swaps
@@ -83,19 +78,17 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         //    importer needs no role semantics, only the prune, mirroring how it prunes absent scopes.
         await DeleteAbsentOrganisationAssignmentsAsync(connection, transaction, plan.OrganisationIds, cancellationToken).ConfigureAwait(false);
 
-        // 5. Hard-remove remaining rows whose id is absent, FK-safe order. Prune absent evidence_collectors
+        // 5. Hard-remove remaining rows whose id is absent, FK-safe order. Prune absent collectors
         //    before their target rows: the collector FKs to controls and vendor assets are RESTRICT, so a
         //    still-referenced control or vendor asset cannot be deleted while a stale collector points at it.
-        await DeleteAbsentAsync(connection, transaction, "evidence_collectors", plan.EvidenceCollectorIds, cancellationToken).ConfigureAwait(false);
-        // Prune absent attestation_templates before their target controls: the control_id FK is RESTRICT,
-        // so a still-referenced control cannot be deleted while a stale template points at it.
-        await DeleteAbsentAsync(connection, transaction, "attestation_templates", plan.AttestationTemplateIds, cancellationToken).ConfigureAwait(false);
-        // Prune absent integration_connections after absent evidence_collectors (whose connection_id FK
+        //    A pruned collector's credentials cascade away with it.
+        await DeleteAbsentAsync(connection, transaction, "collectors", plan.CollectorIds, cancellationToken).ConfigureAwait(false);
+        // Prune absent integration_connections after absent collectors (whose connection_id FK
         // is RESTRICT) and before the declared-asset prune (the connection's vendor_id FK to a vendor
         // asset is RESTRICT), so both FKs stay satisfied.
         await DeleteAbsentAsync(connection, transaction, "integration_connections", plan.IntegrationConnectionIds, cancellationToken).ConfigureAwait(false);
         // The single declared-asset prune, guarded by source = 'declared' so it NEVER touches a discovered
-        // row. It runs after every row that references an asset (scopes' target FKs, evidence_collectors,
+        // row. It runs after every row that references an asset (scopes' target FKs, collectors,
         // integration_connections, and the org role assignments) has been pruned or replaced to only
         // reference in-config assets, so the RESTRICT FKs into assets stay satisfied. A scope's subject_id
         // has no FK, so a removed subject asset simply leaves the scope dangling and never blocks the prune.
@@ -235,10 +228,10 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             .ConfigureAwait(false);
     }
 
-    private static async Task UpsertEvidenceCollectorsAsync(
+    private static async Task UpsertCollectorsAsync(
         DbConnection connection,
         DbTransaction transaction,
-        IReadOnlyList<EvidenceCollectorRowPlan> rows,
+        IReadOnlyList<CollectorRowPlan> rows,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -247,17 +240,18 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             return;
         }
 
-        // Upsert by id (identity is id only, no secondary unique key). ConfigJson and ChecksJson are
-        // written straight into their native JSON columns, which validate well-formedness.
+        // Upsert by id (identity is id only, no secondary unique key). ConfigJson is written straight
+        // into the native JSON column, which validates well-formedness.
         const string sql =
-            "INSERT INTO evidence_collectors "
-            + "(id, api_version, title, control_id, vendor_id, connection_id, type, frequency, threshold, config, checks, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Control, @Vendor, @Connection, @Type, @Frequency, @Threshold, @ConfigJson, @ChecksJson, @Now, @Now) "
+            "INSERT INTO collectors "
+            + "(id, api_version, title, control_id, vendor_id, connection_id, type, provider, frequency, threshold, config, created_at, updated_at) "
+            + "VALUES (@Id, @ApiVersion, @Title, @Control, @Vendor, @Connection, @Type, @Provider, @Frequency, @Threshold, @ConfigJson, @Now, @Now) "
             + "ON DUPLICATE KEY UPDATE "
             + "api_version = VALUES(api_version), title = VALUES(title), control_id = VALUES(control_id), "
             + "vendor_id = VALUES(vendor_id), connection_id = VALUES(connection_id), type = VALUES(type), "
+            + "provider = VALUES(provider), "
             + "frequency = VALUES(frequency), threshold = VALUES(threshold), config = VALUES(config), "
-            + "checks = VALUES(checks), updated_at = VALUES(updated_at);";
+            + "updated_at = VALUES(updated_at);";
 
         var parameters = rows.Select(r => new
         {
@@ -268,10 +262,10 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             r.Vendor,
             r.Connection,
             r.Type,
+            r.Provider,
             r.Frequency,
             r.Threshold,
             r.ConfigJson,
-            r.ChecksJson,
             Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
@@ -310,46 +304,6 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
             r.DiscoveryCadence,
             r.BaseUrl,
             r.Vendor,
-            Now = now,
-        });
-        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
-            .ConfigureAwait(false);
-    }
-
-    private static async Task UpsertAttestationTemplatesAsync(
-        DbConnection connection,
-        DbTransaction transaction,
-        IReadOnlyList<AttestationTemplateRowPlan> rows,
-        DateTime now,
-        CancellationToken cancellationToken)
-    {
-        if (rows.Count == 0)
-        {
-            return;
-        }
-
-        // Upsert by id (identity is id only, no secondary unique key). FieldsJson/QuizJson are written
-        // straight into the native JSON columns, which validate their well-formedness.
-        const string sql =
-            "INSERT INTO attestation_templates "
-            + "(id, api_version, title, control_id, type, body, fields, pass_mark, quiz, created_at, updated_at) "
-            + "VALUES (@Id, @ApiVersion, @Title, @Control, @Type, @Body, @FieldsJson, @PassMark, @QuizJson, @Now, @Now) "
-            + "ON DUPLICATE KEY UPDATE "
-            + "api_version = VALUES(api_version), title = VALUES(title), control_id = VALUES(control_id), "
-            + "type = VALUES(type), body = VALUES(body), fields = VALUES(fields), pass_mark = VALUES(pass_mark), "
-            + "quiz = VALUES(quiz), updated_at = VALUES(updated_at);";
-
-        var parameters = rows.Select(r => new
-        {
-            r.Id,
-            r.ApiVersion,
-            r.Title,
-            r.Control,
-            r.Type,
-            r.Body,
-            r.FieldsJson,
-            r.PassMark,
-            r.QuizJson,
             Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Freeboard.Core\Freeboard.Core.csproj" />
+    <InternalsVisibleTo Include="Freeboard.Persistence.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -149,7 +149,7 @@ internal sealed class FakeEvidenceStore : IEvidenceStore
             .Select(g =>
             {
                 var latest = g.OrderBy(r => r, Comparer<EvidenceRunRow>.Create(LatestFirst)).First();
-                var stale = EvidenceCollectorFrequency.IsStale(latest.CollectedAt, latest.Frequency, nowUtc);
+                var stale = CollectorFrequency.IsStale(latest.CollectedAt, latest.Frequency, nowUtc);
                 return new CollectorEvidenceStatusRow(
                     g.Key.OrganisationId, g.Key.RequirementId, g.Key.Item3, DeriveStatus(latest.Checks, stale),
                     latest.CollectedAt);

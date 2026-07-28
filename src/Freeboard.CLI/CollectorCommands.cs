@@ -3,14 +3,14 @@ using ConsoleAppFramework;
 namespace Freeboard.CLI;
 
 /// <summary>
-/// The <c>collector</c> command group. Reads the evidence-collector register through the Freeboard HTTP
+/// The <c>collector</c> command group. Reads the collector register through the Freeboard HTTP
 /// API ONLY - it never touches the database. Base URL via <c>--api-url</c>/<c>FREEBOARD_API_URL</c>;
 /// admin token via <c>--token</c>/<c>FREEBOARD_ADMIN_TOKEN</c>. Exit codes follow the CLI convention: 0
 /// success, 1 input/validation, 3 operational/HTTP failure (401/403/5xx/connection refused).
 /// </summary>
 public sealed class CollectorCommands
 {
-    /// <summary>List controls with their evaluation rule and attached evidence-collectors.</summary>
+    /// <summary>List controls with their evaluation rule and attached collectors.</summary>
     /// <param name="apiUrl">Base URL of the Freeboard API. Overrides FREEBOARD_API_URL.</param>
     /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
     public int List(string? apiUrl = null, string? token = null)
@@ -24,13 +24,13 @@ public sealed class CollectorCommands
                 return ApiCommandRunner.Translate(controlsResult, _ => { });
             }
 
-            var collectorsResult = await client.ListEvidenceCollectorsAsync(ct).ConfigureAwait(false);
+            var collectorsResult = await client.ListCollectorsAsync(ct).ConfigureAwait(false);
             return ApiCommandRunner.Translate(collectorsResult, collectors => Print(controlsResult.Payload!, collectors));
         });
     }
 
-    /// <summary>Issue a machine credential for an evidence-collector. Prints the raw token once.</summary>
-    /// <param name="collectorId">The evidence-collector id to issue a credential for.</param>
+    /// <summary>Issue a machine credential for a collector. Prints the raw token once.</summary>
+    /// <param name="collectorId">The collector id to issue a credential for.</param>
     /// <param name="expiresAt">Optional ISO 8601 expiry (e.g. 2027-01-01T00:00:00Z). Omit for no expiry.</param>
     /// <param name="apiUrl">Base URL of the Freeboard API. Overrides FREEBOARD_API_URL.</param>
     /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
@@ -52,8 +52,8 @@ public sealed class CollectorCommands
         });
     }
 
-    /// <summary>Revoke a machine credential for an evidence-collector.</summary>
-    /// <param name="collectorId">The evidence-collector id that owns the credential.</param>
+    /// <summary>Revoke a machine credential for a collector.</summary>
+    /// <param name="collectorId">The collector id that owns the credential.</param>
     /// <param name="credentialId">The credential id to revoke.</param>
     /// <param name="apiUrl">Base URL of the Freeboard API. Overrides FREEBOARD_API_URL.</param>
     /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
@@ -69,7 +69,7 @@ public sealed class CollectorCommands
         });
     }
 
-    private static void Print(IReadOnlyList<ApiControl> controls, IReadOnlyList<ApiEvidenceCollector> collectors)
+    private static void Print(IReadOnlyList<ApiControl> controls, IReadOnlyList<ApiCollector> collectors)
     {
         var collectorsByControl = collectors
             .GroupBy(c => c.Control, StringComparer.Ordinal)
@@ -87,14 +87,53 @@ public sealed class CollectorCommands
             foreach (var collector in attached)
             {
                 var vendor = string.IsNullOrEmpty(collector.Vendor) ? "-" : collector.Vendor;
+                var provider = string.IsNullOrEmpty(collector.Provider) ? "-" : collector.Provider;
                 var threshold = collector.Threshold is int t ? $"{t}%" : "-";
                 Console.WriteLine(
-                    $"    {collector.Id}  {collector.Title}  {collector.Type}  vendor {vendor}  {collector.Frequency}  threshold {threshold}");
-                foreach (var entry in collector.Config)
-                {
-                    Console.WriteLine($"        {entry.Key}: {entry.Value}");
-                }
+                    $"    {collector.Id}  {collector.Title}  {collector.Type}  provider {provider}  vendor {vendor}  "
+                    + $"{collector.Frequency}  threshold {threshold}");
+                PrintConfig(collector.Type, collector.Config);
             }
+        }
+    }
+
+    // Branch on the TYPE, not on which members happen to be populated: a script or agent collector
+    // registers no config key at all, so it must print nothing rather than fall into the attestation
+    // branch and report "no body". The body is reported as a has/no indicator rather than printed - the
+    // markdown is for the register page to render, and the CLI only needs to say whether one is
+    // authored. The quiz answer is never received, so it can never be printed.
+    private static void PrintConfig(string type, ApiCollectorConfig config)
+    {
+        if (string.Equals(type, "integration", StringComparison.Ordinal))
+        {
+            foreach (var check in config.Checks)
+            {
+                Console.WriteLine($"        check {check.Name}  [{check.Severity}]");
+            }
+
+            return;
+        }
+
+        if (type is not ("manual" or "training"))
+        {
+            return;
+        }
+
+        Console.WriteLine($"        {(string.IsNullOrEmpty(config.Body) ? "no body" : "has body")}");
+        foreach (var field in config.Fields)
+        {
+            var options = field.Options.Count == 0 ? string.Empty : $" ({string.Join(", ", field.Options)})";
+            Console.WriteLine($"        field {field.Id}  {field.Label}  [{field.Type}]{options}");
+        }
+
+        if (config.PassMark is int passMark)
+        {
+            Console.WriteLine($"        pass mark: {passMark}%");
+        }
+
+        foreach (var item in config.Quiz)
+        {
+            Console.WriteLine($"        quiz {item.Id}  {item.Prompt}  ({string.Join(", ", item.Options)})");
         }
     }
 }

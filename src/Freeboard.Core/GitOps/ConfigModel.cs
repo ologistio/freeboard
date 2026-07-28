@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Freeboard.Core.GitOps;
 
 /// <summary>
@@ -12,8 +14,7 @@ public static class GitOpsSchema
     public const string KindControl = "Control";
     public const string KindAsset = "Asset";
     public const string KindScope = "Scope";
-    public const string KindEvidenceCollector = "EvidenceCollector";
-    public const string KindAttestationTemplate = "AttestationTemplate";
+    public const string KindCollector = "Collector";
     public const string KindIntegrationConnection = "Integration";
 }
 
@@ -89,8 +90,8 @@ public sealed record Control
 
     /// <summary>
     /// Optional roll-up rule (<c>all</c>/<c>any</c>/<c>manual</c>) saying how the control's attached
-    /// evidence-collectors combine into a status. Blank means absent; required only when the control
-    /// has at least one attached collector.
+    /// collectors combine into a status. Blank means absent; required once the control has at least one
+    /// attached collector, of any type.
     /// </summary>
     public string Evaluation { get; init; } = string.Empty;
 }
@@ -205,28 +206,22 @@ public sealed record IntegrationConnection
 }
 
 /// <summary>
-/// One tracked check on an integration <see cref="EvidenceCollector"/>. <see cref="SourceKey"/> is the
-/// provider-native id (a Fleet policy id) that joins a provider result to this check; a provider result
-/// whose id is not authored here is not a tracked check. <see cref="Name"/> is the Freeboard check name
-/// (as <c>evidence_checks.name</c> carries). <see cref="Severity"/> is <c>Hard</c> or <c>Soft</c> (as
-/// <c>evidence_checks.severity</c> stores): <c>Hard</c> fails the requirement, <c>Soft</c> warns.
-/// </summary>
-public sealed record Check
-{
-    public string SourceKey { get; init; } = string.Empty;
-    public string Name { get; init; } = string.Empty;
-    public string Severity { get; init; } = string.Empty;
-}
-
-/// <summary>
-/// Attaches a data source to one <see cref="Control"/>. Identity is <see cref="Id"/>. A collector
-/// names its <see cref="Control"/> (the attach point) and, optionally, a Vendor asset id.
-/// <see cref="Type"/> is one of a fixed token set; <see cref="Frequency"/> is a collection cadence.
+/// Attaches a proving mechanism - a data source or an attestation form - to one <see cref="Control"/>.
+/// Identity is <see cref="Id"/>. A collector names its <see cref="Control"/> (the attach point) and,
+/// optionally, a Vendor asset id. <see cref="Type"/> is one of a fixed token set;
+/// <see cref="Frequency"/> is a collection cadence, required on every type because evidence ingest
+/// stamps it onto each run it appends and staleness is judged from that stamp.
 /// <see cref="Threshold"/> is carried as raw authored text (an integer percent 0..100) so a malformed
-/// value surfaces as a clean validation diagnostic rather than a YAML binding error. <see cref="Config"/>
-/// is a free-form type-specific settings map; it holds no secret material.
+/// value surfaces as a clean validation diagnostic rather than a YAML binding error.
+/// <see cref="Provider"/> and <see cref="Connection"/> are required for <c>type: integration</c> and
+/// absent otherwise.
+///
+/// A top-level field is identity, the attach point, a cross-document reference, or the collection
+/// cadence; every type-specific payload lives in <see cref="Config"/>, whose key set is closed by the
+/// schema <see cref="CollectorConfigSchema"/> registers for the collector's
+/// <c>(type, provider)</c> pair. It holds no secret material.
 /// </summary>
-public sealed record EvidenceCollector
+public sealed record Collector
 {
     public string ApiVersion { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
@@ -239,8 +234,11 @@ public sealed record EvidenceCollector
     /// <summary>Optional Vendor id; blank means absent.</summary>
     public string Vendor { get; init; } = string.Empty;
 
-    /// <summary>Collector type token (integration/script/manual-attestation/training-attestation/agent).</summary>
+    /// <summary>Collector type token (integration/script/agent/manual/training).</summary>
     public string Type { get; init; } = string.Empty;
+
+    /// <summary>Provider token selecting the adapter; required for <c>type: integration</c>, empty otherwise.</summary>
+    public string Provider { get; init; } = string.Empty;
 
     /// <summary>Collection cadence token (continuous/daily/weekly/monthly/quarterly/annual).</summary>
     public string Frequency { get; init; } = string.Empty;
@@ -248,32 +246,90 @@ public sealed record EvidenceCollector
     /// <summary>Raw authored threshold text; validation parses and range-checks it to an integer percent 0..100.</summary>
     public string Threshold { get; init; } = string.Empty;
 
-    /// <summary>Free-form type-specific settings; empty when absent.</summary>
-    public Dictionary<string, string> Config { get; init; } = [];
-
     /// <summary>Integration connection id; required for <c>type: integration</c>, empty otherwise.</summary>
     public string Connection { get; init; } = string.Empty;
 
-    /// <summary>Ordered tracked checks; required non-empty for <c>type: integration</c>, empty otherwise.</summary>
+    /// <summary>Type-specific payload; empty when absent.</summary>
+    public CollectorConfig Config { get; init; } = new();
+}
+
+/// <summary>
+/// A <see cref="Collector"/>'s type-specific payload. The record is a union across every type: it can
+/// HOLD whatever any pair may author, while <see cref="CollectorConfigSchema"/> is the authority on
+/// what each <c>(type, provider)</c> pair may legally author. <see cref="Body"/> is optional markdown
+/// carried verbatim. <see cref="PassMark"/> is raw authored text (an integer percent 0..100), parsed at
+/// import like <see cref="Collector.Threshold"/>, so a malformed value is a clean validation diagnostic
+/// rather than a YAML binding error.
+/// </summary>
+public sealed record CollectorConfig
+{
+    /// <summary>Optional markdown body; blank means absent.</summary>
+    public string Body { get; init; } = string.Empty;
+
+    /// <summary>Optional ordered form fields; empty when absent.</summary>
+    public List<AttestationField> Fields { get; init; } = [];
+
+    /// <summary>Raw authored pass-mark text; blank means absent.</summary>
+    public string PassMark { get; init; } = string.Empty;
+
+    /// <summary>Optional ordered quiz items; empty when absent.</summary>
+    public List<QuizItem> Quiz { get; init; } = [];
+
+    /// <summary>Ordered tracked checks; empty when absent.</summary>
     public List<Check> Checks { get; init; } = [];
 }
 
 /// <summary>
-/// A single form field on an <see cref="AttestationTemplate"/>. <see cref="Type"/> is one of a fixed
-/// token set (boolean/single-choice/short-text); <see cref="Options"/> carries the choice labels and is
-/// meaningful only for a single-choice field.
+/// One tracked check in an integration collector's <see cref="CollectorConfig.Checks"/>.
+/// <see cref="SourceKey"/> is the provider-native id (a Fleet policy id) that joins a provider result to
+/// this check; a provider result whose id is not authored here is not a tracked check.
+/// <see cref="Name"/> is the Freeboard check name (as <c>evidence_checks.name</c> carries).
+/// <see cref="Severity"/> is <c>Hard</c> or <c>Soft</c> (as <c>evidence_checks.severity</c> stores):
+/// <c>Hard</c> fails the requirement, <c>Soft</c> warns.
+///
+/// These member NAMES are the persisted <c>collectors.config</c> column's <c>Checks</c> item key
+/// literals, so renaming one is a database migration. Their ORDER is pinned because the same records are
+/// serialized into the schedule fingerprint, which is persisted and compared across app upgrades, and
+/// the serializer's reflection member order is documented as unspecified.
+/// </summary>
+public sealed record Check
+{
+    [JsonPropertyOrder(1)]
+    public string SourceKey { get; init; } = string.Empty;
+
+    [JsonPropertyOrder(2)]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyOrder(3)]
+    public string Severity { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A single form field in a collector's <see cref="CollectorConfig.Fields"/>. <see cref="Type"/> is one
+/// of a fixed token set (boolean/single-choice/short-text); <see cref="Options"/> carries the choice
+/// labels and is meaningful only for a single-choice field.
+///
+/// Member names and order carry the same weight as <see cref="Check"/>'s, for the same two reasons.
 /// </summary>
 public sealed record AttestationField
 {
+    [JsonPropertyOrder(1)]
     public string Id { get; init; } = string.Empty;
+
+    [JsonPropertyOrder(2)]
     public string Label { get; init; } = string.Empty;
+
+    [JsonPropertyOrder(3)]
     public string Type { get; init; } = string.Empty;
+
+    [JsonPropertyOrder(4)]
     public List<string> Options { get; init; } = [];
 }
 
 /// <summary>
-/// A single quiz item on a training <see cref="AttestationTemplate"/>. <see cref="Answer"/> is the
-/// correct option label; it is persisted for grading but redacted from every read surface.
+/// A single quiz item in a training collector's <see cref="CollectorConfig.Quiz"/>.
+/// <see cref="Answer"/> is the correct option label; it is persisted for grading but redacted from every
+/// read surface.
 /// </summary>
 public sealed record QuizItem
 {
@@ -281,40 +337,6 @@ public sealed record QuizItem
     public string Prompt { get; init; } = string.Empty;
     public List<string> Options { get; init; } = [];
     public string Answer { get; init; } = string.Empty;
-}
-
-/// <summary>
-/// A form or quiz attached to one <see cref="Control"/>. Identity is <see cref="Id"/>. A template names
-/// its attach-point <see cref="Control"/> and a <see cref="Type"/> (manual/training). <see cref="Body"/>
-/// is optional markdown stored verbatim. A manual template collects <see cref="Fields"/>; a training
-/// template requires a <see cref="PassMark"/> and a <see cref="Quiz"/>. <see cref="PassMark"/> is carried
-/// as raw authored text (an integer percent 0..100) so a malformed value surfaces as a clean validation
-/// diagnostic rather than a YAML binding error, mirroring <see cref="EvidenceCollector.Threshold"/>.
-/// </summary>
-public sealed record AttestationTemplate
-{
-    public string ApiVersion { get; init; } = string.Empty;
-    public string Kind { get; init; } = string.Empty;
-    public string Id { get; init; } = string.Empty;
-    public string Title { get; init; } = string.Empty;
-
-    /// <summary>Attach-point Control id (required).</summary>
-    public string Control { get; init; } = string.Empty;
-
-    /// <summary>Template type token (manual/training).</summary>
-    public string Type { get; init; } = string.Empty;
-
-    /// <summary>Optional markdown body stored verbatim; blank means absent.</summary>
-    public string Body { get; init; } = string.Empty;
-
-    /// <summary>Optional ordered form fields; empty when absent.</summary>
-    public List<AttestationField> Fields { get; init; } = [];
-
-    /// <summary>Optional ordered quiz items; empty when absent. Required non-empty for a training template.</summary>
-    public List<QuizItem> Quiz { get; init; } = [];
-
-    /// <summary>Raw authored pass-mark text; validation parses and range-checks it to an integer percent 0..100.</summary>
-    public string PassMark { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -327,7 +349,6 @@ public sealed record GitOpsConfig
     public List<Control> Controls { get; init; } = [];
     public List<Asset> Assets { get; init; } = [];
     public List<Scope> Scopes { get; init; } = [];
-    public List<EvidenceCollector> EvidenceCollectors { get; init; } = [];
-    public List<AttestationTemplate> AttestationTemplates { get; init; } = [];
+    public List<Collector> Collectors { get; init; } = [];
     public List<IntegrationConnection> IntegrationConnections { get; init; } = [];
 }

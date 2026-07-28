@@ -84,7 +84,7 @@ public sealed class StatementOfApplicabilityModel(
             // ancestors above the selection and lose inherited dispositions.
             var resolved = global::Freeboard.Compliance.StatementOfApplicability.ResolveDrilldown(
                 inputs.Organisations, inputs.Scopes, inputs.Requirements,
-                inputs.Controls, inputs.Collectors, inputs.Templates, inputs.Vendors, StandardId);
+                inputs.Controls, inputs.Collectors, inputs.Vendors, StandardId);
             Nodes = resolved.Where(n => inScope.Contains(n.Id)).ToList();
 
             // A generic, non-blocking notice when any scope names a subject that resolves to no live asset

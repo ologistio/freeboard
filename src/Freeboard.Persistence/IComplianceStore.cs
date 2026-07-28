@@ -21,9 +21,7 @@ public interface IComplianceStore
 
     Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<EvidenceCollectorRow>> GetEvidenceCollectorsAsync(CancellationToken cancellationToken = default);
-
-    Task<IReadOnlyList<AttestationTemplateRow>> GetAttestationTemplatesAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default);
 
@@ -36,8 +34,8 @@ public interface IComplianceStore
 
     /// <summary>
     /// Reads the Statement of Applicability drill-down inputs (organisations, the unified scopes,
-    /// requirements, the resolvable-asset-id set, controls with resolved <c>maps_to</c>, evidence-collectors,
-    /// attestation-templates, vendors) together in one repeatable-read snapshot so the drill-down
+    /// requirements, the resolvable-asset-id set, controls with resolved <c>maps_to</c>, collectors,
+    /// vendors) together in one repeatable-read snapshot so the drill-down
     /// hierarchy cannot straddle a concurrent importer commit. Separate from
     /// <see cref="GetStatementOfApplicabilityInputsAsync"/> so evidence ingest and the JSON endpoint
     /// keep their lighter four-list read.

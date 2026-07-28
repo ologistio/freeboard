@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Freeboard.Core.GitOps;
 
 namespace Freeboard.Persistence;
@@ -77,8 +78,8 @@ public sealed record SoaInputs(
 /// <summary>
 /// The inputs the Statement of Applicability drill-down projection needs, read together in one
 /// repeatable-read snapshot so they cannot straddle a concurrent importer commit. Extends the flat
-/// <see cref="SoaInputs"/> with controls (resolved <c>maps_to</c>), evidence-collectors,
-/// attestation-templates, and vendors so the requirement -> control -> check hierarchy resolves from one
+/// <see cref="SoaInputs"/> with controls (resolved <c>maps_to</c>), collectors, and vendors so the
+/// requirement -> control -> check hierarchy resolves from one
 /// consistent read and a collector's vendor id maps to a vendor title. The requirement layer comes from
 /// the one unified <see cref="Scopes"/> list.
 /// </summary>
@@ -88,8 +89,7 @@ public sealed record SoaDrilldownInputs(
     IReadOnlyList<RequirementRow> Requirements,
     IReadOnlySet<string> ResolvableAssetIds,
     IReadOnlyList<ControlRow> Controls,
-    IReadOnlyList<EvidenceCollectorRow> Collectors,
-    IReadOnlyList<AttestationTemplateRow> Templates,
+    IReadOnlyList<CollectorRow> Collectors,
     IReadOnlyList<VendorRow> Vendors);
 
 /// <summary>
@@ -100,21 +100,23 @@ public sealed record SoaDrilldownInputs(
 public sealed record VendorRow(string Id, string Title, string? Owner);
 
 /// <summary>
-/// A persisted evidence-collector attached to one control. Identity is <see cref="Id"/>.
-/// <see cref="Vendor"/> and <see cref="Threshold"/> are null when unset; <see cref="Config"/> is the
-/// type-specific settings map (empty when unset). <see cref="Connection"/> is the integration-connection
+/// A persisted collector attached to one control - a data source or an attestation form. Identity is
+/// <see cref="Id"/>. <see cref="Vendor"/>, <see cref="Provider"/>, and <see cref="Threshold"/> are null
+/// when unset; <see cref="Config"/> is the type-specific payload, empty when the column is NULL.
+/// <see cref="Connection"/> is the integration-connection
 /// id (null unless this is an integration collector); it is sourced only to drive the startup
 /// token-resolvability warning, not rendered on a read surface.
 /// </summary>
-public sealed record EvidenceCollectorRow(
+public sealed record CollectorRow(
     string Id,
     string Title,
     string Control,
     string? Vendor,
     string Type,
+    string? Provider,
     string Frequency,
     int? Threshold,
-    IReadOnlyDictionary<string, string> Config,
+    CollectorConfigView Config,
     string? Connection = null);
 
 /// <summary>
@@ -130,24 +132,39 @@ public sealed record IntegrationConnectionRow(
 /// A quiz item as exposed on a read surface: prompt and option labels only. It deliberately has NO
 /// answer property - the correct answer is a quiz secret redacted at the read-store boundary so no read
 /// surface can leak it. A future grading runtime must read the answer through a separate privileged path.
+/// Member order is pinned for the same reason <see cref="CollectorConfigView"/>'s is.
 /// </summary>
-public sealed record QuizItemView(string Id, string Prompt, IReadOnlyList<string> Options);
+public sealed record QuizItemView(
+    [property: JsonPropertyOrder(1)] string Id,
+    [property: JsonPropertyOrder(2)] string Prompt,
+    [property: JsonPropertyOrder(3)] IReadOnlyList<string> Options);
 
 /// <summary>
-/// A persisted attestation-template attached to one control. Identity is <see cref="Id"/>.
-/// <see cref="Body"/> and <see cref="PassMark"/> are null when unset. <see cref="Fields"/> reuses the
-/// Core <see cref="AttestationField"/> value record; <see cref="Quiz"/> uses the answer-free
-/// <see cref="QuizItemView"/> so the correct answer never reaches a read surface.
+/// A collector's type-specific payload as exposed on a read surface. <see cref="Body"/> and
+/// <see cref="PassMark"/> are null when unset and the three lists are empty when unset.
+/// <see cref="Fields"/> and <see cref="Checks"/> reuse the Core value records; <see cref="Quiz"/> uses
+/// the answer-free <see cref="QuizItemView"/>, and that absent answer IS the redaction boundary every
+/// read surface inherits.
+///
+/// Member order is pinned explicitly because the schedule fingerprint serializes this record, is
+/// persisted in the scheduler-state row, and is compared across process restarts and app upgrades - and
+/// the serializer's reflection member order is documented as unspecified, so an order that changed
+/// between builds would change the comparison. Nothing else serializes this record: the read endpoint
+/// hand-writes its own snake_case projection. Pinning these five is not enough on its own, which is why
+/// <see cref="QuizItemView"/> here and <see cref="AttestationField"/> and <see cref="Check"/> in Core are
+/// pinned too - on a fingerprinted (integration) collector the nested <see cref="Check"/> items are the
+/// only part of the hash input that varies.
 /// </summary>
-public sealed record AttestationTemplateRow(
-    string Id,
-    string Title,
-    string Control,
-    string Type,
-    string? Body,
-    IReadOnlyList<AttestationField> Fields,
-    int? PassMark,
-    IReadOnlyList<QuizItemView> Quiz);
+public sealed record CollectorConfigView(
+    [property: JsonPropertyOrder(1)] string? Body,
+    [property: JsonPropertyOrder(2)] IReadOnlyList<AttestationField> Fields,
+    [property: JsonPropertyOrder(3)] int? PassMark,
+    [property: JsonPropertyOrder(4)] IReadOnlyList<QuizItemView> Quiz,
+    [property: JsonPropertyOrder(5)] IReadOnlyList<Check> Checks)
+{
+    /// <summary>The view a collector with no stored config reads as.</summary>
+    public static CollectorConfigView Empty { get; } = new(null, [], null, [], []);
+}
 
 /// <summary>Per-kind row counts for the status summary.</summary>
 public sealed record ComplianceCounts(
@@ -157,5 +174,4 @@ public sealed record ComplianceCounts(
     int Organisations,
     int Scopes,
     int Vendors,
-    int EvidenceCollectors,
-    int AttestationTemplates);
+    int Collectors);

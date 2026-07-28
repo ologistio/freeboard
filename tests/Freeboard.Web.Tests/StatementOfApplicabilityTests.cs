@@ -281,11 +281,14 @@ public sealed class StatementOfApplicabilityTests
     private static ControlRow Ctrl(string id, string[] mapsTo, string? evaluation = null) =>
         new(id, "Control " + id, mapsTo, evaluation);
 
-    private static EvidenceCollectorRow Coll(string id, string control, string? vendor = null, string type = "integration", string frequency = "daily") =>
-        new(id, "Collector " + id, control, vendor, type, frequency, null, new Dictionary<string, string>());
+    private static CollectorRow Coll(string id, string control, string? vendor = null, string type = "integration", string frequency = "daily") =>
+        new(id, "Collector " + id, control, vendor, type, type == "integration" ? "fleet" : null, frequency, null, CollectorConfigView.Empty);
 
-    private static AttestationTemplateRow Tmpl(string id, string control, string type = "manual") =>
-        new(id, "Template " + id, control, type, null, [], null, []);
+    // An attestation-tagged check: a manual or training collector. It carries a frequency like any other
+    // collector - the projection is what drops it.
+    private static CollectorRow Attest(
+        string id, string control, string? vendor = null, string type = "manual", string frequency = "annual") =>
+        Coll(id, control, vendor: vendor, type: type, frequency: frequency);
 
     [Fact]
     public void DrilldownEnumeratesEveryRequirementTaggedInOrOutAndExcludedIsLeaf()
@@ -300,7 +303,7 @@ public sealed class StatementOfApplicabilityTests
         var controls = new[] { Ctrl("ctrl-a", ["req-a"]), Ctrl("ctrl-b", ["req-b"]) };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company, Department], scopes, [ReqA, ReqB], controls, [], [], [], "std");
+            [Company, Department], scopes, [ReqA, ReqB], controls, [], [], "std");
 
         // The node lists every requirement of the standard (In and Out), ordered by id, not only the deviation.
         var company = nodes.Single(n => n.Id == "company");
@@ -331,7 +334,7 @@ public sealed class StatementOfApplicabilityTests
         var scopes = new[] { Std("s1", "Out at company", "company", "std", "Out") };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], scopes, [ReqA, ReqB], [], [], [], [], "std");
+            [Company], scopes, [ReqA, ReqB], [], [], [], "std");
 
         Assert.Empty(Assert.Single(nodes).Requirements);
     }
@@ -344,12 +347,15 @@ public sealed class StatementOfApplicabilityTests
             Ctrl("ctrl-a", ["req-a"], evaluation: "all"),
             Ctrl("ctrl-b", ["req-b"]),
         };
-        var collectors = new[] { Coll("coll-a", "ctrl-a", vendor: "vendor-x") };
-        var templates = new[] { Tmpl("tmpl-a", "ctrl-a") };
+        var collectors = new[]
+        {
+            Coll("coll-a", "ctrl-a", vendor: "vendor-x"),
+            Attest("tmpl-a", "ctrl-a", vendor: "vendor-x"),
+        };
         var vendors = new[] { new VendorRow("vendor-x", "Vendor X", null) };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA, ReqB], controls, collectors, templates, vendors, "std");
+            [Company], [], [ReqA, ReqB], controls, collectors, vendors, "std");
 
         var company = Assert.Single(nodes);
         var reqA = company.Requirements.Single(r => r.Id == "req-a");
@@ -357,8 +363,8 @@ public sealed class StatementOfApplicabilityTests
         Assert.Equal("ctrl-a", control.Id);
         Assert.Equal("all", control.Evaluation);
 
-        // Both check kinds present and tagged; collector carries type/frequency and its vendor by title,
-        // attestation does not.
+        // Both check kinds present and tagged from the collector's type; a collector-tagged check carries
+        // its type, frequency, and vendor by title, an attestation-tagged one carries no cadence.
         Assert.Equal(["coll-a", "tmpl-a"], control.Checks.Select(c => c.Id).ToArray());
         var coll = control.Checks[0];
         Assert.Equal(SoaCheckKind.Collector, coll.Kind);
@@ -367,8 +373,12 @@ public sealed class StatementOfApplicabilityTests
         Assert.Equal("Vendor X", coll.Vendor);
         var tmpl = control.Checks[1];
         Assert.Equal(SoaCheckKind.Attestation, tmpl.Kind);
+        // The attestation collector has an "annual" frequency of its own; the projection drops it,
+        // because only a collector-tagged check carries an evidence status to back a cadence.
         Assert.Null(tmpl.Frequency);
-        Assert.Null(tmpl.Vendor);
+        // The vendor is NOT dropped with the cadence: it plays no part in status interpretation, so both
+        // tags carry it, resolved to the same title.
+        Assert.Equal("Vendor X", tmpl.Vendor);
 
         // req-b maps only to ctrl-b, which has no checks.
         var reqB = company.Requirements.Single(r => r.Id == "req-b");
@@ -384,12 +394,15 @@ public sealed class StatementOfApplicabilityTests
             Ctrl("ctrl-b", ["req-a"]),
             Ctrl("ctrl-a", ["req-a"]),
         };
-        // Two collectors and two templates on ctrl-a, seeded out of order to prove the sort.
-        var collectors = new[] { Coll("coll-b", "ctrl-a"), Coll("coll-a", "ctrl-a") };
-        var templates = new[] { Tmpl("tmpl-b", "ctrl-a"), Tmpl("tmpl-a", "ctrl-a") };
+        // Two data-source and two attestation collectors on ctrl-a, seeded out of order to prove the sort.
+        var collectors = new[]
+        {
+            Coll("coll-b", "ctrl-a"), Coll("coll-a", "ctrl-a"),
+            Attest("tmpl-b", "ctrl-a"), Attest("tmpl-a", "ctrl-a"),
+        };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], controls, collectors, templates, [], "std");
+            [Company], [], [ReqA], controls, collectors, [], "std");
 
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);
         Assert.Equal(["ctrl-a", "ctrl-b"], reqA.Controls.Select(c => c.Id).ToArray());
@@ -399,11 +412,26 @@ public sealed class StatementOfApplicabilityTests
         Assert.Equal(["coll-a", "coll-b", "tmpl-a", "tmpl-b"], ctrlA.Checks.Select(c => c.Id).ToArray());
     }
 
+    // The derived tag, not the id, decides the group under the kind-then-id sort: a manual collector
+    // tags as an attestation and sorts after every collector-tagged check even when its id sorts first.
+    [Fact]
+    public void DerivedTagReordersAManualCollectorWhoseIdSortsFirst()
+    {
+        var controls = new[] { Ctrl("ctrl-a", ["req-a"]) };
+        var collectors = new[] { Attest("a-manual", "ctrl-a"), Coll("z-integration", "ctrl-a") };
+
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            [Company], [], [ReqA], controls, collectors, [], "std");
+
+        var ctrlA = Assert.Single(Assert.Single(Assert.Single(nodes).Requirements).Controls);
+        Assert.Equal(["z-integration", "a-manual"], ctrlA.Checks.Select(c => c.Id).ToArray());
+    }
+
     [Fact]
     public void DrilldownRequirementWithNoMappedControlHasEmptyControls()
     {
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], [], [], [], [], "std");
+            [Company], [], [ReqA], [], [], [], "std");
 
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);
         Assert.Empty(reqA.Controls);
@@ -417,7 +445,7 @@ public sealed class StatementOfApplicabilityTests
 
         // No matching vendor row, so the display falls back to the raw id.
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], controls, collectors, [], [], "std");
+            [Company], [], [ReqA], controls, collectors, [], "std");
 
         // The collector's vendor is carried as metadata; the requirement still resolves In (default).
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);

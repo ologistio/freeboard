@@ -9,7 +9,7 @@ namespace Freeboard.Scheduler;
 /// </summary>
 public interface IScheduledCollectorRunner
 {
-    Task RunAsync(EvidenceCollectorRow collector, string runId, CancellationToken cancellationToken);
+    Task RunAsync(CollectorRow collector, string runId, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -20,7 +20,7 @@ public interface IScheduledCollectorRunner
 public sealed class LoggingScheduledCollectorRunner(ILogger<LoggingScheduledCollectorRunner> logger)
     : IScheduledCollectorRunner
 {
-    public Task RunAsync(EvidenceCollectorRow collector, string runId, CancellationToken cancellationToken)
+    public Task RunAsync(CollectorRow collector, string runId, CancellationToken cancellationToken)
     {
         logger.LogInformation(
             "Collector scheduler dispatch (no-op runner, no evidence appended): collector={CollectorId} "

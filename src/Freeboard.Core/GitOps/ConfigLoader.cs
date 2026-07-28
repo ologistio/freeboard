@@ -34,14 +34,13 @@ public static class ConfigLoader
             {
                 "apiVersion", "kind", "id", "title", "subject", "standard", "requirement", "control", "disposition", "justification",
             },
-            [GitOpsSchema.KindEvidenceCollector] = new(StringComparer.Ordinal)
+            // No `checks`, `body`, `fields`, `pass_mark`, or `quiz`: every type-specific payload is
+            // authored inside `config`, so a half-migrated document carrying one at the top level fails
+            // with an unknown-field diagnostic instead of being silently accepted as a second shape.
+            [GitOpsSchema.KindCollector] = new(StringComparer.Ordinal)
             {
-                "apiVersion", "kind", "id", "title", "control", "vendor", "type", "frequency", "threshold", "config",
-                "connection", "checks",
-            },
-            [GitOpsSchema.KindAttestationTemplate] = new(StringComparer.Ordinal)
-            {
-                "apiVersion", "kind", "id", "title", "control", "type", "body", "fields", "quiz", "pass_mark",
+                "apiVersion", "kind", "id", "title", "control", "vendor", "type", "provider", "frequency",
+                "threshold", "connection", "config",
             },
             [GitOpsSchema.KindIntegrationConnection] = new(StringComparer.Ordinal)
             {
@@ -64,8 +63,7 @@ public static class ConfigLoader
         .WithAttributeOverride<Control>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Asset>(a => a.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<Scope>(s => s.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
-        .WithAttributeOverride<EvidenceCollector>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
-        .WithAttributeOverride<AttestationTemplate>(t => t.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
+        .WithAttributeOverride<Collector>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .WithAttributeOverride<IntegrationConnection>(c => c.ApiVersion, new YamlMemberAttribute { Alias = "apiVersion", ApplyNamingConventions = false })
         .IgnoreUnmatchedProperties()
         .Build();
@@ -170,12 +168,17 @@ public static class ConfigLoader
                 File = relative,
                 Line = (int)mapping.Start.Line,
                 Column = (int)mapping.Start.Column,
-                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindAsset}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindEvidenceCollector}, {GitOpsSchema.KindAttestationTemplate}, {GitOpsSchema.KindIntegrationConnection}.",
+                Message = $"Unknown kind '{kind}'. Expected one of: {GitOpsSchema.KindStandard}, {GitOpsSchema.KindRequirement}, {GitOpsSchema.KindControl}, {GitOpsSchema.KindAsset}, {GitOpsSchema.KindScope}, {GitOpsSchema.KindCollector}, {GitOpsSchema.KindIntegrationConnection}.",
             });
             return;
         }
 
         ReportUnknownFields(mapping, kind, knownKeys, relative, diagnostics);
+
+        if (string.Equals(kind, GitOpsSchema.KindCollector, StringComparison.Ordinal))
+        {
+            ReportUnknownConfigKeys(mapping, relative, diagnostics);
+        }
 
         try
         {
@@ -199,30 +202,27 @@ public static class ConfigLoader
                 case GitOpsSchema.KindScope:
                     config.Scopes.Add(Deserialize<Scope>(mapping));
                     break;
-                case GitOpsSchema.KindEvidenceCollector:
-                    var collector = Deserialize<EvidenceCollector>(mapping);
-                    // An explicit-null `config:`/`checks:` deserializes the collection to null (overwriting
-                    // the record default); normalize to empty. An explicit-null `checks:` item
-                    // (`checks:\n  -`) deserializes to a null element; keep it as an empty Check (not drop it)
-                    // so the validator reports its missing source_key/name/severity rather than silently
-                    // accepting a malformed check. Every kept Check is non-null, so ImportPlan and the reads
-                    // never NRE.
-                    config.EvidenceCollectors.Add(collector with
+                case GitOpsSchema.KindCollector:
+                    var collector = Deserialize<Collector>(mapping);
+                    // An explicit-null `config:` binds the whole member to null, overwriting the record
+                    // default, so normalize the node ITSELF before touching anything inside it; the
+                    // nested normalization below would otherwise dereference null and throw, breaking the
+                    // never-throw contract for a document that binds cleanly and warrants no diagnostic.
+                    var collectorConfig = collector.Config ?? new CollectorConfig();
+                    // An explicit-null `fields:`/`quiz:`/`checks:`/`options:` binds that list to null;
+                    // normalize to empty. A null SEQUENCE ITEM is treated differently on purpose: a null
+                    // `checks` item is KEPT as an empty Check so the validator reports its missing
+                    // source_key/name/severity, while a null `fields` or `quiz` item is DROPPED. Keeping a
+                    // null form item would fail a document that validates today; dropping a null check
+                    // would silently swallow the malformed-check diagnostic.
+                    config.Collectors.Add(collector with
                     {
-                        Config = collector.Config ?? [],
-                        Checks = (collector.Checks ?? []).Select(c => c ?? new Check()).ToList(),
-                    });
-                    break;
-                case GitOpsSchema.KindAttestationTemplate:
-                    var template = Deserialize<AttestationTemplate>(mapping);
-                    // An explicit-null `fields:`/`quiz:`/`options:` deserializes the list to null, and
-                    // an explicit-null sequence item (`fields:\n  -`) deserializes to a null element.
-                    // Drop null items and normalize every nested list to empty so the loader keeps its
-                    // never-throw contract and ImportPlan, the page, and the CLI never NRE.
-                    config.AttestationTemplates.Add(template with
-                    {
-                        Fields = (template.Fields ?? []).Where(f => f is not null).Select(f => f with { Options = f.Options ?? [] }).ToList(),
-                        Quiz = (template.Quiz ?? []).Where(q => q is not null).Select(q => q with { Options = q.Options ?? [] }).ToList(),
+                        Config = collectorConfig with
+                        {
+                            Fields = (collectorConfig.Fields ?? []).Where(f => f is not null).Select(f => f with { Options = f.Options ?? [] }).ToList(),
+                            Quiz = (collectorConfig.Quiz ?? []).Where(q => q is not null).Select(q => q with { Options = q.Options ?? [] }).ToList(),
+                            Checks = (collectorConfig.Checks ?? []).Select(c => c ?? new Check()).ToList(),
+                        },
                     });
                     break;
                 case GitOpsSchema.KindIntegrationConnection:
@@ -280,6 +280,54 @@ public static class ConfigLoader
                     : $"Unknown field '{key.Value}' on {kind}.",
             });
         }
+    }
+
+    // Unregistered-key rejection is evaluated on the authored mapping rather than on the parsed config,
+    // because a key with an empty value parses to the same member as an absent one. So an unregistered
+    // key is rejected whatever its value.
+    private static void ReportUnknownConfigKeys(YamlMappingNode mapping, string relative, List<Diagnostic> diagnostics)
+    {
+        var schema = CollectorConfigSchema.For(ScalarValue(mapping, "type"), ScalarValue(mapping, "provider"));
+        if (schema is null)
+        {
+            // A type or provider token that is unknown, or absent where the pair needs one, resolves no
+            // schema. The validator names that token; one unknown-key diagnostic per authored key on top
+            // of it would be a cascade from one mistake.
+            return;
+        }
+
+        // A `config` that is not a mapping has no keys to diff. A scalar or a sequence fails the typed
+        // bind, which is the one diagnostic the author gets; an explicit null binds cleanly to an absent
+        // config and correctly yields none at all.
+        if (ValueNode(mapping, "config") is not YamlMappingNode configMapping)
+        {
+            return;
+        }
+
+        foreach (var entry in configMapping.Children)
+        {
+            if (entry.Key is not YamlScalarNode key || key.Value is null
+                || schema.Any(registered => string.Equals(registered.Name, key.Value, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            diagnostics.Add(new Diagnostic
+            {
+                File = relative,
+                Line = (int)key.Start.Line,
+                Column = (int)key.Start.Column,
+                Message = $"Unknown field '{key.Value}' on {GitOpsSchema.KindCollector} config.",
+            });
+        }
+    }
+
+    private static YamlNode? ValueNode(YamlMappingNode mapping, string key)
+    {
+        return mapping.Children
+            .Where(entry => entry.Key is YamlScalarNode scalar && scalar.Value == key)
+            .Select(entry => entry.Value)
+            .FirstOrDefault();
     }
 
     private static string? ScalarValue(YamlMappingNode mapping, string key)

@@ -11,31 +11,34 @@ namespace Freeboard.Core.GitOps;
 /// edges, parent cycles, and missing read anchors as non-blocking warnings), the scope mapping
 /// (exactly-one target of standard/requirement/control, resolvable target references, a scalar
 /// dangling-tolerant subject warned when it resolves to no asset, the Vendor-subject-no-standard rule,
-/// disposition enum, justification required when Out, and the three unique subject/target pairs), and the
-/// evidence-collectors (resolvable
-/// control/vendor references, type/frequency/threshold checks, the control evaluation rule required once
-/// a control has an attached collector, the type-conditional connection/checks rules, and each tracked
-/// check's shape and severity token), the integration-connections (required fields, closed provider
-/// token, absolute base_url, discovery_cadence token, optional vendor reference, and a
-/// configuration-key-safe id: no ':' or '__', no case-insensitive collision), and the
-/// attestation-templates (resolvable control reference, type token, field/quiz shape, pass_mark range,
-/// and the training-vs-manual conditional rules). Does NOT re-check kind (the loader owns kind-routing).
+/// disposition enum, justification required when Out, and the three unique subject/target pairs), the
+/// integration-connections (required fields, closed provider token, absolute base_url,
+/// discovery_cadence token, optional vendor reference, and a configuration-key-safe id: no ':' or '__',
+/// no case-insensitive collision), and the collectors (resolvable control/vendor references,
+/// type/frequency/threshold checks, the control evaluation rule required once a control has an attached
+/// collector of any type, the type-conditional provider/connection rules and the provider cross-check
+/// against the referenced connection, each tracked check's shape and severity token, the form and quiz
+/// shape, and the pass_mark range). Does NOT re-check kind (the loader owns kind-routing) and does NOT
+/// own the config key set: which keys a collector may carry is <see cref="CollectorConfigSchema"/>'s,
+/// with the loader rejecting an unregistered key and this validator enforcing a registered required one.
 /// </summary>
 public static class ConfigValidator
 {
     /// <summary>Closed token set for a control's evaluation rule (case-sensitive).</summary>
     private static readonly HashSet<string> EvaluationTokens = new(StringComparer.Ordinal) { "all", "any", "manual" };
 
-    /// <summary>Closed token set for an evidence-collector's type (case-sensitive).</summary>
-    private static readonly HashSet<string> CollectorTypeTokens = new(StringComparer.Ordinal)
+    /// <summary>
+    /// Closed token set for a collector's type (case-sensitive). Public because it is one half of the
+    /// key space <see cref="CollectorConfigSchema"/> must cover: a valid pair with no registered schema
+    /// silently reopens free-form config, so the completeness pin enumerates this set rather than
+    /// restating the registered pairs.
+    /// </summary>
+    public static readonly IReadOnlySet<string> CollectorTypeTokens = new HashSet<string>(StringComparer.Ordinal)
     {
-        "integration", "script", "manual-attestation", "training-attestation", "agent",
+        "integration", "script", "agent", "manual", "training",
     };
 
-    /// <summary>Closed token set for an attestation-template's type (case-sensitive).</summary>
-    private static readonly HashSet<string> AttestationTypeTokens = new(StringComparer.Ordinal) { "manual", "training" };
-
-    /// <summary>Closed token set for an attestation field's type (case-sensitive).</summary>
+    /// <summary>Closed token set for a form field's type (case-sensitive).</summary>
     private static readonly HashSet<string> FieldTypeTokens = new(StringComparer.Ordinal)
     {
         "boolean", "single-choice", "short-text",
@@ -75,10 +78,10 @@ public static class ConfigValidator
         var vendorIds = assets.VendorIds;
         ValidateScopes(config, assets.AllIds, vendorIds, standardIds, requirementIds, controlIds, diagnostics);
         // Integration-connections consume vendor ids (for the optional vendor reference) and produce the
-        // connection id set the evidence-collectors then resolve their connection reference against.
-        var connectionIds = ValidateIntegrationConnections(config, vendorIds, diagnostics);
-        ValidateEvidenceCollectors(config, controlIds, vendorIds, connectionIds, diagnostics);
-        ValidateAttestationTemplates(config, controlIds, diagnostics);
+        // connection provider map the collectors then resolve their connection reference against and
+        // cross-check their own authored provider with.
+        var connectionProviders = ValidateIntegrationConnections(config, vendorIds, diagnostics);
+        ValidateCollectors(config, controlIds, vendorIds, connectionProviders, diagnostics);
 
         return diagnostics;
     }
@@ -633,12 +636,17 @@ public static class ConfigValidator
         }
     }
 
-    private static HashSet<string> ValidateIntegrationConnections(
+    /// <summary>
+    /// Validates the integration-connections and returns each connection's provider by id (first
+    /// occurrence wins), which a collector's connection reference resolves against and its authored
+    /// provider is cross-checked with.
+    /// </summary>
+    private static Dictionary<string, string> ValidateIntegrationConnections(
         GitOpsConfig config,
         HashSet<string> vendorIds,
         List<Diagnostic> diagnostics)
     {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var providerById = new Dictionary<string, string>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         // The id resolves a configuration key (Freeboard:Integrations:<id>:ApiToken) and .NET config keys
         // are case-insensitive, so two ids differing only in case would resolve the same token slot. This
@@ -673,7 +681,7 @@ public static class ConfigValidator
             }
 
             if (!string.IsNullOrEmpty(connection.DiscoveryCadence)
-                && !EvidenceCollectorFrequency.Tokens.Contains(connection.DiscoveryCadence))
+                && !CollectorFrequency.Tokens.Contains(connection.DiscoveryCadence))
             {
                 diagnostics.Add(new Diagnostic
                 {
@@ -718,31 +726,34 @@ public static class ConfigValidator
                     });
                 }
 
-                ids.Add(connection.Id);
+                providerById.TryAdd(connection.Id, connection.Provider);
             }
         }
 
-        return ids;
+        return providerById;
     }
 
-    private static void ValidateEvidenceCollectors(
+    private static void ValidateCollectors(
         GitOpsConfig config,
         HashSet<string> controlIds,
         HashSet<string> vendorIds,
-        HashSet<string> connectionIds,
+        IReadOnlyDictionary<string, string> connectionProviders,
         List<Diagnostic> diagnostics)
     {
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
         var controlsWithCollector = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var collector in config.EvidenceCollectors)
+        foreach (var collector in config.Collectors)
         {
-            CheckApiVersion(collector.ApiVersion, GitOpsSchema.KindEvidenceCollector, collector.Id, diagnostics);
-            CheckRequired(collector.Id, GitOpsSchema.KindEvidenceCollector, "id", collector.Title, diagnostics);
-            CheckRequired(collector.Title, GitOpsSchema.KindEvidenceCollector, "title", collector.Id, diagnostics);
-            CheckRequired(collector.Control, GitOpsSchema.KindEvidenceCollector, "control", collector.Id, diagnostics);
-            CheckRequired(collector.Type, GitOpsSchema.KindEvidenceCollector, "type", collector.Id, diagnostics);
-            CheckRequired(collector.Frequency, GitOpsSchema.KindEvidenceCollector, "frequency", collector.Id, diagnostics);
+            CheckApiVersion(collector.ApiVersion, GitOpsSchema.KindCollector, collector.Id, diagnostics);
+            CheckRequired(collector.Id, GitOpsSchema.KindCollector, "id", collector.Title, diagnostics);
+            CheckRequired(collector.Title, GitOpsSchema.KindCollector, "title", collector.Id, diagnostics);
+            CheckRequired(collector.Control, GitOpsSchema.KindCollector, "control", collector.Id, diagnostics);
+            CheckRequired(collector.Type, GitOpsSchema.KindCollector, "type", collector.Id, diagnostics);
+            // frequency is required on every type, attestations included: evidence ingest stamps the
+            // resolved collector's cadence onto each run it appends and staleness is judged from that
+            // stamp, so a cadence-less collector would post evidence that could never read as stale.
+            CheckRequired(collector.Frequency, GitOpsSchema.KindCollector, "frequency", collector.Id, diagnostics);
 
             if (!string.IsNullOrEmpty(collector.Control))
             {
@@ -750,7 +761,7 @@ public static class ConfigValidator
                 {
                     diagnostics.Add(new Diagnostic
                     {
-                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' references unknown Control id "
+                        Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' references unknown Control id "
                             + $"'{collector.Control}'.",
                     });
                 }
@@ -766,7 +777,7 @@ public static class ConfigValidator
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' references unknown Vendor id "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' references unknown Vendor id "
                         + $"'{collector.Vendor}'.",
                 });
             }
@@ -775,124 +786,209 @@ public static class ConfigValidator
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has unknown type "
-                        + $"'{collector.Type}'. Expected one of: integration, script, manual-attestation, "
-                        + "training-attestation, agent.",
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has unknown type "
+                        + $"'{collector.Type}'. Expected one of: integration, script, agent, manual, training.",
                 });
             }
 
-            if (!string.IsNullOrEmpty(collector.Frequency) && !EvidenceCollectorFrequency.Tokens.Contains(collector.Frequency))
+            if (!string.IsNullOrEmpty(collector.Frequency) && !CollectorFrequency.Tokens.Contains(collector.Frequency))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has unknown frequency "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has unknown frequency "
                         + $"'{collector.Frequency}'. Expected one of: continuous, daily, weekly, monthly, quarterly, annual.",
                 });
             }
 
             // threshold is optional; when present it must be an integer percent in [0, 100]. Parsing the
             // raw authored text here (not at YAML bind time) turns a malformed value into this diagnostic
-            // instead of a binding crash.
+            // instead of a binding crash. pass_mark below is the same rule one level in, on the config.
             if (!string.IsNullOrWhiteSpace(collector.Threshold)
                 && (!int.TryParse(collector.Threshold, NumberStyles.Integer, CultureInfo.InvariantCulture, out var threshold)
                     || threshold < 0 || threshold > 100))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has invalid threshold "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has invalid threshold "
                         + $"'{collector.Threshold}'. Expected an integer percent from 0 to 100.",
                 });
             }
 
-            // connection and checks are conditional on type: an integration collector requires both; any
-            // other type must declare neither (a connection or checks off the integration path is dead).
-            if (string.Equals(collector.Type, "integration", StringComparison.Ordinal))
+            // The blank guard is what makes a blank pass mark a missing required key rather than a range
+            // error: the registry's required-key check reports it, and this range check stays silent.
+            if (!string.IsNullOrWhiteSpace(collector.Config.PassMark)
+                && (!int.TryParse(collector.Config.PassMark, NumberStyles.Integer, CultureInfo.InvariantCulture, out var passMark)
+                    || passMark < 0 || passMark > 100))
             {
-                if (string.IsNullOrWhiteSpace(collector.Connection))
+                diagnostics.Add(new Diagnostic
                 {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has type 'integration' but is "
-                            + "missing required field 'connection'.",
-                    });
-                }
-                else if (!connectionIds.Contains(collector.Connection))
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' references unknown "
-                            + $"{GitOpsSchema.KindIntegrationConnection} id '{collector.Connection}'.",
-                    });
-                }
-
-                if (collector.Checks.Count == 0)
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has type 'integration' but is "
-                            + "missing a non-empty 'checks'.",
-                    });
-                }
-            }
-            else
-            {
-                if (!string.IsNullOrWhiteSpace(collector.Connection))
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' declares 'connection', which is "
-                            + "only valid for a type 'integration' collector.",
-                    });
-                }
-
-                if (collector.Checks.Count > 0)
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' declares 'checks', which are "
-                            + "only valid for a type 'integration' collector.",
-                    });
-                }
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has invalid pass_mark "
+                        + $"'{collector.Config.PassMark}'. Expected an integer percent from 0 to 100.",
+                });
             }
 
+            ValidateCollectorProviderAndConnection(collector, connectionProviders, diagnostics);
+            ValidateRequiredConfigKeys(collector, diagnostics);
             ValidateCollectorChecks(collector, diagnostics);
+            ValidateCollectorFields(collector, diagnostics);
+            ValidateCollectorQuiz(collector, diagnostics);
 
             if (!string.IsNullOrEmpty(collector.Id) && !seenIds.Add(collector.Id))
             {
-                diagnostics.Add(Dup(GitOpsSchema.KindEvidenceCollector, collector.Id));
+                diagnostics.Add(Dup(GitOpsSchema.KindCollector, collector.Id));
             }
         }
 
-        // A control with at least one attached collector must declare an evaluation rule. Iterate the
-        // real controls and test membership in the attached set, not the collectors' control-refs, so an
-        // unresolved control-ref cannot raise a spurious missing-evaluation diagnostic for an undefined id.
+        // A control with at least one attached collector, of any type, must declare an evaluation rule.
+        // Iterate the real controls and test membership in the attached set, not the collectors'
+        // control-refs, so an unresolved control-ref cannot raise a spurious missing-evaluation
+        // diagnostic for an undefined id.
         foreach (var control in config.Controls.Where(c =>
             controlsWithCollector.Contains(c.Id) && string.IsNullOrWhiteSpace(c.Evaluation)))
         {
             diagnostics.Add(new Diagnostic
             {
-                Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' has attached evidence-collectors but is "
+                Message = $"{GitOpsSchema.KindControl} '{Describe(control.Id)}' has attached collectors but is "
                     + "missing required field 'evaluation'.",
             });
         }
     }
 
-    private static void ValidateCollectorChecks(EvidenceCollector collector, List<Diagnostic> diagnostics)
+    // provider and connection are conditional on type: an integration collector requires both and its
+    // provider must equal the referenced connection's; any other type must declare neither (both are
+    // dead off the integration path). Authoring the provider rather than deriving it is what makes the
+    // config schema key resolvable from the document alone, even when the connection does not resolve;
+    // this cross-check is what stops the two disagreeing silently.
+    private static void ValidateCollectorProviderAndConnection(
+        Collector collector,
+        IReadOnlyDictionary<string, string> connectionProviders,
+        List<Diagnostic> diagnostics)
+    {
+        if (!string.Equals(collector.Type, "integration", StringComparison.Ordinal))
+        {
+            if (!string.IsNullOrWhiteSpace(collector.Provider))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' declares 'provider', which is "
+                        + "only valid for a type 'integration' collector.",
+                });
+            }
+
+            if (!string.IsNullOrWhiteSpace(collector.Connection))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' declares 'connection', which is "
+                        + "only valid for a type 'integration' collector.",
+                });
+            }
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(collector.Provider))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has type 'integration' but is "
+                    + "missing required field 'provider'.",
+            });
+        }
+        else if (!IntegrationProvider.Tokens.Contains(collector.Provider))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has unknown provider "
+                    + $"'{collector.Provider}'. Expected one of: fleet.",
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(collector.Connection))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has type 'integration' but is "
+                    + "missing required field 'connection'.",
+            });
+            return;
+        }
+
+        if (!connectionProviders.TryGetValue(collector.Connection, out var connectionProvider))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' references unknown "
+                    + $"{GitOpsSchema.KindIntegrationConnection} id '{collector.Connection}'.",
+            });
+            return;
+        }
+
+        // A connection with NO provider is already reported as missing a required field, and a mismatch
+        // naming its empty value would be that one mistake reported twice. A connection whose provider is
+        // present but outside the token set is deliberately NOT skipped: the two documents genuinely name
+        // different providers, and repairing the collector's token would leave the connection's unknown
+        // one in place, so the disagreement is a second fact the author needs.
+        if (string.IsNullOrWhiteSpace(connectionProvider))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(collector.Provider)
+            && !string.Equals(collector.Provider, connectionProvider, StringComparison.Ordinal))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has provider '{collector.Provider}' "
+                    + $"but its {GitOpsSchema.KindIntegrationConnection} '{collector.Connection}' has provider "
+                    + $"'{connectionProvider}'.",
+            });
+        }
+    }
+
+    // The registered (type, provider) schema is the sole owner of the key set, so nothing here names a
+    // key: it asks the registry which keys the pair requires and whether the parsed member carries a
+    // value. A key the schema does not register is rejected by the loader instead, on the authored
+    // mapping, because an empty value parses to the same member as an absent one. No schema resolves when
+    // the type or provider token is unknown, or when an integration collector omits its provider, and the
+    // token diagnostic is then the only one the author gets: which keys the pair requires is a property of
+    // the pair, so an unresolved pair has no requiredness to report without hard-coding one provider's. A
+    // provider authored on a type that cannot carry one is not such a case - it selects nothing, so the
+    // schema still resolves on the type and the required-key check still runs.
+    private static void ValidateRequiredConfigKeys(Collector collector, List<Diagnostic> diagnostics)
+    {
+        var schema = CollectorConfigSchema.For(collector.Type, collector.Provider);
+        if (schema is null)
+        {
+            return;
+        }
+
+        foreach (var key in schema.Where(k => k.Required && !CollectorConfigSchema.HasValue(collector.Config, k.Name)))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' is missing required config key "
+                    + $"'{key.Name}'.",
+            });
+        }
+    }
+
+    private static void ValidateCollectorChecks(Collector collector, List<Diagnostic> diagnostics)
     {
         var seenNames = new HashSet<string>(StringComparer.Ordinal);
         var seenSourceKeys = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var check in collector.Checks)
+        foreach (var check in collector.Config.Checks)
         {
-            CheckRequired(check.SourceKey, GitOpsSchema.KindEvidenceCollector, "check source_key", collector.Id, diagnostics);
-            CheckRequired(check.Name, GitOpsSchema.KindEvidenceCollector, "check name", collector.Id, diagnostics);
-            CheckRequired(check.Severity, GitOpsSchema.KindEvidenceCollector, "check severity", collector.Id, diagnostics);
+            CheckRequired(check.SourceKey, GitOpsSchema.KindCollector, "check source_key", collector.Id, diagnostics);
+            CheckRequired(check.Name, GitOpsSchema.KindCollector, "check name", collector.Id, diagnostics);
+            CheckRequired(check.Severity, GitOpsSchema.KindCollector, "check severity", collector.Id, diagnostics);
 
             if (!string.IsNullOrEmpty(check.Severity) && !CheckSeverityTokens.Contains(check.Severity))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' check '{Describe(check.Name)}' has "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' check '{Describe(check.Name)}' has "
                         + $"unknown severity '{check.Severity}'. Expected 'Hard' or 'Soft'.",
                 });
             }
@@ -901,7 +997,7 @@ public static class ConfigValidator
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has duplicate check name "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has duplicate check name "
                         + $"'{check.Name}'.",
                 });
             }
@@ -910,130 +1006,28 @@ public static class ConfigValidator
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindEvidenceCollector} '{Describe(collector.Id)}' has duplicate check source_key "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has duplicate check source_key "
                         + $"'{check.SourceKey}'.",
                 });
             }
         }
     }
 
-    private static void ValidateAttestationTemplates(
-        GitOpsConfig config,
-        HashSet<string> controlIds,
-        List<Diagnostic> diagnostics)
-    {
-        var seenIds = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var template in config.AttestationTemplates)
-        {
-            CheckApiVersion(template.ApiVersion, GitOpsSchema.KindAttestationTemplate, template.Id, diagnostics);
-            CheckRequired(template.Id, GitOpsSchema.KindAttestationTemplate, "id", template.Title, diagnostics);
-            CheckRequired(template.Title, GitOpsSchema.KindAttestationTemplate, "title", template.Id, diagnostics);
-            CheckRequired(template.Control, GitOpsSchema.KindAttestationTemplate, "control", template.Id, diagnostics);
-            CheckRequired(template.Type, GitOpsSchema.KindAttestationTemplate, "type", template.Id, diagnostics);
-
-            if (!string.IsNullOrEmpty(template.Control) && !controlIds.Contains(template.Control))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' references unknown Control id "
-                        + $"'{template.Control}'.",
-                });
-            }
-
-            var typeParsed = !string.IsNullOrEmpty(template.Type) && AttestationTypeTokens.Contains(template.Type);
-            if (!string.IsNullOrEmpty(template.Type) && !typeParsed)
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has unknown type "
-                        + $"'{template.Type}'. Expected 'manual' or 'training'.",
-                });
-            }
-
-            // pass_mark is optional here; when present it must be an integer percent in [0, 100]. Parsing the
-            // raw authored text turns a malformed value into a diagnostic instead of a YAML binding crash.
-            var hasPassMark = !string.IsNullOrWhiteSpace(template.PassMark);
-            if (hasPassMark
-                && (!int.TryParse(template.PassMark, NumberStyles.Integer, CultureInfo.InvariantCulture, out var passMark)
-                    || passMark < 0 || passMark > 100))
-            {
-                diagnostics.Add(new Diagnostic
-                {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has invalid pass_mark "
-                        + $"'{template.PassMark}'. Expected an integer percent from 0 to 100.",
-                });
-            }
-
-            ValidateAttestationFields(template, diagnostics);
-            ValidateAttestationQuiz(template, diagnostics);
-
-            // Type-conditional rules: training needs a pass mark and a quiz to grade against; manual has
-            // neither, so declaring them is an authoring mistake.
-            var hasQuiz = template.Quiz.Count > 0;
-            if (template.Type == "training")
-            {
-                if (!hasPassMark)
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'training' but is "
-                            + "missing required field 'pass_mark'.",
-                    });
-                }
-
-                if (!hasQuiz)
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'training' but is "
-                            + "missing a non-empty 'quiz'.",
-                    });
-                }
-            }
-            else if (template.Type == "manual")
-            {
-                if (hasPassMark)
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'manual' but declares "
-                            + "'pass_mark', which is only valid for a training template.",
-                    });
-                }
-
-                if (hasQuiz)
-                {
-                    diagnostics.Add(new Diagnostic
-                    {
-                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has type 'manual' but declares "
-                            + "a 'quiz', which is only valid for a training template.",
-                    });
-                }
-            }
-
-            if (!string.IsNullOrEmpty(template.Id) && !seenIds.Add(template.Id))
-            {
-                diagnostics.Add(Dup(GitOpsSchema.KindAttestationTemplate, template.Id));
-            }
-        }
-    }
-
-    private static void ValidateAttestationFields(AttestationTemplate template, List<Diagnostic> diagnostics)
+    private static void ValidateCollectorFields(Collector collector, List<Diagnostic> diagnostics)
     {
         var seenFieldIds = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var field in template.Fields)
+        foreach (var field in collector.Config.Fields)
         {
-            CheckRequired(field.Id, GitOpsSchema.KindAttestationTemplate, "field id", template.Id, diagnostics);
-            CheckRequired(field.Label, GitOpsSchema.KindAttestationTemplate, "field label", template.Id, diagnostics);
-            CheckRequired(field.Type, GitOpsSchema.KindAttestationTemplate, "field type", template.Id, diagnostics);
+            CheckRequired(field.Id, GitOpsSchema.KindCollector, "field id", collector.Id, diagnostics);
+            CheckRequired(field.Label, GitOpsSchema.KindCollector, "field label", collector.Id, diagnostics);
+            CheckRequired(field.Type, GitOpsSchema.KindCollector, "field type", collector.Id, diagnostics);
 
             if (!string.IsNullOrEmpty(field.Id) && !seenFieldIds.Add(field.Id))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has duplicate field id "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has duplicate field id "
                         + $"'{field.Id}'.",
                 });
             }
@@ -1043,7 +1037,7 @@ public static class ConfigValidator
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' field '{Describe(field.Id)}' has "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' field '{Describe(field.Id)}' has "
                         + $"unknown type '{field.Type}'. Expected one of: boolean, single-choice, short-text.",
                 });
             }
@@ -1054,39 +1048,39 @@ public static class ConfigValidator
                 {
                     diagnostics.Add(new Diagnostic
                     {
-                        Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' field '{Describe(field.Id)}' is "
+                        Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' field '{Describe(field.Id)}' is "
                             + "single-choice but has fewer than two options.",
                     });
                 }
 
-                CheckDuplicateOptions(template.Id, field.Id, "field", field.Options, diagnostics);
+                CheckDuplicateOptions(collector.Id, field.Id, "field", field.Options, diagnostics);
             }
             else if (typeKnown && field.Options.Count > 0)
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' field '{Describe(field.Id)}' has "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' field '{Describe(field.Id)}' has "
                         + $"type '{field.Type}' but declares options, which are only valid for a single-choice field.",
                 });
             }
         }
     }
 
-    private static void ValidateAttestationQuiz(AttestationTemplate template, List<Diagnostic> diagnostics)
+    private static void ValidateCollectorQuiz(Collector collector, List<Diagnostic> diagnostics)
     {
         var seenQuizIds = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var item in template.Quiz)
+        foreach (var item in collector.Config.Quiz)
         {
-            CheckRequired(item.Id, GitOpsSchema.KindAttestationTemplate, "quiz id", template.Id, diagnostics);
-            CheckRequired(item.Prompt, GitOpsSchema.KindAttestationTemplate, "quiz prompt", template.Id, diagnostics);
-            CheckRequired(item.Answer, GitOpsSchema.KindAttestationTemplate, "quiz answer", template.Id, diagnostics);
+            CheckRequired(item.Id, GitOpsSchema.KindCollector, "quiz id", collector.Id, diagnostics);
+            CheckRequired(item.Prompt, GitOpsSchema.KindCollector, "quiz prompt", collector.Id, diagnostics);
+            CheckRequired(item.Answer, GitOpsSchema.KindCollector, "quiz answer", collector.Id, diagnostics);
 
             if (!string.IsNullOrEmpty(item.Id) && !seenQuizIds.Add(item.Id))
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' has duplicate quiz id "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' has duplicate quiz id "
                         + $"'{item.Id}'.",
                 });
             }
@@ -1095,12 +1089,12 @@ public static class ConfigValidator
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' quiz item '{Describe(item.Id)}' has "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' quiz item '{Describe(item.Id)}' has "
                         + "fewer than two options.",
                 });
             }
 
-            CheckDuplicateOptions(template.Id, item.Id, "quiz item", item.Options, diagnostics);
+            CheckDuplicateOptions(collector.Id, item.Id, "quiz item", item.Options, diagnostics);
 
             // The answer is a value reference into the option labels; option-label uniqueness makes it
             // unambiguous. Only check membership when an answer is present (a blank is caught above).
@@ -1108,7 +1102,7 @@ public static class ConfigValidator
             {
                 diagnostics.Add(new Diagnostic
                 {
-                    Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(template.Id)}' quiz item '{Describe(item.Id)}' has "
+                    Message = $"{GitOpsSchema.KindCollector} '{Describe(collector.Id)}' quiz item '{Describe(item.Id)}' has "
                         + $"answer '{item.Answer}' that is not one of its options.",
                 });
             }
@@ -1116,7 +1110,7 @@ public static class ConfigValidator
     }
 
     private static void CheckDuplicateOptions(
-        string templateId, string ownerId, string ownerKind, IReadOnlyList<string> options, List<Diagnostic> diagnostics)
+        string collectorId, string ownerId, string ownerKind, IReadOnlyList<string> options, List<Diagnostic> diagnostics)
     {
         var duplicates = options
             .GroupBy(option => option, StringComparer.Ordinal)
@@ -1126,7 +1120,7 @@ public static class ConfigValidator
         {
             diagnostics.Add(new Diagnostic
             {
-                Message = $"{GitOpsSchema.KindAttestationTemplate} '{Describe(templateId)}' {ownerKind} '{Describe(ownerId)}' has "
+                Message = $"{GitOpsSchema.KindCollector} '{Describe(collectorId)}' {ownerKind} '{Describe(ownerId)}' has "
                     + $"duplicate option '{duplicate}'.",
             });
         }

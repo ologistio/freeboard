@@ -37,27 +37,24 @@ internal interface IFreeboardApiClient
     /// <summary>GET /controls - list controls with their resolved maps_to and optional evaluation rule.</summary>
     Task<ApiResult<IReadOnlyList<ApiControl>>> ListControlsAsync(CancellationToken ct);
 
-    /// <summary>GET /evidence-collectors - list evidence-collectors attached to controls.</summary>
-    Task<ApiResult<IReadOnlyList<ApiEvidenceCollector>>> ListEvidenceCollectorsAsync(CancellationToken ct);
-
-    /// <summary>GET /attestation-templates - list attestation-templates attached to controls.</summary>
-    Task<ApiResult<IReadOnlyList<ApiAttestationTemplate>>> ListAttestationTemplatesAsync(CancellationToken ct);
+    /// <summary>GET /collectors - list collectors attached to controls.</summary>
+    Task<ApiResult<IReadOnlyList<ApiCollector>>> ListCollectorsAsync(CancellationToken ct);
 
     /// <summary>GET /integration-connections - list integration connections with their token-resolvable health.</summary>
     Task<ApiResult<IReadOnlyList<ApiIntegrationConnection>>> ListIntegrationConnectionsAsync(CancellationToken ct);
 
     /// <summary>
-    /// POST /evidence-collectors/{id}/credentials - issue a machine credential (optional expiry);
+    /// POST /collectors/{id}/credentials - issue a machine credential (optional expiry);
     /// returns the raw token once.
     /// </summary>
     Task<ApiResult<IssuedCredential>> IssueCollectorCredentialAsync(string collectorId, string? expiresAt, CancellationToken ct);
 
-    /// <summary>DELETE /evidence-collectors/{id}/credentials/{credId} - revoke a machine credential.</summary>
+    /// <summary>DELETE /collectors/{id}/credentials/{credId} - revoke a machine credential.</summary>
     Task<ApiResult<Unit>> RevokeCollectorCredentialAsync(string collectorId, string credentialId, CancellationToken ct);
 }
 
 /// <summary>
-/// POST evidence-collector credential response: the new credential id, its collector, the once-only raw
+/// POST collector credential response: the new credential id, its collector, the once-only raw
 /// token, and the optional expiry.
 /// </summary>
 internal sealed record IssuedCredential(string CredentialId, string CollectorId, string Token, string? ExpiresAt);
@@ -90,18 +87,19 @@ internal sealed record ApiScope(
 internal sealed record ApiControl(string Id, string Title, IReadOnlyList<string> MapsTo, string? Evaluation);
 
 /// <summary>
-/// An evidence-collector as returned by the API. <see cref="Vendor"/> and <see cref="Threshold"/> are
-/// null when unset; <see cref="Config"/> is the type-specific settings map (empty when unset).
+/// A collector as returned by the API. <see cref="Vendor"/>, <see cref="Provider"/>, and
+/// <see cref="Threshold"/> are null when unset; <see cref="Config"/> is the type-specific payload.
 /// </summary>
-internal sealed record ApiEvidenceCollector(
+internal sealed record ApiCollector(
     string Id,
     string Title,
     string Control,
     string? Vendor,
     string Type,
+    string? Provider,
     string Frequency,
     int? Threshold,
-    IReadOnlyDictionary<string, string> Config);
+    ApiCollectorConfig Config);
 
 /// <summary>
 /// An integration connection as returned by the API. <see cref="Vendor"/> is null when unset;
@@ -119,20 +117,21 @@ internal sealed record ApiAttestationField(string Id, string Label, string Type,
 /// </summary>
 internal sealed record ApiQuizItem(string Id, string Prompt, IReadOnlyList<string> Options);
 
+/// <summary>A tracked check as returned by the API.</summary>
+internal sealed record ApiCheck(string SourceKey, string Name, string Severity);
+
 /// <summary>
-/// An attestation-template as returned by the API. <see cref="Body"/> and <see cref="PassMark"/> are null
-/// when unset; <see cref="Fields"/> and <see cref="Quiz"/> are the ordered lists (empty when unset). The
-/// quiz carries no answer.
+/// A collector's type-specific payload as returned by the API. Every member must tolerate being absent:
+/// the endpoint writes a config key only when the member carries a value, so a script collector's config
+/// is an empty object and an attestation's carries no checks. Absent scalars read null and absent lists
+/// read empty. The quiz carries no answer.
 /// </summary>
-internal sealed record ApiAttestationTemplate(
-    string Id,
-    string Title,
-    string Control,
-    string Type,
+internal sealed record ApiCollectorConfig(
     string? Body,
     IReadOnlyList<ApiAttestationField> Fields,
     int? PassMark,
-    IReadOnlyList<ApiQuizItem> Quiz);
+    IReadOnlyList<ApiQuizItem> Quiz,
+    IReadOnlyList<ApiCheck> Checks);
 
 /// <summary>A void success payload for calls that return no body of interest.</summary>
 internal sealed record Unit

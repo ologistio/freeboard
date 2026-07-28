@@ -32,7 +32,7 @@ response and error codes. Plain ASCII throughout.
 
 Every existing Freeboard bearer token is an opaque human session token. Evidence
 ingest instead uses a per-collector machine credential: a bearer token scoped to
-exactly one evidence-collector, carrying no human identity, revocable, with an
+exactly one collector, carrying no human identity, revocable, with an
 optional expiry. Only its keyed HMAC is stored; the raw token is shown once at
 issue time and never again.
 
@@ -46,7 +46,7 @@ endpoint fails `401`.
 System-admin only.
 
 ```text
-POST /api/v1/freeboard/evidence-collectors/{id}/credentials
+POST /api/v1/freeboard/collectors/{id}/credentials
 Content-Type: application/json
 
 { "expires_at": "2027-01-01T00:00:00Z" }   # expires_at is optional
@@ -71,7 +71,7 @@ The `token` is the raw bearer value. Store it in the collector container's
 System-admin only.
 
 ```text
-DELETE /api/v1/freeboard/evidence-collectors/{id}/credentials/{credId}
+DELETE /api/v1/freeboard/collectors/{id}/credentials/{credId}
 ```
 
 Response `204` when a live credential was revoked, `404` when it does not exist

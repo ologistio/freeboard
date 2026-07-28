@@ -42,16 +42,16 @@ public sealed class MySqlIntegrationTests
         IEnumerable<Scope>? scopes = null,
         IEnumerable<Requirement>? requirements = null,
         IEnumerable<Asset>? vendors = null,
-        IEnumerable<EvidenceCollector>? evidenceCollectors = null,
-        IEnumerable<AttestationTemplate>? attestationTemplates = null) => new()
+        IEnumerable<Collector>? collectors = null,
+        IEnumerable<IntegrationConnection>? integrationConnections = null) => new()
         {
             Standards = standards.ToList(),
             Requirements = requirements?.ToList() ?? [],
             Controls = controls.ToList(),
             Assets = [.. organisations ?? [], .. vendors ?? []],
             Scopes = scopes?.ToList() ?? [],
-            EvidenceCollectors = evidenceCollectors?.ToList() ?? [],
-            AttestationTemplates = attestationTemplates?.ToList() ?? [],
+            Collectors = collectors?.ToList() ?? [],
+            IntegrationConnections = integrationConnections?.ToList() ?? [],
         };
 
     private static Standard Std(
@@ -76,14 +76,14 @@ public sealed class MySqlIntegrationTests
     private static Control Ctrl(string id, string[] mapsTo, string title = "T", string apiVersion = "v1", string? evaluation = null) =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, MapsTo = [.. mapsTo], Evaluation = evaluation ?? string.Empty };
 
-    private static EvidenceCollector Ec(
+    private static Collector Coll(
         string id,
         string control,
-        string type = "integration",
+        string type = "script",
         string frequency = "daily",
         string? vendor = null,
         string threshold = "",
-        Dictionary<string, string>? config = null,
+        CollectorConfig? config = null,
         string title = "T",
         string apiVersion = "v1") =>
         new()
@@ -96,28 +96,51 @@ public sealed class MySqlIntegrationTests
             Type = type,
             Frequency = frequency,
             Threshold = threshold,
-            Config = config ?? [],
+            Config = config ?? new CollectorConfig(),
         };
 
-    private static AttestationTemplate AttManual(
+    private static IntegrationConnection Conn(string id, string vendor = "", string apiVersion = "v1") =>
+        new()
+        {
+            Id = id,
+            Title = "T",
+            ApiVersion = apiVersion,
+            Provider = "fleet",
+            BaseUrl = "https://fleet.example.com",
+            DiscoveryCadence = "daily",
+            Vendor = vendor,
+        };
+
+    private static Collector IntegrationColl(
+        string id,
+        string control,
+        string connection,
+        string? vendor = null,
+        string threshold = "",
+        List<Check>? checks = null) =>
+        Coll(id, control, "integration", "daily", vendor: vendor, threshold: threshold, config: new CollectorConfig
+        {
+            Checks = checks ?? [new Check { SourceKey = "12", Name = "mfa-enforced", Severity = "Hard" }],
+        }) with
+        {
+            Provider = "fleet",
+            Connection = connection,
+        };
+
+    private static Collector Manual(
         string id,
         string control,
         string title = "T",
         string apiVersion = "v1",
         string? body = null,
         List<AttestationField>? fields = null) =>
-        new()
+        Coll(id, control, "manual", "annual", title: title, apiVersion: apiVersion, config: new CollectorConfig
         {
-            Id = id,
-            Title = title,
-            ApiVersion = apiVersion,
-            Control = control,
-            Type = "manual",
             Body = body ?? string.Empty,
             Fields = fields ?? [],
-        };
+        });
 
-    private static AttestationTemplate AttTraining(
+    private static Collector Training(
         string id,
         string control,
         string passMark,
@@ -125,17 +148,12 @@ public sealed class MySqlIntegrationTests
         string title = "T",
         string apiVersion = "v1",
         string? body = null) =>
-        new()
+        Coll(id, control, "training", "annual", title: title, apiVersion: apiVersion, config: new CollectorConfig
         {
-            Id = id,
-            Title = title,
-            ApiVersion = apiVersion,
-            Control = control,
-            Type = "training",
             Body = body ?? string.Empty,
             PassMark = passMark,
             Quiz = quiz,
-        };
+        });
 
     private static Asset Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, Type = kind, Source = "declared", Parent = parent ?? string.Empty };
@@ -222,7 +240,7 @@ public sealed class MySqlIntegrationTests
         foreach (var t in new[]
                  {
                      "standards", "requirements", "controls", "assets", "scopes",
-                     "control_requirements", "schema_migrations", "evidence_collectors",
+                     "control_requirements", "schema_migrations", "collectors",
                  })
         {
             Assert.Contains(t, tables);
@@ -236,7 +254,11 @@ public sealed class MySqlIntegrationTests
         Assert.DoesNotContain("requirement_scopes", tables);
         Assert.DoesNotContain("vendor_scopes", tables);
 
-        // controls gains the nullable evaluation column; evidence_collectors FKs to controls and the
+        // evidence_collectors and attestation_templates are merged into the one collectors table by 021.
+        Assert.DoesNotContain("evidence_collectors", tables);
+        Assert.DoesNotContain("attestation_templates", tables);
+
+        // controls gains the nullable evaluation column; collectors FKs to controls and the
         // vendor assets (retargeted to assets by 019).
         var evaluationColumn = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.columns "
@@ -245,43 +267,38 @@ public sealed class MySqlIntegrationTests
 
         var collectorFks = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.key_column_usage "
-            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_collectors' "
+            + "WHERE table_schema = DATABASE() AND table_name = 'collectors' "
             + "AND referenced_table_name IN ('controls', 'assets');");
         Assert.Equal(2, collectorFks);
 
-        // evidence_collectors carries three RESTRICT FKs: controls, vendors, and integration_connections.
+        // collectors carries three RESTRICT FKs: controls, vendor assets, and integration_connections.
         var collectorDeleteRules = (await conn.QueryAsync<string>(
             "SELECT delete_rule FROM information_schema.referential_constraints "
-            + "WHERE constraint_schema = DATABASE() AND table_name = 'evidence_collectors';"))
+            + "WHERE constraint_schema = DATABASE() AND table_name = 'collectors';"))
             .ToArray();
         Assert.Equal(3, collectorDeleteRules.Length);
         Assert.All(collectorDeleteRules, rule => Assert.Equal("RESTRICT", rule));
 
-        // attestation_templates: present, binary-collated ids, a control_id RESTRICT FK, JSON columns.
-        Assert.Contains("attestation_templates", tables);
-        foreach (var column in new[] { "id", "control_id" })
+        // Binary-collated ids on the merged table, and one JSON config column with NO checks column:
+        // every type-specific payload is a config key.
+        foreach (var column in new[] { "id", "control_id", "vendor_id", "connection_id" })
         {
             var col = await conn.ExecuteScalarAsync<string>(
                 "SELECT collation_name FROM information_schema.columns "
-                + "WHERE table_schema = DATABASE() AND table_name = 'attestation_templates' AND column_name = @Column;",
+                + "WHERE table_schema = DATABASE() AND table_name = 'collectors' AND column_name = @Column;",
                 new { Column = column });
             Assert.Equal("utf8mb4_bin", col);
         }
 
-        var templateDeleteRules = (await conn.QueryAsync<string>(
-            "SELECT delete_rule FROM information_schema.referential_constraints "
-            + "WHERE constraint_schema = DATABASE() AND table_name = 'attestation_templates';"))
-            .ToArray();
-        Assert.Equal(["RESTRICT"], templateDeleteRules);
+        var configType = await conn.ExecuteScalarAsync<string>(
+            "SELECT data_type FROM information_schema.columns "
+            + "WHERE table_schema = DATABASE() AND table_name = 'collectors' AND column_name = 'config';");
+        Assert.Equal("json", configType);
 
-        foreach (var jsonColumn in new[] { "fields", "quiz" })
-        {
-            var dataType = await conn.ExecuteScalarAsync<string>(
-                "SELECT data_type FROM information_schema.columns "
-                + "WHERE table_schema = DATABASE() AND table_name = 'attestation_templates' AND column_name = @Column;",
-                new { Column = jsonColumn });
-            Assert.Equal("json", dataType);
-        }
+        var checksColumn = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            + "WHERE table_schema = DATABASE() AND table_name = 'collectors' AND column_name = 'checks';");
+        Assert.Equal(0, checksColumn);
 
         // The old scope->controls relation is dropped by the organisation migration; the
         // control->standard join is repointed to control_requirements by migration 008.
@@ -516,7 +533,7 @@ public sealed class MySqlIntegrationTests
 
         // One scopes count folds the three former scope kinds (org standard, org requirement, vendor).
         var counts = await store.GetCountsAsync();
-        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 3, 1, 0, 0), counts);
+        Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 3, 1, 0), counts);
 
         var scopes = await store.GetScopesAsync();
         var requirementScope = scopes.Single(s => s.Id == "rs-a");
@@ -1050,7 +1067,7 @@ public sealed class MySqlIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task EvidenceCollectorsAndControlEvaluationRoundTrip()
+    public async Task CollectorsAndControlEvaluationRoundTrip()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -1062,34 +1079,48 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a")],
-            evidenceCollectors:
+            collectors:
             [
-                Ec("collector-int", "ctrl-a", "integration", "daily", vendor: "vendor-a", threshold: "100",
-                    config: new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
-                Ec("collector-manual", "ctrl-a", "manual-attestation", "annual"),
-            ]));
+                IntegrationColl("collector-int", "ctrl-a", "conn-a", vendor: "vendor-a", threshold: "100"),
+                Manual("collector-manual", "ctrl-a"),
+                Coll("collector-script", "ctrl-a", "script", "weekly"),
+            ],
+            integrationConnections: [Conn("conn-a")]));
 
         var counts = await store.GetCountsAsync();
-        Assert.Equal(2, counts.EvidenceCollectors);
+        Assert.Equal(3, counts.Collectors);
 
         var control = Assert.Single(await store.GetControlsAsync());
         Assert.Equal("all", control.Evaluation);
 
-        var collectors = (await store.GetEvidenceCollectorsAsync()).ToDictionary(c => c.Id);
-        Assert.Equal(2, collectors.Count);
+        var collectors = (await store.GetCollectorsAsync()).ToDictionary(c => c.Id);
+        Assert.Equal(3, collectors.Count);
 
         var integration = collectors["collector-int"];
         Assert.Equal("ctrl-a", integration.Control);
         Assert.Equal("vendor-a", integration.Vendor);
         Assert.Equal("integration", integration.Type);
+        Assert.Equal("fleet", integration.Provider);
+        Assert.Equal("conn-a", integration.Connection);
         Assert.Equal("daily", integration.Frequency);
         Assert.Equal(100, integration.Threshold);
-        Assert.Equal("policies.mfa", integration.Config["endpoint"]);
+        var check = Assert.Single(integration.Config.Checks);
+        Assert.Equal(("12", "mfa-enforced", "Hard"), (check.SourceKey, check.Name, check.Severity));
 
         var manual = collectors["collector-manual"];
         Assert.Null(manual.Vendor);
+        Assert.Null(manual.Provider);
         Assert.Null(manual.Threshold);
-        Assert.Empty(manual.Config);
+        Assert.Empty(manual.Config.Checks);
+
+        // A script collector's schema registers no key, so its config column is SQL NULL and reads as
+        // the empty view - the same path a migrated form-less attestation takes.
+        var script = collectors["collector-script"];
+        Assert.Null(script.Config.Body);
+        Assert.Null(script.Config.PassMark);
+        Assert.Empty(script.Config.Fields);
+        Assert.Empty(script.Config.Quiz);
+        Assert.Empty(script.Config.Checks);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1122,7 +1153,7 @@ public sealed class MySqlIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task ResyncRemovesControlAttachedByEvidenceCollector()
+    public async Task ResyncRemovesControlAttachedByCollector()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -1134,7 +1165,7 @@ public sealed class MySqlIntegrationTests
             [Std("std-a")],
             [Ctrl("ctrl-keep", ["req-a"]), Ctrl("ctrl-gone", ["req-a"], evaluation: "all")],
             requirements: [Req("req-a", "std-a")],
-            evidenceCollectors: [Ec("collector-a", "ctrl-gone")]));
+            collectors: [Coll("collector-a", "ctrl-gone")]));
 
         // New config drops the attached control (and its collector). The importer must delete the
         // collector before the control, so the control RESTRICT FK is not hit.
@@ -1143,12 +1174,12 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-keep", ["req-a"])],
             requirements: [Req("req-a", "std-a")]));
 
-        Assert.Empty(await store.GetEvidenceCollectorsAsync());
+        Assert.Empty(await store.GetCollectorsAsync());
         Assert.Equal(["ctrl-keep"], (await store.GetControlsAsync()).Select(c => c.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task ResyncRemovesVendorNamedByEvidenceCollector()
+    public async Task ResyncRemovesVendorNamedByCollector()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -1161,7 +1192,7 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-keep"), Vnd("vendor-gone")],
-            evidenceCollectors: [Ec("collector-a", "ctrl-a", vendor: "vendor-gone")]));
+            collectors: [Coll("collector-a", "ctrl-a", vendor: "vendor-gone")]));
 
         // New config drops the named vendor (and its collector). The importer must delete the collector
         // before the vendor, so the vendor RESTRICT FK is not hit.
@@ -1171,12 +1202,12 @@ public sealed class MySqlIntegrationTests
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-keep")]));
 
-        Assert.Empty(await store.GetEvidenceCollectorsAsync());
+        Assert.Empty(await store.GetCollectorsAsync());
         Assert.Equal(["vendor-keep"], (await store.GetVendorsAsync()).Select(v => v.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task AttestationTemplatesRoundTripAndRedactQuizAnswer()
+    public async Task AttestationCollectorsRoundTripAndRedactQuizAnswer()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -1197,29 +1228,29 @@ public sealed class MySqlIntegrationTests
             [Std("std-a")],
             [Ctrl("ctrl-a", ["req-a"])],
             requirements: [Req("req-a", "std-a")],
-            attestationTemplates:
+            collectors:
             [
-                AttManual("attest-manual", "ctrl-a", body: "Confirm review.", fields: fields),
-                AttTraining("attest-training", "ctrl-a", "80", quiz),
+                Manual("attest-manual", "ctrl-a", body: "Confirm review.", fields: fields),
+                Training("attest-training", "ctrl-a", "80", quiz),
             ]));
 
         var counts = await store.GetCountsAsync();
-        Assert.Equal(2, counts.AttestationTemplates);
+        Assert.Equal(2, counts.Collectors);
 
-        var templates = (await store.GetAttestationTemplatesAsync()).ToDictionary(t => t.Id);
-        Assert.Equal(2, templates.Count);
+        var collectors = (await store.GetCollectorsAsync()).ToDictionary(c => c.Id);
+        Assert.Equal(2, collectors.Count);
 
-        var manual = templates["attest-manual"];
-        Assert.Equal("ctrl-a", manual.Control);
-        Assert.Equal("manual", manual.Type);
+        var manual = collectors["attest-manual"].Config;
+        Assert.Equal("ctrl-a", collectors["attest-manual"].Control);
+        Assert.Equal("manual", collectors["attest-manual"].Type);
         Assert.Equal("Confirm review.", manual.Body);
         Assert.Null(manual.PassMark);
         Assert.Empty(manual.Quiz);
         Assert.Equal(["reviewed", "outcome"], manual.Fields.Select(f => f.Id).ToArray());
         Assert.Equal(["pass", "fail"], manual.Fields[1].Options.ToArray());
 
-        var training = templates["attest-training"];
-        Assert.Equal("training", training.Type);
+        var training = collectors["attest-training"].Config;
+        Assert.Equal("training", collectors["attest-training"].Type);
         Assert.Null(training.Body);
         Assert.Equal(80, training.PassMark);
         Assert.Empty(training.Fields);
@@ -1231,12 +1262,12 @@ public sealed class MySqlIntegrationTests
         // The read model has no property to hold the answer: it cannot reach any read surface.
         Assert.DoesNotContain("Answer", typeof(QuizItemView).GetProperties().Select(p => p.Name));
 
-        // But the answer IS persisted in the raw quiz JSON column for the later grading runtime.
+        // But the answer IS persisted in the raw config JSON column for the later grading runtime.
         await using var conn = new MySqlConnection(db.ConnectionString);
         await conn.OpenAsync();
-        var rawQuiz = await conn.ExecuteScalarAsync<string>(
-            "SELECT quiz FROM attestation_templates WHERE id = 'attest-training';");
-        Assert.Contains("Report it", rawQuiz);
+        var rawConfig = await conn.ExecuteScalarAsync<string>(
+            "SELECT config FROM collectors WHERE id = 'attest-training';");
+        Assert.Contains("Report it", rawConfig);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1263,15 +1294,13 @@ public sealed class MySqlIntegrationTests
             scopes: [Scp("scope-a", "org-a", "std-a", "In"), Rqs("rs-a", "org-a", "req-a", "Out")],
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a")],
-            evidenceCollectors:
+            collectors:
             [
-                Ec("coll-a", "ctrl-a", vendor: "vendor-a", config: new Dictionary<string, string> { ["endpoint"] = "policies.mfa" }),
+                IntegrationColl("coll-a", "ctrl-a", "conn-a", vendor: "vendor-a"),
+                Manual("coll-manual", "ctrl-a", fields: fields),
+                Training("coll-training", "ctrl-a", "80", quiz),
             ],
-            attestationTemplates:
-            [
-                AttManual("tmpl-manual", "ctrl-a", fields: fields),
-                AttTraining("tmpl-training", "ctrl-a", "80", quiz),
-            ]));
+            integrationConnections: [Conn("conn-a")]));
 
         var inputs = await store.GetStatementOfApplicabilityDrilldownInputsAsync();
 
@@ -1285,44 +1314,45 @@ public sealed class MySqlIntegrationTests
         Assert.Equal(["req-a"], control.MapsTo); // resolved maps_to
         Assert.Equal("all", control.Evaluation);
 
-        var collector = Assert.Single(inputs.Collectors);
-        Assert.Equal("coll-a", collector.Id);
-        Assert.Equal("policies.mfa", collector.Config["endpoint"]); // deserialized config
-
-        Assert.Equal(["vendor-a"], inputs.Vendors.Select(v => v.Id).ToArray()); // vendors read in the same snapshot
-
-        var templates = inputs.Templates.ToDictionary(t => t.Id);
-        Assert.Equal(["reviewed"], templates["tmpl-manual"].Fields.Select(f => f.Id).ToArray()); // deserialized fields
-        var item = Assert.Single(templates["tmpl-training"].Quiz);
+        // One collector list now carries every type, integration and attestation alike.
+        var collectors = inputs.Collectors.ToDictionary(c => c.Id);
+        Assert.Equal(["coll-a", "coll-manual", "coll-training"], collectors.Keys.Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal("mfa-enforced", Assert.Single(collectors["coll-a"].Config.Checks).Name);
+        Assert.Equal(["reviewed"], collectors["coll-manual"].Config.Fields.Select(f => f.Id).ToArray());
+        var item = Assert.Single(collectors["coll-training"].Config.Quiz);
         Assert.Equal(["Open it", "Report it"], item.Options.ToArray());
         // The read model carries no answer property, so the quiz answer cannot reach this snapshot.
         Assert.DoesNotContain("Answer", typeof(QuizItemView).GetProperties().Select(p => p.Name));
+
+        Assert.Equal(["vendor-a"], inputs.Vendors.Select(v => v.Id).ToArray()); // vendors read in the same snapshot
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task ResyncRemovesControlAttachedByAttestationTemplate()
+    public async Task ResyncRemovesConnectionNamedByCollector()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
         var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
-        // Old state: attest-a attaches to ctrl-gone under a RESTRICT FK.
+        // Old state: collector-a names conn-gone under a RESTRICT FK.
         await importer.ImportAsync(Config(
             [Std("std-a")],
-            [Ctrl("ctrl-keep", ["req-a"]), Ctrl("ctrl-gone", ["req-a"])],
+            [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
             requirements: [Req("req-a", "std-a")],
-            attestationTemplates: [AttManual("attest-a", "ctrl-gone")]));
+            collectors: [IntegrationColl("collector-a", "ctrl-a", "conn-gone")],
+            integrationConnections: [Conn("conn-keep"), Conn("conn-gone")]));
 
-        // New config drops the attached control (and its template). The importer must delete the
-        // template before the control, so the control RESTRICT FK is not hit.
+        // New config drops the named connection (and its collector). The importer must delete the
+        // collector before the connection, so the connection RESTRICT FK is not hit.
         await importer.ImportAsync(Config(
             [Std("std-a")],
-            [Ctrl("ctrl-keep", ["req-a"])],
-            requirements: [Req("req-a", "std-a")]));
+            [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
+            requirements: [Req("req-a", "std-a")],
+            integrationConnections: [Conn("conn-keep")]));
 
-        Assert.Empty(await store.GetAttestationTemplatesAsync());
-        Assert.Equal(["ctrl-keep"], (await store.GetControlsAsync()).Select(c => c.Id).ToArray());
+        Assert.Empty(await store.GetCollectorsAsync());
+        Assert.Equal(["conn-keep"], (await store.GetIntegrationConnectionsAsync()).Select(c => c.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

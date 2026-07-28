@@ -170,7 +170,7 @@ public sealed class ConfigLoaderTests
     }
 
     [Fact]
-    public void ValidMultiKindConfigIncludingEvidenceCollectorsLoadsAndValidates()
+    public void ValidMultiKindConfigIncludingCollectorsLoadsAndValidates()
     {
         using var dir = TempConfig.Create(
             ("all.yaml", """
@@ -224,111 +224,75 @@ public sealed class ConfigLoaderTests
                 vendor: vendor-a
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: EvidenceCollector
+                kind: Collector
                 id: collector-integration
-                title: Endpoint MFA via Crowdstrike
+                title: Endpoint MFA via Fleet
                 control: ctrl-a
                 vendor: vendor-a
                 type: integration
+                provider: fleet
                 frequency: daily
                 threshold: 100
                 connection: fleet-prod
                 config:
-                  endpoint: policies.mfa
-                checks:
-                  - source_key: "12"
-                    name: mfa-enforced
-                    severity: Hard
+                  checks:
+                    - source_key: "12"
+                      name: mfa-enforced
+                      severity: Hard
                 ---
                 apiVersion: freeboard.dev/v1alpha1
-                kind: EvidenceCollector
+                kind: Collector
                 id: collector-manual
                 title: Annual policy attestation
                 control: ctrl-a
-                type: manual-attestation
+                type: manual
                 frequency: annual
+                config:
+                  body: Confirm the ruleset was reviewed.
+                  fields:
+                    - id: reviewed
+                      label: Ruleset reviewed?
+                      type: boolean
+                    - id: outcome
+                      label: Review outcome
+                      type: single-choice
+                      options: [pass, fail]
+                ---
+                apiVersion: freeboard.dev/v1alpha1
+                kind: Collector
+                id: collector-training
+                title: Phishing awareness
+                control: ctrl-a
+                type: training
+                frequency: annual
+                config:
+                  pass_mark: 80
+                  quiz:
+                    - id: q1
+                      prompt: What should you do with an unexpected attachment?
+                      options: [Open it, Report it]
+                      answer: Report it
                 """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
         Assert.Equal("all", result.Config.Controls[0].Evaluation);
-        Assert.Equal(["collector-integration", "collector-manual"], result.Config.EvidenceCollectors.Select(c => c.Id).ToArray());
-        var integration = result.Config.EvidenceCollectors[0];
+        Assert.Equal(
+            ["collector-integration", "collector-manual", "collector-training"],
+            result.Config.Collectors.Select(c => c.Id).ToArray());
+        var integration = result.Config.Collectors[0];
         Assert.Equal("vendor-a", integration.Vendor);
-        Assert.Equal("policies.mfa", integration.Config["endpoint"]);
-        Assert.Empty(result.Config.EvidenceCollectors[1].Config);
-    }
-
-    [Fact]
-    public void ValidMultiKindConfigIncludingAttestationTemplatesLoadsAndValidates()
-    {
-        using var dir = TempConfig.Create(
-            ("all.yaml", """
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Standard
-                id: std-a
-                title: Standard A
-                version: "1.0"
-                authority: Example Authority
-                ---
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Requirement
-                id: req-a
-                title: Requirement A
-                standard: std-a
-                theme: Theme A
-                statement: Do the thing.
-                citation_label: Source A
-                citation_url: https://example.com/a
-                ---
-                apiVersion: freeboard.dev/v1alpha1
-                kind: Control
-                id: ctrl-a
-                title: Control A
-                maps_to:
-                  - req-a
-                ---
-                apiVersion: freeboard.dev/v1alpha1
-                kind: AttestationTemplate
-                id: attest-manual
-                title: Firewall change attestation
-                control: ctrl-a
-                type: manual
-                body: Confirm the ruleset was reviewed.
-                fields:
-                  - id: reviewed
-                    label: Ruleset reviewed?
-                    type: boolean
-                  - id: outcome
-                    label: Review outcome
-                    type: single-choice
-                    options: [pass, fail]
-                ---
-                apiVersion: freeboard.dev/v1alpha1
-                kind: AttestationTemplate
-                id: attest-training
-                title: Phishing awareness
-                control: ctrl-a
-                type: training
-                pass_mark: 80
-                quiz:
-                  - id: q1
-                    prompt: What should you do with an unexpected attachment?
-                    options: [Open it, Report it]
-                    answer: Report it
-                """));
-
-        var result = ConfigValidator.LoadAndValidate(dir.Path);
-
-        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
-        Assert.Equal(["attest-manual", "attest-training"], result.Config.AttestationTemplates.Select(t => t.Id).ToArray());
-        var manual = result.Config.AttestationTemplates[0];
-        Assert.Equal(2, manual.Fields.Count);
-        Assert.Equal(["pass", "fail"], manual.Fields[1].Options.ToArray());
-        var training = result.Config.AttestationTemplates[1];
-        Assert.Equal("80", training.PassMark);
-        Assert.Equal("Report it", Assert.Single(training.Quiz).Answer);
+        Assert.Equal("fleet", integration.Provider);
+        Assert.Equal("mfa-enforced", Assert.Single(integration.Config.Checks).Name);
+        var manual = result.Config.Collectors[1];
+        Assert.Equal("Confirm the ruleset was reviewed.", manual.Config.Body);
+        Assert.Equal(2, manual.Config.Fields.Count);
+        Assert.Equal(["pass", "fail"], manual.Config.Fields[1].Options.ToArray());
+        Assert.Empty(manual.Config.Checks);
+        var training = result.Config.Collectors[2];
+        Assert.Equal("80", training.Config.PassMark);
+        Assert.Equal("Report it", Assert.Single(training.Config.Quiz).Answer);
     }
 
     [Fact]
@@ -451,30 +415,33 @@ public sealed class ConfigLoaderTests
         Assert.Equal("Company", Assert.Single(result.Config.Assets).Type);
     }
 
-    [Fact]
-    public void ExplicitNullFieldAndQuizItemsAreDroppedNotThrown()
+    [Theory]
+    [InlineData("EvidenceCollector")]
+    [InlineData("AttestationTemplate")]
+    public void RetiredCollectorKindsAreNowUnknown(string kind)
     {
-        // A null sequence item (`fields:\n  -`) deserializes to a null element; the loader must
-        // drop it rather than NRE while normalizing, keeping its never-throw contract.
         using var dir = TempConfig.Create(
-            ("template.yaml", """
+            ("x.yaml", $"""
                 apiVersion: freeboard.dev/v1alpha1
-                kind: AttestationTemplate
-                id: attest-manual
+                kind: {kind}
+                id: collector-a
                 title: T
                 control: ctrl-a
                 type: manual
-                fields:
-                  -
-                quiz:
-                  -
                 """));
 
         var result = ConfigLoader.Load(dir.Path);
 
-        var template = Assert.Single(result.Config.AttestationTemplates);
-        Assert.Empty(template.Fields);
-        Assert.Empty(template.Quiz);
+        Assert.Empty(result.Config.Collectors);
+        var diagnostic = Assert.Single(result.Diagnostics, d => d.Message.Contains($"Unknown kind '{kind}'"));
+
+        const string marker = "Expected one of:";
+        var markerIndex = diagnostic.Message.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(markerIndex >= 0, $"diagnostic missing '{marker}': {diagnostic.Message}");
+        var enumeration = diagnostic.Message[(markerIndex + marker.Length)..];
+        Assert.Contains("Collector", enumeration);
+        Assert.DoesNotContain("EvidenceCollector", enumeration);
+        Assert.DoesNotContain("AttestationTemplate", enumeration);
     }
 
     [Fact]

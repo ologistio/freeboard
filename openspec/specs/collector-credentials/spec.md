@@ -6,11 +6,11 @@ TBD - created by archiving change rework-evidence-ingest-shared-model. Update Pu
 ### Requirement: Per-collector machine credential
 
 The system SHALL support a per-collector machine credential: a bearer token
-scoped to exactly one evidence-collector, carrying no human identity, revocable,
+scoped to exactly one collector, carrying no human identity, revocable,
 with an optional expiry. Credentials SHALL be stored in a `collector_credentials`
 table that keeps only the keyed HMAC of the token and its key version; the raw
-token SHALL never be persisted. The credential row SHALL foreign-key
-`evidence_collectors` ON DELETE CASCADE, so revoking the collector removes its
+token SHALL never be persisted. The credential row SHALL foreign-key the unified
+`collectors` table ON DELETE CASCADE, so revoking the collector removes its
 credentials. The token SHALL share the existing `v<keyId>.<secret>` wire format
 and reuse the existing token hasher.
 
@@ -22,7 +22,7 @@ and reuse the existing token hasher.
 
 #### Scenario: Deleting a collector cascades its credentials
 
-- **WHEN** an evidence-collector is deleted
+- **WHEN** a collector is deleted from the unified `collectors` table
 - **THEN** its `collector_credentials` rows are removed
 
 ### Requirement: Collector bearer authentication scheme and ingest policy
@@ -54,17 +54,20 @@ token at any non-ingest endpoint SHALL fail with `401`.
 
 ### Requirement: Credential issuance and revocation are system-admin config actions
 
-The system SHALL expose `POST /api/v1/freeboard/evidence-collectors/{id}/credentials`
+The system SHALL expose `POST /api/v1/freeboard/collectors/{id}/credentials`
 to issue a credential and
-`DELETE /api/v1/freeboard/evidence-collectors/{id}/credentials/{credId}` to revoke
-one. Both SHALL require the system-admin permission with force-enforce and SHALL
+`DELETE /api/v1/freeboard/collectors/{id}/credentials/{credId}` to revoke
+one. These routes replace the retired `/api/v1/freeboard/evidence-collectors/{id}/...`
+routes, which cease to exist with no redirect. Both SHALL require the system-admin
+permission with force-enforce and SHALL
 NOT carry the ingest marker, so in GitOps read-only mode they return `409`.
 Issuance SHALL return `201` with the raw token exactly once and `422` for an
 unknown collector; issuance MAY accept an optional ISO 8601 expiry. Revocation
 SHALL return `204` when a live credential was revoked and `404` when it does not
 exist under that collector or was already revoked. The CLI SHALL provide
 `freeboard collector credential issue` (printing the raw token once) and
-`freeboard collector credential revoke`, both through the HTTP API only.
+`freeboard collector credential revoke`, both through the HTTP API only; their verbs and
+exit codes are unchanged and only the API path they call moves.
 
 #### Scenario: Issuing returns the token once
 
@@ -87,4 +90,10 @@ exist under that collector or was already revoked. The CLI SHALL provide
 - **WHEN** a revoke targets a credential that does not exist under the collector
   or was already revoked
 - **THEN** the response is `404 Not Found`
+
+#### Scenario: Retired credential routes no longer answer
+
+- **WHEN** a client calls `POST /api/v1/freeboard/evidence-collectors/{id}/credentials` or
+  `DELETE /api/v1/freeboard/evidence-collectors/{id}/credentials/{credId}`
+- **THEN** neither route is mapped and neither issues or revokes a credential
 

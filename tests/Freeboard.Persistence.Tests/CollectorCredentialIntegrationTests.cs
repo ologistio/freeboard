@@ -34,9 +34,9 @@ public sealed class CollectorCredentialIntegrationTests
             "INSERT INTO controls (id, api_version, title, created_at, updated_at) "
             + "VALUES ('ctrl-1', 'v1', 'C', NOW(6), NOW(6));");
         await conn.ExecuteAsync(
-            "INSERT INTO evidence_collectors "
-            + "(id, api_version, title, control_id, vendor_id, type, frequency, threshold, config, created_at, updated_at) "
-            + "VALUES (@Id, 'v1', 'Collector', 'ctrl-1', NULL, 'integration', 'daily', NULL, NULL, NOW(6), NOW(6));",
+            "INSERT INTO collectors "
+            + "(id, api_version, title, control_id, vendor_id, connection_id, type, provider, frequency, threshold, config, created_at, updated_at) "
+            + "VALUES (@Id, 'v1', 'Collector', 'ctrl-1', NULL, NULL, 'script', NULL, 'daily', NULL, NULL, NOW(6), NOW(6));",
             new { Id = collectorId });
         return collectorId;
     }
@@ -62,11 +62,11 @@ public sealed class CollectorCredentialIntegrationTests
             + "AND index_name = 'ux_collector_credentials_token_hash' AND non_unique = 0;")).ToArray();
         Assert.Equal(["token_hash"], uniqueCols);
 
-        // The credential FK references evidence_collectors.
+        // The credential FK is re-pointed at the merged collectors table by 021.
         var fk = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM information_schema.key_column_usage "
             + "WHERE table_schema = DATABASE() AND table_name = 'collector_credentials' "
-            + "AND referenced_table_name = 'evidence_collectors';");
+            + "AND referenced_table_name = 'collectors';");
         Assert.Equal(1, fk);
     }
 
@@ -120,7 +120,7 @@ public sealed class CollectorCredentialIntegrationTests
         Assert.NotNull(await store.FindByTokenHashAsync(Hash));
 
         // A credential is live config, not history: removing the collector cascades it away.
-        await conn.ExecuteAsync("DELETE FROM evidence_collectors WHERE id = @Id;", new { Id = collectorId });
+        await conn.ExecuteAsync("DELETE FROM collectors WHERE id = @Id;", new { Id = collectorId });
 
         Assert.Null(await store.FindByTokenHashAsync(Hash));
     }

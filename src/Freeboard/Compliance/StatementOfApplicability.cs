@@ -52,13 +52,16 @@ public sealed record SoaNode(
     SoaResolution Resolution,
     IReadOnlyList<SoaRequirementResolution> Requirements);
 
-/// <summary>The kind of configured check attached to a control.</summary>
+/// <summary>
+/// The kind of configured check attached to a control, derived from the collector's type: a
+/// <c>manual</c> or <c>training</c> collector is an attestation, every other type is a collector.
+/// </summary>
 public enum SoaCheckKind
 {
-    /// <summary>An evidence-collector attached to the control.</summary>
+    /// <summary>A data-source collector attached to the control.</summary>
     Collector,
 
-    /// <summary>An attestation-template attached to the control.</summary>
+    /// <summary>An attestation form or training quiz attached to the control.</summary>
     Attestation,
 }
 
@@ -73,11 +76,12 @@ public static class SoaCheckKindNames
 }
 
 /// <summary>
-/// One configured check under a control: an evidence-collector (<see cref="SoaCheckKind.Collector"/>)
-/// or an attestation-template (<see cref="SoaCheckKind.Attestation"/>). Metadata only. Collector rows
-/// carry <see cref="Type"/>, <see cref="Frequency"/>, and an optional <see cref="Vendor"/> display (the
-/// vendor's title, or its id when unknown); attestation rows carry <see cref="Type"/> with the other two
-/// null. Quiz answers are never surfaced.
+/// One configured check under a control, tagged <see cref="SoaCheckKind.Collector"/> or
+/// <see cref="SoaCheckKind.Attestation"/> by its collector's type. Metadata only.
+/// <see cref="Frequency"/> is null on an attestation-tagged check even though every collector now has
+/// one: only a collector-tagged check carries an evidence status, and a cadence beside a check with no
+/// status is a collection promise this page cannot back. <see cref="Vendor"/> is uniform across both
+/// tags - it plays no part in status interpretation. Quiz answers are never surfaced.
 /// </summary>
 public sealed record SoaCheckNode(
     string Id, string Title, SoaCheckKind Kind, string Type, string? Frequency, string? Vendor);
@@ -197,8 +201,7 @@ public static class StatementOfApplicability
         IReadOnlyList<ScopeRow> scopes,
         IReadOnlyList<RequirementRow> requirements,
         IReadOnlyList<ControlRow> controls,
-        IReadOnlyList<EvidenceCollectorRow> collectors,
-        IReadOnlyList<AttestationTemplateRow> templates,
+        IReadOnlyList<CollectorRow> collectors,
         IReadOnlyList<VendorRow> vendors,
         string standardId)
     {
@@ -225,7 +228,7 @@ public static class StatementOfApplicability
                 StringComparer.Ordinal);
 
         var vendorTitleById = vendors.ToDictionary(v => v.Id, v => v.Title, StringComparer.Ordinal);
-        var controlsByRequirement = BuildControlCatalogue(standardRequirementIds, controls, collectors, templates, vendorTitleById);
+        var controlsByRequirement = BuildControlCatalogue(standardRequirementIds, controls, collectors, vendorTitleById);
 
         var nodes = new List<SoaDrilldownNode>(resolved.Count);
         foreach (var node in resolved)
@@ -268,14 +271,14 @@ public static class StatementOfApplicability
     /// <summary>
     /// Builds the org-independent requirement -> controls (each with its checks) catalogue. Controls
     /// attach to a requirement by <c>maps_to</c> (bounded to the standard's requirements); checks attach
-    /// to a control by their <c>Control</c> field, tagged Collector or Attestation. Ordering: controls by
-    /// id, checks by <c>(Kind, Id)</c> (collectors before attestations, each by id).
+    /// to a control by their <c>Control</c> field, tagged Collector or Attestation by the collector's
+    /// type. Ordering: controls by id, checks by <c>(Kind, Id)</c> (collectors before attestations, each
+    /// by id).
     /// </summary>
     private static IReadOnlyDictionary<string, IReadOnlyList<SoaControlNode>> BuildControlCatalogue(
         IReadOnlySet<string> standardRequirementIds,
         IReadOnlyList<ControlRow> controls,
-        IReadOnlyList<EvidenceCollectorRow> collectors,
-        IReadOnlyList<AttestationTemplateRow> templates,
+        IReadOnlyList<CollectorRow> collectors,
         IReadOnlyDictionary<string, string> vendorTitleById)
     {
         var checksByControl = new Dictionary<string, List<SoaCheckNode>>(StringComparer.Ordinal);
@@ -285,14 +288,16 @@ public static class StatementOfApplicability
             var vendor = collector.Vendor is null
                 ? null
                 : vendorTitleById.TryGetValue(collector.Vendor, out var title) ? title : collector.Vendor;
+            // The tag and the cadence are one decision: an attestation-tagged check carries no evidence
+            // status, so it must not advertise a collection cadence either.
+            var attestation = collector.Type is "manual" or "training";
             AddCheck(checksByControl, collector.Control, new SoaCheckNode(
-                collector.Id, collector.Title, SoaCheckKind.Collector, collector.Type, collector.Frequency, vendor));
-        }
-
-        foreach (var template in templates)
-        {
-            AddCheck(checksByControl, template.Control, new SoaCheckNode(
-                template.Id, template.Title, SoaCheckKind.Attestation, template.Type, null, null));
+                collector.Id,
+                collector.Title,
+                attestation ? SoaCheckKind.Attestation : SoaCheckKind.Collector,
+                collector.Type,
+                attestation ? null : collector.Frequency,
+                vendor));
         }
 
         var controlNodeById = controls.ToDictionary(

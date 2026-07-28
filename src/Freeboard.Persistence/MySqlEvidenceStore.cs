@@ -132,7 +132,7 @@ public sealed class MySqlEvidenceStore(IDbConnectionFactory connectionFactory, T
             foreach (var (group, run) in latest)
             {
                 var runChecks = checksByRun.TryGetValue(run.Id, out var list) ? list : [];
-                var stale = EvidenceCollectorFrequency.IsStale(run.CollectedAt, run.Frequency, nowUtc);
+                var stale = CollectorFrequency.IsStale(run.CollectedAt, run.Frequency, nowUtc);
                 results.Add(new CollectorEvidenceStatusRow(
                     group.Item1, group.Item2, group.Item3, DeriveStatus(runChecks, stale), run.CollectedAt));
             }

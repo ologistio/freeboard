@@ -7,7 +7,7 @@ namespace Freeboard.Core.Tests;
 /// the sub-day continuous window judged in hours, and that a null, blank, or unknown cadence is never
 /// stale. Clock-free: every case passes an explicit now.
 /// </summary>
-public sealed class EvidenceCollectorFrequencyTests
+public sealed class CollectorFrequencyTests
 {
     private static readonly DateTime Now = new(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc);
 
@@ -24,7 +24,7 @@ public sealed class EvidenceCollectorFrequencyTests
         var threshold = TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes);
         // A run aged one second short of the threshold is not yet stale.
         var collectedAt = Now - threshold + TimeSpan.FromSeconds(1);
-        Assert.False(EvidenceCollectorFrequency.IsStale(collectedAt, frequency, Now));
+        Assert.False(CollectorFrequency.IsStale(collectedAt, frequency, Now));
     }
 
     [Theory]
@@ -39,7 +39,7 @@ public sealed class EvidenceCollectorFrequencyTests
         var threshold = TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes);
         // A run aged one second past the threshold is stale.
         var collectedAt = Now - threshold - TimeSpan.FromSeconds(1);
-        Assert.True(EvidenceCollectorFrequency.IsStale(collectedAt, frequency, Now));
+        Assert.True(CollectorFrequency.IsStale(collectedAt, frequency, Now));
     }
 
     // The scheduling interval is the plain window, distinct from the interval-plus-grace staleness
@@ -54,7 +54,7 @@ public sealed class EvidenceCollectorFrequencyTests
     public void IntervalIsTheWindowNotTheStalenessThreshold(string frequency, int hours, int minutes)
     {
         var window = TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes);
-        Assert.Equal(window, EvidenceCollectorFrequency.Interval(frequency));
+        Assert.Equal(window, CollectorFrequency.Interval(frequency));
     }
 
     [Theory]
@@ -65,16 +65,16 @@ public sealed class EvidenceCollectorFrequencyTests
     [InlineData("Daily")] // token match is case-sensitive
     public void NullBlankOrUnknownCadenceHasNoInterval(string? frequency)
     {
-        Assert.Null(EvidenceCollectorFrequency.Interval(frequency));
+        Assert.Null(CollectorFrequency.Interval(frequency));
     }
 
     [Fact]
     public void ContinuousWindowIsJudgedInHours()
     {
         // 90 minutes exceeds continuous's 75-minute threshold (1h window + 15m grace).
-        Assert.True(EvidenceCollectorFrequency.IsStale(Now - TimeSpan.FromMinutes(90), "continuous", Now));
+        Assert.True(CollectorFrequency.IsStale(Now - TimeSpan.FromMinutes(90), "continuous", Now));
         // 60 minutes is inside it.
-        Assert.False(EvidenceCollectorFrequency.IsStale(Now - TimeSpan.FromMinutes(60), "continuous", Now));
+        Assert.False(CollectorFrequency.IsStale(Now - TimeSpan.FromMinutes(60), "continuous", Now));
     }
 
     [Theory]
@@ -87,6 +87,6 @@ public sealed class EvidenceCollectorFrequencyTests
     {
         // Even an ancient run yields no verdict of stale without a known cadence.
         var collectedAt = Now - TimeSpan.FromDays(3650);
-        Assert.False(EvidenceCollectorFrequency.IsStale(collectedAt, frequency, Now));
+        Assert.False(CollectorFrequency.IsStale(collectedAt, frequency, Now));
     }
 }

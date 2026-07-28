@@ -2,15 +2,14 @@
 
 ## Purpose
 
-Model a provider integration as a first-class GitOps kind - an `Integration` that an
-`EvidenceCollector` of `type: integration` references - so discovery and integration collection
+Model a provider integration as a first-class GitOps kind - an `Integration` that a
+`Collector` of `type: integration` references - so discovery and integration collection
 share one persisted, referentially-consistent connection record. The connection's API token is
 resolved out-of-band from configuration (never git-tracked, persisted, or logged) and surfaced
 only as a `tokenResolvable` health flag; an unresolvable token warns once at startup and fails
 its scheduled collection as a scheduler error rather than a masked evidence result. Web, HTTP
 API, and CLI read surfaces expose the connection subset and its token health without ever
 returning the token value.
-
 ## Requirements
 ### Requirement: IntegrationConnection persistence and read model
 
@@ -28,11 +27,21 @@ a nullable `connection_id` column (a `RESTRICT` foreign key to
 The migration SHALL NOT rewrite existing `evidence_collectors` rows (they read the
 new columns as absent).
 
-The importer SHALL upsert integration-connections by id after vendors and before
-evidence-collectors, SHALL write an integration collector's `checks` list as a
-JSON array on its row, and SHALL hard-remove an absent integration-connection in
-foreign-key-safe order (after any referencing evidence-collector is pruned and
-before any referenced vendor is pruned).
+After the collector merge the `connection_id` column is a column of the unified
+`collectors` table, still nullable and still set only for a collector of
+`type: integration`. An
+integration collector's tracked `checks` SHALL NOT have a column of their own after the
+merge: they are one key inside that table's single `config` JSON column, matching the
+authored shape in which `checks` is a `config` key. The stored key is the config model's
+member name (`Checks`) per the storage contract the compliance-persistence capability
+states; `checks` is the authored and wire spelling of the same key.
+
+The importer SHALL upsert integration-connections by id after declared assets and before
+collectors, SHALL write an integration collector's authored `checks` list as a
+JSON array under the stored `Checks` key of its `config` JSON, and SHALL hard-remove an
+absent integration-connection in
+foreign-key-safe order (after any referencing collector is pruned and
+before any referenced vendor asset is pruned).
 
 The read model for an integration-connection SHALL expose a deliberate subset of the
 persisted columns - `id`, `provider`, `base_url`, `discovery_cadence`, and `vendor` -
@@ -49,8 +58,9 @@ reference `Freeboard.Enterprise` or add any new dependency.
 - **WHEN** `freeboard system migrate` runs against a database migrated to the prior
   ordinal
 - **THEN** the migration applies successfully, the `integration_connections` table
-  exists, and `evidence_collectors` has a nullable `connection_id` column and a
-  `checks` column
+  exists, and the collector table has a nullable `connection_id` column and carries an
+  integration collector's checks inside its `config` JSON column rather than in a
+  dedicated `checks` column
 
 #### Scenario: Connection round-trips with persisted fields only
 
@@ -58,15 +68,25 @@ reference `Freeboard.Enterprise` or add any new dependency.
 - **THEN** the read model returns the connection's `id`, `provider`, `base_url`,
   `discovery_cadence`, and `vendor`, and carries no token or token-derived field
 
+#### Scenario: An absent connection is pruned after its referencing collectors
+
+- **WHEN** a sync removes an integration-connection that a collector in the previous
+  persisted set referenced, and the new config also removes that collector
+- **THEN** the importer prunes the collector before the connection and the connection
+  before any vendor asset it referenced, so no RESTRICT foreign key is violated
+
 ### Requirement: Out-of-band API token resolution
 
 The system SHALL resolve an integration-connection's API token out-of-band from
 `IConfiguration`, keyed by the connection instance id at the configuration key
 `Freeboard:Integrations:<id>:ApiToken` (supplied by environment variables,
 user-secrets, or another configuration provider). The token SHALL NEVER be read
-from git-tracked config, SHALL NEVER be stored in an `EvidenceCollector.config`
+from git-tracked config, SHALL NEVER be stored in a `Collector.config`
 map, SHALL NEVER be persisted to the database, and SHALL NEVER be written to any
-log or read surface.
+log or read surface. Because `Collector.config` keys are closed by the schema registered
+for the collector's `(type, provider)` pair, and no registered key holds credential
+material, a token cannot be smuggled into `config` under an ad-hoc key: an unregistered
+key fails validation.
 
 The system SHALL expose the token only as a resolvability check: a
 `tokenResolvable` health flag that is true when the keyed configuration value is
@@ -92,11 +112,18 @@ token value SHALL NOT be returned by the web read view, the HTTP API, or the CLI
 - **THEN** the response carries the `tokenResolvable` flag but never the token value,
   and no persisted row or log line contains the token
 
+#### Scenario: A token cannot be authored into collector config
+
+- **WHEN** a `Collector` authors a `config` key holding a token value
+- **THEN** validation rejects the key, because it is not named by the schema registered
+  for the collector's `(type, provider)` pair
+
 ### Requirement: Unresolvable token warns at startup and fails collection as a scheduler error
 
 The system SHALL warn once at startup for each integration-connection that is
-referenced by an `EvidenceCollector` of `type: integration` and whose token is not
-resolvable. The warning SHALL name the connection id and SHALL NOT include the
+referenced by a `Collector` of `type: integration` and whose token is not
+resolvable, scanning the one unified collector set. The warning SHALL name the connection
+id and SHALL NOT include the
 token value. An unresolvable token SHALL NOT be a boot gate: the application SHALL
 start regardless.
 

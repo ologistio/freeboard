@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Freeboard.Core.GitOps;
 using Freeboard.Persistence;
 using Microsoft.Extensions.Options;
@@ -101,14 +102,14 @@ public sealed class CollectorSchedulerService(
             return;
         }
 
-        var collectors = await complianceStore.GetEvidenceCollectorsAsync(cancellationToken).ConfigureAwait(false);
+        var collectors = await complianceStore.GetCollectorsAsync(cancellationToken).ConfigureAwait(false);
 
         // Only integration collectors with a resolvable interval are scheduled. A null-interval collector is
         // not seeded and its id is kept out of the active set, so it is never claimed (the primary guard
         // against a null interval tight-looping).
         var schedulable = collectors
             .Where(c => string.Equals(c.Type, IntegrationType, StringComparison.Ordinal)
-                        && EvidenceCollectorFrequency.Interval(c.Frequency) is not null)
+                        && CollectorFrequency.Interval(c.Frequency) is not null)
             .ToList();
         if (schedulable.Count == 0)
         {
@@ -136,7 +137,7 @@ public sealed class CollectorSchedulerService(
 
     private async Task DispatchAsync(
         ClaimedCollectorLease lease,
-        IReadOnlyDictionary<string, EvidenceCollectorRow> byId,
+        IReadOnlyDictionary<string, CollectorRow> byId,
         CancellationToken stoppingToken)
     {
         if (!byId.TryGetValue(lease.CollectorId, out var collector))
@@ -144,7 +145,7 @@ public sealed class CollectorSchedulerService(
             return;
         }
 
-        var interval = EvidenceCollectorFrequency.Interval(collector.Frequency);
+        var interval = CollectorFrequency.Interval(collector.Frequency);
         if (interval is null)
         {
             // Defensive: such ids are already excluded from the active set, so this is normally unreachable.
@@ -271,10 +272,22 @@ public sealed class CollectorSchedulerService(
         }
     }
 
-    // Hash over the scheduling-relevant config (type + frequency) as lowercase hex (CHAR(64)); a change to
-    // it revives a dead/error row via ensure.
-    private static string Fingerprint(EvidenceCollectorRow collector) =>
-        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{collector.Type}\n{collector.Frequency}")));
+    // Hash over the scheduling-relevant config as lowercase hex (CHAR(64)); a change to it revives a
+    // dead or errored row via ensure. The scope covers type, frequency, provider, connection, and the
+    // typed config, because an operator repairing a bad `source_key` or repointing a `connection` is
+    // making exactly those edits and must not have to wait out a dead row. `threshold` is excluded: it
+    // is a scoring input, not a collection instruction, so changing it must not revive anything.
+    //
+    // The hash input is its own serialization, deliberately unlike the endpoint's omit-absent projection
+    // and unlike the stored column. Nothing reads it, so binding it to a response shape would let a
+    // cosmetic response change revive every dead row once. The config is serialized with default options
+    // (every member emitted) and its member order is pinned by [JsonPropertyOrder] on the view and on
+    // every nested item record, because this value is persisted and compared across restarts and
+    // upgrades and the reflection resolver's order is unspecified.
+    private static string Fingerprint(CollectorRow collector) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{collector.Type}\n{collector.Frequency}\n{collector.Provider}\n{collector.Connection}\n"
+            + JsonSerializer.Serialize(collector.Config))));
 
     private static string Truncate(string value) =>
         value.Length <= MaxErrorLength ? value : value[..MaxErrorLength];

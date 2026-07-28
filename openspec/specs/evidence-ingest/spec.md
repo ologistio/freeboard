@@ -64,12 +64,17 @@ are retained.
 The endpoint SHALL treat the authenticated credential as authoritative for the
 collector: the payload `collector_id` MUST equal the credential's collector, else
 `422`. The run's vendor SHALL be taken from the collector's registered vendor
-(`EvidenceCollectorRow.Vendor`); a registered collector whose vendor is null
+(the merged collector read model's `Vendor`); a registered collector whose vendor is null
 CANNOT ingest and SHALL be rejected with `422` (missing vendor), with NO synthetic
 `collector_id`-as-vendor fallback. The payload `requirement_id` MUST be one of the
 collector control's mapped requirements (`ControlRow.MapsTo`), and the payload
 `organisation_id` MUST resolve In-scope for that requirement through the Statement
 of Applicability projection, else `422`. An unknown collector SHALL return `422`.
+
+Identity resolution SHALL read the one unified collector register. A collector of any
+`type` - including `manual` and `training` - that is registered with a vendor MAY hold a
+credential and ingest, exactly as before the collector merge; the endpoint SHALL NOT
+reject a run on the basis of the collector's `type`.
 
 #### Scenario: collector_id must match the credential
 
@@ -92,6 +97,12 @@ of Applicability projection, else `422`. An unknown collector SHALL return `422`
 
 - **WHEN** the payload `organisation_id` is not In-scope for the requirement
 - **THEN** the response is `422 Unprocessable Entity`
+
+#### Scenario: Collector type does not gate ingest
+
+- **WHEN** an authenticated collector of `type: manual` or `type: training` with a
+  registered vendor POSTs a valid payload for an in-scope requirement
+- **THEN** the run is appended, because the endpoint does not reject on collector `type`
 
 ### Requirement: The run verdict is derived, not posted
 
@@ -155,7 +166,7 @@ id (`collector_id`) and its `frequency` cadence token, so downstream staleness e
 can group evidence by collector and judge overdue-ness from the run itself without reading
 the mutable collector configuration. Both SHALL be taken from the authenticated
 collector: the `collector_id` from the credential-validated payload collector id, and the
-cadence from the collector's registration (`EvidenceCollectorRow.Frequency`), which the
+cadence from the collector's registration in the unified collector register, which the
 endpoint already resolves to validate the vendor and requirement mapping. The collector
 SHALL NOT post either value as a staleness input, so the `freeboard.evidence.v1` payload
 contract is unchanged. When the resolved collector's `frequency` is blank, the run SHALL

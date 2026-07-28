@@ -12,14 +12,14 @@ internal sealed class FakeScheduledCollectorRunner : IScheduledCollectorRunner
     private readonly Lock gate = new();
     private readonly List<(string CollectorId, string RunId)> dispatched = [];
 
-    public Func<EvidenceCollectorRow, string, CancellationToken, Task>? OnRun { get; set; }
+    public Func<CollectorRow, string, CancellationToken, Task>? OnRun { get; set; }
 
     public IReadOnlyList<(string CollectorId, string RunId)> Dispatched
     {
         get { lock (gate) { return dispatched.ToList(); } }
     }
 
-    public Task RunAsync(EvidenceCollectorRow collector, string runId, CancellationToken cancellationToken)
+    public Task RunAsync(CollectorRow collector, string runId, CancellationToken cancellationToken)
     {
         lock (gate)
         {

@@ -1,3 +1,4 @@
+using Freeboard.Core.GitOps;
 using Freeboard.Persistence;
 using Freeboard.Scheduler;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,9 +16,19 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class CollectorSchedulerServiceTests
 {
-    private static EvidenceCollectorRow Collector(string id, string type = "integration", string frequency = "daily") =>
-        new(id, "Title", "ctrl-1", Vendor: null, type, frequency, Threshold: null,
-            new Dictionary<string, string>(StringComparer.Ordinal));
+    private static CollectorRow Collector(
+        string id,
+        string type = "integration",
+        string frequency = "daily",
+        string? provider = "fleet",
+        string? connection = "fleet-prod",
+        int? threshold = null,
+        CollectorConfigView? config = null) =>
+        new(id, "Title", "ctrl-1", Vendor: null, type, provider, frequency, threshold,
+            config ?? CollectorConfigView.Empty, connection);
+
+    private static CollectorConfigView Config(string sourceKey) =>
+        new(null, [], null, [], [new Check { SourceKey = sourceKey, Name = "mfa-enforced", Severity = "Hard" }]);
 
     private static SchedulerOptions Options(Action<SchedulerOptions>? tweak = null)
     {
@@ -63,7 +74,12 @@ public sealed class CollectorSchedulerServiceTests
     {
         var compliance = new FakeComplianceStore
         {
-            Collectors = [Collector("script-1", type: "script"), Collector("manual-1", type: "manual-attestation")],
+            Collectors =
+            [
+                Collector("script-1", type: "script"),
+                Collector("manual-1", type: "manual"),
+                Collector("training-1", type: "training"),
+            ],
         };
         var store = new FakeCollectorSchedulerStore();
         var runner = new FakeScheduledCollectorRunner();
@@ -128,6 +144,130 @@ public sealed class CollectorSchedulerServiceTests
         await service.RunCycleAsync(CancellationToken.None);
         Assert.Equal(2, runner.Dispatched.Count);
         Assert.Equal("dead", store.Peek("col-1")!.Status);
+    }
+
+    // The fingerprint's scope widened with the merge, and these pin what is now inside it. An operator
+    // repairing a bad source_key or repointing a connection is making a config or connection edit, and
+    // must not have to wait a dead row out.
+    [Theory]
+    [InlineData("provider")]
+    [InlineData("connection")]
+    [InlineData("config")]
+    public async Task ACollectionInstructionEditRevivesADeadRow(string edit)
+    {
+        var store = new FakeCollectorSchedulerStore();
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = (_, _, _) => throw new InvalidOperationException("always fails"),
+        };
+        var original = Collector("col-1", config: Config("12"));
+        var compliance = new FakeComplianceStore { Collectors = [original] };
+        var service = Service(compliance, store, runner, Options(o => o.MaxAttempts = 1));
+
+        await service.RunCycleAsync(CancellationToken.None);
+        Assert.Equal("dead", store.Peek("col-1")!.Status);
+
+        compliance.Collectors =
+        [
+            edit switch
+            {
+                "provider" => original with { Provider = "intune" },
+                "connection" => original with { Connection = "fleet-dev" },
+                _ => original with { Config = Config("34") },
+            },
+        ];
+        runner.OnRun = null;
+        await service.RunCycleAsync(CancellationToken.None);
+
+        Assert.Equal("ok", store.Peek("col-1")!.Status);
+    }
+
+    // The fingerprint is persisted and compared across process restarts and app upgrades, so its VALUE
+    // is the contract, not merely its sensitivity to an edit. Comparing two fingerprints minted by one
+    // process cannot see a member-order change, because both sides move together; this golden digest
+    // can. It is the assertion that fails if a [JsonPropertyOrder] on CollectorConfigView, QuizItemView,
+    // AttestationField, or Check is removed or renumbered - which would silently revive every dead
+    // scheduler row on upgrade. A deliberate change to the hash input is meant to break it: recompute
+    // the constant then, and say so in the change.
+    [Fact]
+    public async Task TheFingerprintOfAKnownCollectorMatchesItsGoldenDigest()
+    {
+        var config = new CollectorConfigView(
+            "Confirm the ruleset was reviewed.",
+            [new AttestationField { Id = "f1", Label = "Reviewed?", Type = "single-choice", Options = ["yes", "no"] }],
+            80,
+            [new QuizItemView("q1", "What should you do with an unexpected attachment?", ["Open it", "Report it"])],
+            [new Check { SourceKey = "42", Name = "mfa-enforced", Severity = "Hard" }]);
+        var store = new FakeCollectorSchedulerStore();
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1", config: config)] };
+        var service = Service(compliance, store, new FakeScheduledCollectorRunner(), Options());
+
+        await service.RunCycleAsync(CancellationToken.None);
+
+        Assert.Equal(
+            "2aceb2c29dc40ebd0808729d2682339883d4630203372db754ed6bee9d9df098",
+            store.Peek("col-1")!.ConfigFingerprint);
+    }
+
+    // The nested check items are the only part of an integration collector's config that varies, so this
+    // is the case the nested [JsonPropertyOrder] pinning exists for.
+    [Fact]
+    public async Task ChangingOnlyACheckSourceKeyChangesTheFingerprint()
+    {
+        var store = new FakeCollectorSchedulerStore();
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1", config: Config("12"))] };
+        var service = Service(compliance, store, new FakeScheduledCollectorRunner(), Options());
+
+        await service.RunCycleAsync(CancellationToken.None);
+        var before = store.Peek("col-1")!.ConfigFingerprint;
+
+        compliance.Collectors = [Collector("col-1", config: Config("34"))];
+        await service.RunCycleAsync(CancellationToken.None);
+
+        Assert.NotEqual(before, store.Peek("col-1")!.ConfigFingerprint);
+    }
+
+    // Threshold is a scoring input, not a collection instruction: editing it must revive nothing.
+    [Fact]
+    public async Task AThresholdEditLeavesTheFingerprintAndADeadRowAlone()
+    {
+        var store = new FakeCollectorSchedulerStore();
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = (_, _, _) => throw new InvalidOperationException("always fails"),
+        };
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1", threshold: 90)] };
+        var service = Service(compliance, store, runner, Options(o => o.MaxAttempts = 1));
+
+        await service.RunCycleAsync(CancellationToken.None);
+        var dead = store.Peek("col-1")!;
+        Assert.Equal("dead", dead.Status);
+
+        compliance.Collectors = [Collector("col-1", threshold: 50)];
+        await service.RunCycleAsync(CancellationToken.None);
+
+        var after = store.Peek("col-1")!;
+        Assert.Equal(dead.ConfigFingerprint, after.ConfigFingerprint);
+        Assert.Equal("dead", after.Status);
+    }
+
+    // Reviving is for a row that has stopped collecting. A healthy row keeps its schedule, so a config
+    // edit must not pull its next run forward.
+    [Fact]
+    public async Task AConfigEditLeavesAHealthyRowsNextDueAtAlone()
+    {
+        var store = new FakeCollectorSchedulerStore();
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1", config: Config("12"))] };
+        var service = Service(compliance, store, new FakeScheduledCollectorRunner(), Options());
+
+        await service.RunCycleAsync(CancellationToken.None);
+        var healthy = store.Peek("col-1")!;
+        Assert.Equal("ok", healthy.Status);
+
+        compliance.Collectors = [Collector("col-1", config: Config("34"))];
+        await service.RunCycleAsync(CancellationToken.None);
+
+        Assert.Equal(healthy.NextDueAt, store.Peek("col-1")!.NextDueAt);
     }
 
     [Theory]

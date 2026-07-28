@@ -334,9 +334,10 @@ collation (recording the id of the collector that produced the run) and a nullab
 add a new index; the existing `(organisation_id, requirement_id, collected_at)` index
 already serves the batch read via its leftmost prefix and per-collector grouping is done
 in the read store, so a further index would only add write cost to the append-hot table.
-There SHALL be NO foreign key from `collector_id` to `evidence_collectors`, so a recorded
-run survives deletion or gitops churn of the collector, consistent with the scalar
-`organisation_id`/`requirement_id` columns.
+There SHALL be NO foreign key from `collector_id` to the collector table, before or after
+the collector merge, so a recorded run survives deletion or gitops churn of the collector,
+consistent with the scalar `organisation_id`/`requirement_id` columns; the collector-merge
+migration SHALL NOT add one.
 
 The migration SHALL be purely additive: a single `ALTER TABLE` adding the two nullable
 columns, matching the repo idiom (existing migrations use bare `ADD COLUMN`). It SHALL NOT
@@ -375,4 +376,10 @@ project and SHALL NOT add any reference to `Freeboard.Enterprise` or any new dep
 - **WHEN** the migration runs
 - **THEN** the `trg_evidence_runs_no_update` BEFORE UPDATE trigger is never dropped, so a
   stray UPDATE against `evidence_runs` remains rejected throughout and after the migration
+
+#### Scenario: The collector merge adds no foreign key to evidence runs
+
+- **WHEN** the collector-merge migration completes
+- **THEN** `evidence_runs.collector_id` still carries no foreign key, so a run whose
+  collector was since deleted is retained and its collector delete is never blocked
 

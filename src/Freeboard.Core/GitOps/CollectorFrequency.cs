@@ -1,13 +1,13 @@
 namespace Freeboard.Core.GitOps;
 
 /// <summary>
-/// The canonical evidence-collector collection cadence vocabulary and the pure staleness rule derived
+/// The canonical collector collection cadence vocabulary and the pure staleness rule derived
 /// from it. Owns the closed frequency token set (reused by <see cref="ConfigValidator"/>) and the
 /// per-cadence expectation: a <c>window</c> (the maximum expected interval between collections) plus a
 /// <c>grace</c> (a proportional allowance for one late cycle's jitter and clock skew). A run is stale
 /// once its age exceeds window + grace. Pure and clock-free: callers pass the current UTC instant.
 /// </summary>
-public static class EvidenceCollectorFrequency
+public static class CollectorFrequency
 {
     /// <summary>Closed token set for a collector's collection cadence (case-sensitive).</summary>
     public static readonly IReadOnlySet<string> Tokens = new HashSet<string>(StringComparer.Ordinal)

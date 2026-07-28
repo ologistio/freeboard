@@ -3,11 +3,12 @@ using Freeboard.Core.GitOps;
 namespace Freeboard.Core.Tests;
 
 /// <summary>
-/// Covers the Integration kind (persisted as an IntegrationConnection) and the two type-conditional EvidenceCollector fields
-/// (connection, checks): distinct kind routing, required fields, the closed provider token, absolute
-/// base_url, the discovery_cadence token, the optional vendor reference, duplicate and
-/// configuration-key-unsafe ids, the connection/checks conditional rules, and each tracked check's
-/// shape and severity. The loader and validator never throw or print.
+/// Covers the Integration kind (persisted as an IntegrationConnection) and the type-conditional
+/// Collector fields that bind to it (provider, connection, and the config checks list): distinct kind
+/// routing, required fields, the closed provider token, absolute base_url, the discovery_cadence token,
+/// the optional vendor reference, duplicate and configuration-key-unsafe ids, the provider/connection
+/// conditional rules, and each tracked check's shape and severity. The loader and validator never throw
+/// or print.
 /// </summary>
 public sealed class IntegrationConnectionValidationTests
 {
@@ -78,20 +79,22 @@ public sealed class IntegrationConnectionValidationTests
 
     private const string IntegrationCollector = """
         apiVersion: freeboard.dev/v1alpha1
-        kind: EvidenceCollector
+        kind: Collector
         id: collector-a
         title: Endpoint MFA
         control: ctrl-a
         type: integration
+        provider: fleet
         frequency: daily
         connection: fleet-prod
-        checks:
-          - source_key: "12"
-            name: mfa-enforced
-            severity: Hard
-          - source_key: "34"
-            name: disk-encrypted
-            severity: Soft
+        config:
+          checks:
+            - source_key: "12"
+              name: mfa-enforced
+              severity: Hard
+            - source_key: "34"
+              name: disk-encrypted
+              severity: Soft
         """;
 
     [Fact]
@@ -118,12 +121,13 @@ public sealed class IntegrationConnectionValidationTests
         var result = ConfigLoader.Load(dir.Path);
 
         Assert.Empty(result.Diagnostics);
-        var collector = Assert.Single(result.Config.EvidenceCollectors);
+        var collector = Assert.Single(result.Config.Collectors);
+        Assert.Equal("fleet", collector.Provider);
         Assert.Equal("fleet-prod", collector.Connection);
-        Assert.Equal(["mfa-enforced", "disk-encrypted"], collector.Checks.Select(c => c.Name).ToArray());
-        Assert.Equal("12", collector.Checks[0].SourceKey);
-        Assert.Equal("Hard", collector.Checks[0].Severity);
-        Assert.Equal("Soft", collector.Checks[1].Severity);
+        Assert.Equal(["mfa-enforced", "disk-encrypted"], collector.Config.Checks.Select(c => c.Name).ToArray());
+        Assert.Equal("12", collector.Config.Checks[0].SourceKey);
+        Assert.Equal("Hard", collector.Config.Checks[0].Severity);
+        Assert.Equal("Soft", collector.Config.Checks[1].Severity);
     }
 
     [Fact]
@@ -175,31 +179,27 @@ public sealed class IntegrationConnectionValidationTests
     [Fact]
     public void ExplicitNullChecksNormalizesToEmptyList()
     {
-        using var dir = TempConfig.Create(("all.yaml", $"{ValidStandard}\n---\n{ValidRequirement}\n---\n" + """
+        var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: Control
-            id: ctrl-a
-            title: Control A
-            maps_to:
-              - req-a
-            evaluation: all
-            ---
-            apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
-            type: script
-            frequency: weekly
-            checks:
-            """));
+            type: integration
+            provider: fleet
+            frequency: daily
+            connection: fleet-prod
+            config:
+              checks:
+            """;
+        using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
         var result = ConfigLoader.Load(dir.Path);
 
         Assert.Empty(result.Diagnostics);
-        var collector = Assert.Single(result.Config.EvidenceCollectors);
-        Assert.NotNull(collector.Checks);
-        Assert.Empty(collector.Checks);
+        var loaded = Assert.Single(result.Config.Collectors);
+        Assert.NotNull(loaded.Config.Checks);
+        Assert.Empty(loaded.Config.Checks);
     }
 
     [Fact]
@@ -388,16 +388,18 @@ public sealed class IntegrationConnectionValidationTests
     {
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
-            checks:
-              - source_key: "12"
-                name: mfa-enforced
-                severity: Hard
+            config:
+              checks:
+                - source_key: "12"
+                  name: mfa-enforced
+                  severity: Hard
             """;
         using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
@@ -412,17 +414,19 @@ public sealed class IntegrationConnectionValidationTests
     {
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
             connection: fleet-missing
-            checks:
-              - source_key: "12"
-                name: mfa-enforced
-                severity: Hard
+            config:
+              checks:
+                - source_key: "12"
+                  name: mfa-enforced
+                  severity: Hard
             """;
         using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
@@ -435,13 +439,16 @@ public sealed class IntegrationConnectionValidationTests
     [Fact]
     public void IntegrationCollectorEmptyChecksFails()
     {
+        // The (integration, fleet) schema is what requires a non-empty checks list, and requiredness is
+        // evaluated on the value, so an omitted config fails the same way an empty list would.
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
             connection: fleet-prod
             """;
@@ -450,7 +457,7 @@ public sealed class IntegrationConnectionValidationTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("collector-a") && d.Message.Contains("missing a non-empty 'checks'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("collector-a") && d.Message.Contains("missing required config key 'checks'"));
     }
 
     [Fact]
@@ -461,18 +468,20 @@ public sealed class IntegrationConnectionValidationTests
         // check plus a malformed blank one.
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
             connection: fleet-prod
-            checks:
-              - source_key: "12"
-                name: mfa-enforced
-                severity: Hard
-              -
+            config:
+              checks:
+                - source_key: "12"
+                  name: mfa-enforced
+                  severity: Hard
+                -
             """;
         using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
@@ -487,7 +496,7 @@ public sealed class IntegrationConnectionValidationTests
     {
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
@@ -506,25 +515,28 @@ public sealed class IntegrationConnectionValidationTests
     [Fact]
     public void ChecksOnNonIntegrationCollectorFails()
     {
+        // No non-integration pair registers `checks`, so this is an unregistered config key rather than a
+        // dedicated type rule.
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: script
             frequency: weekly
-            checks:
-              - source_key: "12"
-                name: mfa-enforced
-                severity: Hard
+            config:
+              checks:
+                - source_key: "12"
+                  name: mfa-enforced
+                  severity: Hard
             """;
         using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Diagnostics, d => d.Message.Contains("collector-a") && d.Message.Contains("declares 'checks'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Unknown field 'checks' on Collector config."));
     }
 
     [Fact]
@@ -532,17 +544,19 @@ public sealed class IntegrationConnectionValidationTests
     {
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
             connection: fleet-prod
-            checks:
-              - source_key: "12"
-                name: mfa-enforced
-                severity: Critical
+            config:
+              checks:
+                - source_key: "12"
+                  name: mfa-enforced
+                  severity: Critical
             """;
         using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
@@ -557,20 +571,22 @@ public sealed class IntegrationConnectionValidationTests
     {
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
             connection: fleet-prod
-            checks:
-              - source_key: "12"
-                name: mfa-enforced
-                severity: Hard
-              - source_key: "34"
-                name: mfa-enforced
-                severity: Soft
+            config:
+              checks:
+                - source_key: "12"
+                  name: mfa-enforced
+                  severity: Hard
+                - source_key: "34"
+                  name: mfa-enforced
+                  severity: Soft
             """;
         using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
@@ -585,20 +601,22 @@ public sealed class IntegrationConnectionValidationTests
     {
         var collector = """
             apiVersion: freeboard.dev/v1alpha1
-            kind: EvidenceCollector
+            kind: Collector
             id: collector-a
             title: T
             control: ctrl-a
             type: integration
+            provider: fleet
             frequency: daily
             connection: fleet-prod
-            checks:
-              - source_key: "12"
-                name: mfa-enforced
-                severity: Hard
-              - source_key: "12"
-                name: disk-encrypted
-                severity: Soft
+            config:
+              checks:
+                - source_key: "12"
+                  name: mfa-enforced
+                  severity: Hard
+                - source_key: "12"
+                  name: disk-encrypted
+                  severity: Soft
             """;
         using var dir = TempConfig.Create(("all.yaml", ValidSet(collector)));
 
@@ -618,11 +636,11 @@ public sealed class IntegrationConnectionValidationTests
         var result = ConfigValidator.LoadAndValidate(dir.Path);
 
         Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
-        var collector = Assert.Single(result.Config.EvidenceCollectors);
-        Assert.Equal(2, collector.Checks.Count);
+        var collector = Assert.Single(result.Config.Collectors);
+        Assert.Equal(2, collector.Config.Checks.Count);
         Assert.Equal([("12", "mfa-enforced", "Hard"), ("34", "disk-encrypted", "Soft")],
-            collector.Checks.Select(c => (c.SourceKey, c.Name, c.Severity)).ToArray());
+            collector.Config.Checks.Select(c => (c.SourceKey, c.Name, c.Severity)).ToArray());
         // A Fleet policy id not in the authored list is absent, so it is untracked.
-        Assert.DoesNotContain(collector.Checks, c => c.SourceKey == "99");
+        Assert.DoesNotContain(collector.Config.Checks, c => c.SourceKey == "99");
     }
 }

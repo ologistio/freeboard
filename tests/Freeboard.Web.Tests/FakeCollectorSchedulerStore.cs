@@ -29,14 +29,16 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
         get { lock (gate) { return renewCalls; } }
     }
 
-    public sealed record Snapshot(string Status, int FailureCount, string? CurrentRunId, string? LeaseToken, DateTime NextDueAt);
+    public sealed record Snapshot(
+        string Status, int FailureCount, string? CurrentRunId, string? LeaseToken, DateTime NextDueAt,
+        string? ConfigFingerprint);
 
     public Snapshot? Peek(string collectorId)
     {
         lock (gate)
         {
             return rows.TryGetValue(collectorId, out var r)
-                ? new Snapshot(r.Status, r.FailureCount, r.CurrentRunId, r.LeaseToken, r.NextDueAt)
+                ? new Snapshot(r.Status, r.FailureCount, r.CurrentRunId, r.LeaseToken, r.NextDueAt, r.ConfigFingerprint)
                 : null;
         }
     }
