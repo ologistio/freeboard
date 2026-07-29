@@ -93,7 +93,7 @@ public sealed class ComplianceAuthzTests
     {
         var writes = new RecordingWriteStore();
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
-        var compliance = new FakeComplianceStore { Organisations = [new OrganisationRow("org-a", "A", "Company", null)] };
+        var compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a", title: "A")] };
         using var factory = Build(writes, authz, compliance);
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
@@ -109,7 +109,7 @@ public sealed class ComplianceAuthzTests
     {
         var writes = new RecordingWriteStore();
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
-        var compliance = new FakeComplianceStore { Organisations = [new OrganisationRow("org-a", "A", "Company", null)] };
+        var compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a", title: "A")] };
         using var factory = Build(writes, authz, compliance);
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
@@ -125,7 +125,7 @@ public sealed class ComplianceAuthzTests
     {
         var writes = new RecordingWriteStore();
         var authz = new FakeAuthzStore();
-        var compliance = new FakeComplianceStore { Organisations = [new OrganisationRow("org-a", "A", "Company", null)] };
+        var compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a", title: "A")] };
         using var factory = Build(writes, authz, compliance, mode: "Compat");
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
@@ -141,7 +141,7 @@ public sealed class ComplianceAuthzTests
     {
         var writes = new RecordingWriteStore();
         var authz = new FakeAuthzStore();
-        var compliance = new FakeComplianceStore { Organisations = [new OrganisationRow("org-a", "A", "Company", null)] };
+        var compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a", title: "A")] };
         using var factory = Build(writes, authz, compliance, mode: "Observe");
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
@@ -159,7 +159,7 @@ public sealed class ComplianceAuthzTests
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a"); // owns org-a only
         var compliance = new FakeComplianceStore
         {
-            Organisations = [new OrganisationRow("org-a", "A", "Company", null), new OrganisationRow("org-b", "B", "Company", null)],
+            Assets = [TestAssets.Org("org-a", title: "A"), TestAssets.Org("org-b", title: "B")],
             Scopes = [new ScopeRow("s1", "S", "org-b", "std", null, null, "In", null)], // s1 currently owned by org-b
         };
         using var factory = Build(writes, authz, compliance);
@@ -180,7 +180,7 @@ public sealed class ComplianceAuthzTests
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
         var compliance = new FakeComplianceStore
         {
-            Organisations = [new OrganisationRow("org-a", "A", "Company", null)],
+            Assets = [TestAssets.Org("org-a", title: "A")],
             Scopes = [new ScopeRow("s1", "S", "org-a", "std", null, null, "In", null)], // s1 currently owned by org-a
         };
         using var factory = Build(writes, authz, compliance);
@@ -200,7 +200,7 @@ public sealed class ComplianceAuthzTests
     {
         var writes = new RecordingWriteStore();
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "root"); // can create children of root
-        var compliance = new FakeComplianceStore { Organisations = [new OrganisationRow("root", "Root", "Company", null)] };
+        var compliance = new FakeComplianceStore { Assets = [TestAssets.Org("root", title: "Root")] };
         using var factory = Build(writes, authz, compliance);
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
@@ -215,15 +215,15 @@ public sealed class ComplianceAuthzTests
     [Fact]
     public async Task SuperAdminSeesAllOrganisationsButReaderIsNarrowed()
     {
-        var orgs = new List<OrganisationRow>
+        var orgs = new List<AssetNode>
         {
-            new("org-a", "A", "Company", null),
-            new("org-b", "B", "Company", null),
+            TestAssets.Org("org-a", title: "A"),
+            TestAssets.Org("org-b", title: "B"),
         };
 
         // Reader on org-a under Enforce sees only org-a.
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
-        using var factory = Build(new RecordingWriteStore(), authz, new FakeComplianceStore { Organisations = orgs }, mode: "Enforce");
+        using var factory = Build(new RecordingWriteStore(), authz, new FakeComplianceStore { Assets = orgs }, mode: "Enforce");
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var json = await client.GetStringAsync("/api/v1/freeboard/organisations");
@@ -239,10 +239,10 @@ public sealed class ComplianceAuthzTests
         var compliance = new FakeComplianceStore
         {
             Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("org-a", "A", "Company", null),
-                new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+                TestAssets.Org("org-a", title: "A"),
+                TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
             ],
             Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)],
             Requirements = [new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do it.", null, "Src", "https://e/a")],
@@ -269,10 +269,10 @@ public sealed class ComplianceAuthzTests
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "child"); // owns child, not its parent root
         var compliance = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("root", "Root", "Company", null),
-                new OrganisationRow("child", "Child", "Department", "root"),
+                TestAssets.Org("root", title: "Root"),
+                TestAssets.Org("child", "root", "Department", "Child"),
             ],
         };
         using var factory = Build(writes, authz, compliance);
@@ -293,11 +293,11 @@ public sealed class ComplianceAuthzTests
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "child"); // owns child only
         var compliance = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("root", "Root", "Company", null),
-                new OrganisationRow("child", "Child", "Department", "root"),
-                new OrganisationRow("other", "Other", "Company", null),
+                TestAssets.Org("root", title: "Root"),
+                TestAssets.Org("child", "root", "Department", "Child"),
+                TestAssets.Org("other", title: "Other"),
             ],
         };
         using var factory = Build(writes, authz, compliance);
@@ -319,11 +319,11 @@ public sealed class ComplianceAuthzTests
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "p1").GrantOrgOwner("u1", "p2");
         var compliance = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("p1", "P1", "Company", null),
-                new OrganisationRow("p2", "P2", "Company", null),
-                new OrganisationRow("child", "Child", "Department", "p1"),
+                TestAssets.Org("p1", title: "P1"),
+                TestAssets.Org("p2", title: "P2"),
+                TestAssets.Org("child", "p1", "Department", "Child"),
             ],
         };
         using var factory = Build(writes, authz, compliance);
@@ -341,7 +341,7 @@ public sealed class ComplianceAuthzTests
     {
         var writes = new RecordingWriteStore();
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "existing"); // owns an org but is not super-admin
-        var compliance = new FakeComplianceStore { Organisations = [new OrganisationRow("existing", "E", "Company", null)] };
+        var compliance = new FakeComplianceStore { Assets = [TestAssets.Org("existing", title: "E")] };
         using var factory = Build(writes, authz, compliance);
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
@@ -359,10 +359,10 @@ public sealed class ComplianceAuthzTests
         var authz = new FakeAuthzStore();
         var compliance = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("root", "Root", "Company", null),
-                new OrganisationRow("child", "Child", "Department", "root"),
+                TestAssets.Org("root", title: "Root"),
+                TestAssets.Org("child", "root", "Department", "Child"),
             ],
         };
         using var factory = Build(writes, authz, compliance);
@@ -380,14 +380,14 @@ public sealed class ComplianceAuthzTests
     [Fact]
     public async Task InaccessibleParentIdIsNulledInOrganisationsResponse()
     {
-        var orgs = new List<OrganisationRow>
+        var orgs = new List<AssetNode>
         {
-            new("root", "Root", "Company", null),
-            new("child", "Child", "Department", "root"),
+            TestAssets.Org("root", title: "Root"),
+            TestAssets.Org("child", "root", "Department", "Child"),
         };
         // Reader granted directly on child only (not root): child is accessible, root is not.
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "child");
-        using var factory = Build(new RecordingWriteStore(), authz, new FakeComplianceStore { Organisations = orgs }, mode: "Enforce");
+        using var factory = Build(new RecordingWriteStore(), authz, new FakeComplianceStore { Assets = orgs }, mode: "Enforce");
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var json = await client.GetStringAsync("/api/v1/freeboard/organisations");
@@ -402,7 +402,7 @@ public sealed class ComplianceAuthzTests
     // route resolves to 404 before the store is touched.
     private static FakeComplianceStore StoreWithOneScope(ScopeRow scope) => new()
     {
-        Organisations = [new OrganisationRow("org-a", "A", "Company", null)],
+        Assets = [TestAssets.Org("org-a", title: "A")],
         Scopes = [scope],
     };
 
@@ -480,7 +480,7 @@ public sealed class ComplianceAuthzTests
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a"); // can write org-a, not org-b
         var store = new FakeComplianceStore
         {
-            Organisations = [new OrganisationRow("org-a", "A", "Company", null), new OrganisationRow("org-b", "B", "Company", null)],
+            Assets = [TestAssets.Org("org-a", title: "A"), TestAssets.Org("org-b", title: "B")],
             Scopes = [new ScopeRow("r1", "Req scope", "org-b", null, "req-a", null, "In", null)],
         };
         using var factory = Build(writes, authz, store);
@@ -504,16 +504,18 @@ public sealed class ComplianceAuthzTests
     {
         var writes = new RecordingWriteStore { ScopeResult = WriteResult.NotFound(), RequirementScopeResult = WriteResult.NotFound() };
         var authz = new FakeAuthzStore().GrantOrgOwner("u1", "org-a");
-        var stdRow = subjectType == "Vendor"
-            ? new ScopeRow("x-std", "Std", "vendor-a", "std-a", null, null, "In", null, SubjectType: "Vendor", SubjectOwner: "org-a")
-            : new ScopeRow("x-std", "Std", "machine-a", "std-a", null, null, "In", null, SubjectType: "Machine", SubjectParent: "org-a");
-        var reqRow = subjectType == "Vendor"
-            ? new ScopeRow("x-req", "Req", "vendor-a", null, "req-a", null, "In", null, SubjectType: "Vendor", SubjectOwner: "org-a")
-            : new ScopeRow("x-req", "Req", "machine-a", null, "req-a", null, "In", null, SubjectType: "Machine", SubjectParent: "org-a");
+        var subject = subjectType == "Vendor" ? "vendor-a" : "machine-a";
+        var subjectAsset = subjectType == "Vendor"
+            ? TestAssets.Vendor("vendor-a", "org-a")
+            : TestAssets.Machine("machine-a", "org-a");
         var store = new FakeComplianceStore
         {
-            Organisations = [new OrganisationRow("org-a", "A", "Company", null)],
-            Scopes = [stdRow, reqRow],
+            Assets = [TestAssets.Org("org-a", title: "A"), subjectAsset],
+            Scopes =
+            [
+                new ScopeRow("x-std", "Std", subject, "std-a", null, null, "In", null),
+                new ScopeRow("x-req", "Req", subject, null, "req-a", null, "In", null),
+            ],
         };
         using var factory = Build(writes, authz, store);
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));

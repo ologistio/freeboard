@@ -65,46 +65,32 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .ToList();
     }
 
-    public async Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default)
+    // One unfiltered asset read shared by every consumer. No WHERE clause: the resolution tree needs a
+    // retired machine's parent edge, the drill-down's vendor titles must not be retirement-filtered, and
+    // the live-subject predicate needs the retired rows in order to classify them - no single predicate
+    // serves all three, and a second query is exactly what this read exists to avoid.
+    private const string AssetSelect =
+        "SELECT id AS Id, title AS Title, type AS Type, source AS Source, state AS State, "
+        + "parent AS Parent, owner AS Owner FROM assets ORDER BY id;";
+
+    public async Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, type AS Kind, parent AS Parent FROM assets "
-            + "WHERE type IN ('Company', 'Department') ORDER BY id;",
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<AssetNode>(new CommandDefinition(
+            AssetSelect, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
 
-    // The unified scope read joins the subject asset so each row carries the subject's resolved
-    // type/source/state/parent/owner, which the web /scopes endpoint uses for the subject-readability
-    // branches and the fail-closed check on an unresolved subject. These five narrowing fields are
-    // server-side only and are never serialized: the endpoint projects only the eight public fields.
     private const string ScopeSelect =
-        "SELECT s.id AS Id, s.title AS Title, s.subject_id AS Subject, s.standard_id AS Standard, "
-        + "s.requirement_id AS Requirement, s.control_id AS Control, s.disposition AS Disposition, "
-        + "s.justification AS Justification, a.type AS SubjectType, a.source AS SubjectSource, "
-        + "a.state AS SubjectState, a.parent AS SubjectParent, a.owner AS SubjectOwner "
-        + "FROM scopes s LEFT JOIN assets a ON a.id = s.subject_id ORDER BY s.id;";
-
-    // The subject-resolution predicate as a set: every asset id that is a live authorization anchor
-    // (present and not a retired discovered asset). A subject resolves iff its id is in this set.
-    private const string ResolvableAssetIdsSelect =
-        "SELECT id FROM assets WHERE NOT (source = 'discovered' AND state = 'Retired');";
+        "SELECT id AS Id, title AS Title, subject_id AS Subject, standard_id AS Standard, "
+        + "requirement_id AS Requirement, control_id AS Control, disposition AS Disposition, "
+        + "justification AS Justification FROM scopes ORDER BY id;";
 
     public async Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var rows = await connection.QueryAsync<ScopeRow>(new CommandDefinition(
             ScopeSelect, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return rows.ToList();
-    }
-
-    public async Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<VendorRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, owner AS Owner FROM assets WHERE type = 'Vendor' ORDER BY id;",
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.ToList();
     }
 
@@ -159,14 +145,13 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     public async Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        // One consistent snapshot so the four SoA inputs cannot straddle a concurrent gitops sync
-        // commit and pair, say, old organisations with new scopes.
+        // One consistent snapshot so the three SoA inputs cannot straddle a concurrent gitops sync
+        // commit and pair, say, old assets with new scopes.
         await using var transaction = await connection
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
-        var organisations = (await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, type AS Kind, parent AS Parent FROM assets "
-            + "WHERE type IN ('Company', 'Department') ORDER BY id;",
+        var assets = (await connection.QueryAsync<AssetNode>(new CommandDefinition(
+            AssetSelect,
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -182,14 +167,9 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
-        var resolvableAssetIds = (await connection.QueryAsync<string>(new CommandDefinition(
-            ResolvableAssetIdsSelect,
-            transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
-
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new SoaInputs(organisations, scopes, requirements, resolvableAssetIds);
+        return new SoaInputs(assets, scopes, requirements);
     }
 
     public async Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
@@ -200,9 +180,8 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         await using var transaction = await connection
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
-        var organisations = (await connection.QueryAsync<OrganisationRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, type AS Kind, parent AS Parent FROM assets "
-            + "WHERE type IN ('Company', 'Department') ORDER BY id;",
+        var assets = (await connection.QueryAsync<AssetNode>(new CommandDefinition(
+            AssetSelect,
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
 
@@ -217,11 +196,6 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             + "FROM requirements ORDER BY id;",
             transaction: transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
-
-        var resolvableAssetIds = (await connection.QueryAsync<string>(new CommandDefinition(
-            ResolvableAssetIdsSelect,
-            transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
 
         var controlRows = (await connection.QueryAsync<(string Id, string Title, string? Evaluation)>(new CommandDefinition(
             "SELECT id AS Id, title AS Title, evaluation AS Evaluation FROM controls ORDER BY id;",
@@ -249,14 +223,9 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
             .Select(ToCollectorRow)
             .ToList();
 
-        var vendors = (await connection.QueryAsync<VendorRow>(new CommandDefinition(
-            "SELECT id AS Id, title AS Title, owner AS Owner FROM assets WHERE type = 'Vendor' ORDER BY id;",
-            transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
-
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new SoaDrilldownInputs(organisations, scopes, requirements, resolvableAssetIds, controls, collectors, vendors);
+        return new SoaDrilldownInputs(assets, scopes, requirements, controls, collectors);
     }
 
     public async Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default)

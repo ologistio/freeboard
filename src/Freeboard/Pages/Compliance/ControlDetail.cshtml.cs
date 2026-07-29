@@ -11,12 +11,12 @@ namespace Freeboard.Pages.Compliance;
 /// The full-page control detail: the O4 direct-link and no-JavaScript target for a Statement of
 /// Applicability control, rendering the same shared <see cref="ObjectDetailView"/> anatomy as the drawer.
 ///
-/// Authorization binds to the caller's full accessible organisation set, not the active list scope, so a
-/// direct URL for any accessible org renders. A missing control, or one whose org lies outside that set,
+/// Authorization binds to the caller's full accessible asset set, not the active list scope, so a direct
+/// URL for any accessible org renders. A missing control, or one whose org lies outside that set,
 /// returns not-found and discloses no record name or facet, so a direct URL cannot probe for hidden records.
 /// </summary>
 public sealed class ControlDetailModel(
-    IComplianceStore store, IOrgAccess orgAccess, IEvidenceStore evidenceStore) : PageModel
+    IComplianceStore store, IAssetAccess assetAccess, IEvidenceStore evidenceStore) : PageModel
 {
     private const string UnknownStatus = "Unknown";
 
@@ -49,15 +49,15 @@ public sealed class ControlDetailModel(
 
             // Authorize against every org the caller may see - not the active-scope-narrowed set or the
             // org-selection cookie - so a direct link to any accessible org renders. Out-of-set is not-found.
-            var accessibleIds = await orgAccess.AccessibleOrgIdsAsync(User, inputs.Organisations, ct).ConfigureAwait(false);
+            var accessibleIds = await assetAccess.AccessibleAssetIdsAsync(User, inputs.Assets, ct).ConfigureAwait(false);
             if (!accessibleIds.Contains(org))
             {
                 return NotFound();
             }
 
             var resolved = global::Freeboard.Compliance.StatementOfApplicability.ResolveDrilldown(
-                inputs.Organisations, inputs.Scopes, inputs.Requirements,
-                inputs.Controls, inputs.Collectors, inputs.Vendors, standard);
+                inputs.Assets, inputs.Scopes, inputs.Requirements,
+                inputs.Controls, inputs.Collectors, accessibleIds, standard);
 
             var node = resolved.FirstOrDefault(n => string.Equals(n.Id, org, StringComparison.Ordinal));
             var requirementNode = node?.Requirements

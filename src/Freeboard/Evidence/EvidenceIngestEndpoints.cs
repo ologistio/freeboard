@@ -224,12 +224,24 @@ public static class EvidenceIngestEndpoints
     /// <summary>
     /// The organisation node for <paramref name="organisationId"/> must exist, resolve <c>In</c> for the
     /// standard, and the requirement must not be an <c>Out</c> deviation on that node.
+    ///
+    /// The resolver's node set now spans the asset tree, so the matched node must also BE an
+    /// organisation. Evidence runs, the collector-scoped idempotency key, and every downstream roll-up
+    /// are keyed on an organisation, so a posted <c>organisation_id</c> naming a machine is rejected
+    /// exactly as it is without the type test.
     /// </summary>
     private static bool IsOrganisationInScope(
         SoaInputs soa, string standardId, string organisationId, string requirementId)
     {
+        var organisation = soa.Assets.FirstOrDefault(a =>
+            a.IsOrganisation && string.Equals(a.Id, organisationId, StringComparison.Ordinal));
+        if (organisation is null)
+        {
+            return false;
+        }
+
         var nodes = StatementOfApplicability.Resolve(
-            soa.Organisations, soa.Scopes, soa.Requirements, standardId);
+            soa.Assets, soa.Scopes, soa.Requirements, standardId);
         var node = nodes.FirstOrDefault(n => string.Equals(n.Id, organisationId, StringComparison.Ordinal));
         if (node is null || !string.Equals(node.Disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal))
         {

@@ -1,13 +1,13 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using Freeboard.Compliance;
 using Freeboard.Persistence;
 
 namespace Freeboard.Web.Tests;
 
 /// <summary>
-/// Subject-readability narrowing on the unified /scopes read: every subject kind resolves to an
-/// anchoring organisation, and a subject that resolves to none fails closed.
+/// Subject-readability narrowing on the unified /scopes read. One membership test: a scope is
+/// readable exactly when its subject asset is in the caller's accessible asset set, so every subject
+/// kind narrows by the same rule and a subject that resolves to no live asset fails closed.
 /// </summary>
 public sealed class ScopeReadabilityTests
 {
@@ -17,29 +17,32 @@ public sealed class ScopeReadabilityTests
         return json.EnumerateArray().Select(s => s.GetProperty("id").GetString()!).ToHashSet(StringComparer.Ordinal);
     }
 
-    // A machine-subject control scope with the enriched subject fields the readability branch needs.
-    private static ScopeRow Machine(string id, string parent, string? source = null, string? state = null) =>
-        new(id, id, "asset-" + id, null, null, "ctrl-a", "In", null,
-            SubjectType: "Machine", SubjectSource: source, SubjectState: state, SubjectParent: parent);
+    private static ScopeRow ControlScope(string id, string subject) =>
+        new(id, id, subject, null, null, "ctrl-a", "In", null);
 
     [Fact]
     public async Task MachineSubjectReadabilityNarrowsByParentAncestry()
     {
         var store = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("org-a", "Org A", "Company", null),          // accessible
-                new OrganisationRow("org-x", "Org X", "Company", null),          // not accessible
-                new OrganisationRow("org-mid", "Mid", "Company", "gone-org"),    // accessible, dangling ancestor
+                TestAssets.Org("org-a"),                                    // accessible
+                TestAssets.Org("org-x"),                                    // not accessible
+                TestAssets.Org("org-mid", "gone-org"),                      // accessible, dangling ancestor
+                TestAssets.Machine("m-in", "org-a"),
+                TestAssets.Machine("m-out", "org-x"),
+                TestAssets.Machine("m-ghost", "ghost-org"),
+                TestAssets.Machine("m-mid", "org-mid"),
+                TestAssets.Machine("m-retired", "org-a", source: "discovered", state: "Retired"),
             ],
             Scopes =
             [
-                Machine("m-in", "org-a"),                                        // (i) under accessible parent -> visible
-                Machine("m-out", "org-x"),                                       // (ii) non-accessible ancestry -> omitted
-                Machine("m-ghost", "ghost-org"),                                 // (iii) dangling parent -> omitted
-                Machine("m-mid", "org-mid"),                                     // (iv) accessible parent, dangling ancestor -> visible
-                Machine("m-retired", "org-a", source: "discovered", state: "Retired"), // retired discovered -> unresolved -> omitted
+                ControlScope("s-in", "m-in"),           // (i) under accessible parent -> visible
+                ControlScope("s-out", "m-out"),         // (ii) non-accessible ancestry -> omitted
+                ControlScope("s-ghost", "m-ghost"),     // (iii) dangling parent -> omitted
+                ControlScope("s-mid", "m-mid"),         // (iv) accessible parent, dangling ancestor -> visible
+                ControlScope("s-retired", "m-retired"), // retired discovered -> no live anchor -> omitted
             ],
         };
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a").GrantComplianceReader("u1", "org-mid");
@@ -48,11 +51,11 @@ public sealed class ScopeReadabilityTests
 
         var visible = await VisibleScopeIdsAsync(client);
 
-        Assert.Contains("m-in", visible);
-        Assert.Contains("m-mid", visible);
-        Assert.DoesNotContain("m-out", visible);
-        Assert.DoesNotContain("m-ghost", visible);
-        Assert.DoesNotContain("m-retired", visible);
+        Assert.Contains("s-in", visible);
+        Assert.Contains("s-mid", visible);
+        Assert.DoesNotContain("s-out", visible);
+        Assert.DoesNotContain("s-ghost", visible);
+        Assert.DoesNotContain("s-retired", visible);
     }
 
     [Fact]
@@ -62,20 +65,21 @@ public sealed class ScopeReadabilityTests
         // under the cycle is omitted (the bounded walk finds no accessible org).
         var store = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("org-a", "Org A", "Company", null),
-                new OrganisationRow("org-c1", "Cycle 1", "Company", "org-c2"),
-                new OrganisationRow("org-c2", "Cycle 2", "Company", "org-c1"),
+                TestAssets.Org("org-a"),
+                TestAssets.Org("org-c1", "org-c2"),
+                TestAssets.Org("org-c2", "org-c1"),
+                TestAssets.Machine("m-cyc", "org-c1"),
             ],
-            Scopes = [Machine("m-cyc", "org-c1")],
+            Scopes = [ControlScope("s-cyc", "m-cyc")],
         };
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
         using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
         var visible = await VisibleScopeIdsAsync(client);
-        Assert.DoesNotContain("m-cyc", visible);
+        Assert.DoesNotContain("s-cyc", visible);
     }
 
     [Fact]
@@ -83,15 +87,11 @@ public sealed class ScopeReadabilityTests
     {
         var store = new FakeComplianceStore
         {
-            Organisations =
-            [
-                new OrganisationRow("org-a", "Org A", "Company", null),
-                new OrganisationRow("org-b", "Org B", "Company", null),
-            ],
+            Assets = [TestAssets.Org("org-a"), TestAssets.Org("org-b")],
             Scopes =
             [
-                new ScopeRow("s-a", "Visible", "org-a", "std", null, null, "In", null, SubjectType: "Company"),
-                new ScopeRow("s-b", "Hidden out", "org-b", "std", null, null, "Out", "Secret reason.", SubjectType: "Company"),
+                new ScopeRow("s-a", "Visible", "org-a", "std", null, null, "In", null),
+                new ScopeRow("s-b", "Hidden out", "org-b", "std", null, null, "Out", "Secret reason."),
             ],
         };
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
@@ -105,42 +105,35 @@ public sealed class ScopeReadabilityTests
         Assert.DoesNotContain("Secret reason.", raw, StringComparison.Ordinal);
     }
 
-    private static readonly IReadOnlyDictionary<string, OrganisationRow> Orgs =
-        new Dictionary<string, OrganisationRow>(StringComparer.Ordinal)
-        {
-            ["org-a"] = new("org-a", "A", "Company", null),
-            ["org-x"] = new("org-x", "X", "Company", null),
-            ["org-mid"] = new("org-mid", "Mid", "Company", "gone-org"),
-            ["org-c1"] = new("org-c1", "C1", "Company", "org-c2"),
-            ["org-c2"] = new("org-c2", "C2", "Company", "org-c1"),
-        };
-
-    private static IReadOnlySet<string> Accessible(params string[] ids) =>
-        ids.ToHashSet(StringComparer.Ordinal);
-
     [Fact]
-    public void SubjectReadablePredicateCoversTheMachineBranches()
+    public async Task VendorSubjectNarrowsByOwnerAndAnOwnerlessVendorIsHidden()
     {
-        // Accessible parent -> admit.
-        Assert.True(ComplianceEndpoints.SubjectReadable(Machine("m1", "org-a"), Accessible("org-a"), Orgs));
+        var store = new FakeComplianceStore
+        {
+            Assets =
+            [
+                TestAssets.Org("org-a"),
+                TestAssets.Org("org-x"),
+                TestAssets.Vendor("v-mine", "org-a"),
+                TestAssets.Vendor("v-theirs", "org-x"),
+                TestAssets.Vendor("v-ownerless", null),
+                TestAssets.Vendor("v-dangling", "gone-org"),
+            ],
+            Scopes =
+            [
+                ControlScope("s-mine", "v-mine"),
+                ControlScope("s-theirs", "v-theirs"),
+                ControlScope("s-ownerless", "v-ownerless"),
+                ControlScope("s-dangling", "v-dangling"),
+                ControlScope("s-absent", "v-not-an-asset"),
+            ],
+        };
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
-        // Parent outside the accessible set -> omit.
-        Assert.False(ComplianceEndpoints.SubjectReadable(Machine("m2", "org-x"), Accessible("org-a"), Orgs));
+        var visible = await VisibleScopeIdsAsync(client);
 
-        // Dangling parent (resolves to no org) -> omit.
-        Assert.False(ComplianceEndpoints.SubjectReadable(Machine("m3", "ghost-org"), Accessible("org-a"), Orgs));
-
-        // Accessible parent whose own ancestor is dangling -> still admit (the accessible parent grants it).
-        Assert.True(ComplianceEndpoints.SubjectReadable(Machine("m4", "org-mid"), Accessible("org-mid"), Orgs));
-
-        // Cyclic ancestry, no accessible org in the cycle -> omit (bounded walk finds no member).
-        Assert.False(ComplianceEndpoints.SubjectReadable(Machine("m5", "org-c1"), Accessible("org-a"), Orgs));
-
-        // Cyclic ancestry with a real accessible org in the cycle -> admit.
-        Assert.True(ComplianceEndpoints.SubjectReadable(Machine("m6", "org-c1"), Accessible("org-c2"), Orgs));
-
-        // A retired discovered machine is unresolved (not a live anchor) -> omit regardless of ancestry.
-        Assert.False(ComplianceEndpoints.SubjectReadable(
-            Machine("m7", "org-a", source: "discovered", state: "Retired"), Accessible("org-a"), Orgs));
+        Assert.Equal(["s-mine"], visible.OrderBy(x => x, StringComparer.Ordinal).ToArray());
     }
 }

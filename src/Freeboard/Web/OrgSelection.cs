@@ -52,20 +52,20 @@ public static class OrgSelection
 
 /// <summary>The resolved state the layout selector renders: the accessible tree and current selection.</summary>
 public sealed record OrgSelectionState(
-    IReadOnlyList<OrganisationRow> Organisations,
+    IReadOnlyList<AssetNode> Organisations,
     IReadOnlySet<string> AccessibleIds,
     string? SelectedId);
 
 /// <summary>
-/// Request-scoped resolver serving ONLY the layout selector. It loads the organisation list once
-/// (memoized), derives the accessible ids via <see cref="IOrgAccess"/>, reads the cookie candidate,
+/// Request-scoped resolver serving ONLY the layout selector. It loads the asset list once (memoized),
+/// derives the accessible ORGANISATION ids via <see cref="IAssetAccess"/>, reads the cookie candidate,
 /// and resolves it - so the view component reads once per request. A store-load failure degrades to
 /// "All Organisations" with an empty list rather than throwing, so a store outage never faults the
 /// layout. It exposes no store-failure flag: an empty store and an unreachable one render the same
 /// "All Organisations" entry, and org-scoped pages detect an outage through their own direct reads.
 /// </summary>
 public sealed class OrgSelectionResolver(
-    IHttpContextAccessor httpContextAccessor, IComplianceStore store, IOrgAccess access)
+    IHttpContextAccessor httpContextAccessor, IComplianceStore store, IAssetAccess access)
 {
     private static readonly IReadOnlySet<string> Empty = new HashSet<string>(StringComparer.Ordinal);
 
@@ -81,9 +81,16 @@ public sealed class OrgSelectionResolver(
         var http = httpContextAccessor.HttpContext;
         try
         {
-            var organisations = await store.GetOrganisationsAsync(cancellationToken).ConfigureAwait(false);
+            var assets = await store.GetAssetsAsync(cancellationToken).ConfigureAwait(false);
             var user = http?.User ?? new ClaimsPrincipal();
-            var accessibleIds = await access.AccessibleOrgIdsAsync(user, organisations, cancellationToken).ConfigureAwait(false);
+            var accessible = await access.AccessibleAssetIdsAsync(user, assets, cancellationToken).ConfigureAwait(false);
+
+            // The selector presents organisations only, so the tree and the set it resolves the cookie
+            // against are both organisation-typed: a cookie naming a readable machine or vendor falls
+            // back to "All Organisations".
+            var organisations = assets.Where(a => a.IsOrganisation).ToList();
+            var accessibleIds = organisations.Select(o => o.Id).Where(accessible.Contains)
+                .ToHashSet(StringComparer.Ordinal);
             var candidate = http is null ? null : OrgSelection.ReadCandidate(http);
             var selectedId = OrgSelection.Resolve(candidate, accessibleIds);
             return _state = new OrgSelectionState(organisations, accessibleIds, selectedId);

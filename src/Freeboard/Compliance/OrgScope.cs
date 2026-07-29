@@ -5,20 +5,28 @@ namespace Freeboard.Compliance;
 /// <summary>
 /// Computes the in-scope organisation id set for a selection, always bounded by the accessible set.
 /// Pure (no I/O), so the subtree rule is unit testable. A null selection is "All Organisations": the
-/// accessible set. A selected id is that node plus all descendants, intersected with the accessible
-/// set, so an out-of-access organisation never renders even under "All".
+/// accessible ORGANISATIONS. A selected id is that node plus all organisation descendants, intersected
+/// with the accessible set, so an out-of-access organisation never renders even under "All".
+///
+/// Both branches are organisation-only. The accessible set handed in is an ASSET set, so the null
+/// branch intersects with the organisation ids rather than returning it whole, and the subtree walk
+/// descends organisations only so it cannot pass through a machine into whatever hangs below it.
 /// </summary>
 public static class OrgScope
 {
     public static IReadOnlySet<string> InScopeIds(
-        IReadOnlyList<OrganisationRow> organisations,
+        IReadOnlyList<AssetNode> assets,
         IReadOnlySet<string> accessibleIds,
         string? selectedId)
     {
-        // All Organisations: the accessible set, not every persisted org.
+        var organisations = assets.Where(a => a.IsOrganisation).ToList();
+        var organisationIds = organisations.Select(o => o.Id).ToHashSet(StringComparer.Ordinal);
+
+        // All Organisations: the accessible organisations, not every persisted one.
         if (selectedId is null)
         {
-            return new HashSet<string>(accessibleIds, StringComparer.Ordinal);
+            organisationIds.IntersectWith(accessibleIds);
+            return organisationIds;
         }
 
         // A selection outside the accessible set yields nothing (fail closed).
@@ -63,6 +71,9 @@ public static class OrgScope
         }
 
         inScope.IntersectWith(accessibleIds);
+        // The walk only ever descends organisations, so this bounds the SELECTED id itself: a cookie
+        // naming a readable machine must not put that machine in an organisation scope.
+        inScope.IntersectWith(organisationIds);
         return inScope;
     }
 }

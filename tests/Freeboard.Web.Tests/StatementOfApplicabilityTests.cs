@@ -5,9 +5,9 @@ namespace Freeboard.Web.Tests;
 
 public sealed class StatementOfApplicabilityTests
 {
-    private static readonly OrganisationRow Company = new("company", "Company", "Company", null);
-    private static readonly OrganisationRow Department = new("company-dept", "Department", "Department", "company");
-    private static readonly OrganisationRow Team = new("company-dept-team", "Team", "Department", "company-dept");
+    private static readonly AssetNode Company = TestAssets.Org("company", title: "Company");
+    private static readonly AssetNode Department = TestAssets.Org("company-dept", "company", "Department", "Department");
+    private static readonly AssetNode Team = TestAssets.Org("company-dept-team", "company-dept", "Department", "Team");
 
     // A standard-target scope in the unified shape (standard set, requirement/control null).
     private static ScopeRow Std(string id, string title, string subject, string standard, string disposition) =>
@@ -17,8 +17,12 @@ public sealed class StatementOfApplicabilityTests
     private static ScopeRow Req(string id, string title, string subject, string requirement, string disposition) =>
         new(id, title, subject, null, requirement, null, disposition, disposition == "Out" ? "reason" : null);
 
+    private static IReadOnlySet<string> Accessible(params string[] ids) => ids.ToHashSet(StringComparer.Ordinal);
+
+    private static readonly IReadOnlySet<string> NoneAccessible = Accessible();
+
     [Fact]
-    public void ExplicitDispositionWinsOverAncestors()
+    public void AssetLeafDispositionWinsOverAncestors()
     {
         var scopes = new[]
         {
@@ -30,7 +34,7 @@ public sealed class StatementOfApplicabilityTests
 
         var dept = nodes.Single(n => n.Id == "company-dept");
         Assert.Equal("Out", dept.Disposition);
-        Assert.Equal(SoaResolution.Explicit, dept.Resolution);
+        Assert.Equal(SoaResolution.Asset, dept.Resolution);
     }
 
     [Fact]
@@ -84,7 +88,7 @@ public sealed class StatementOfApplicabilityTests
 
         var nodes = StatementOfApplicability.Resolve([Company, Department], scopes, [], "std");
 
-        // A Scope for a different standard must not make THIS standard explicit or inherited; with no
+        // A Scope for a different standard must not resolve THIS standard as asset or inherited; with no
         // Scope for "std" on the path, every node defaults In.
         Assert.All(nodes, n =>
         {
@@ -121,7 +125,7 @@ public sealed class StatementOfApplicabilityTests
         var companyReq = Assert.Single(company.Requirements);
         Assert.Equal("req-a", companyReq.Requirement);
         Assert.Equal("Out", companyReq.Disposition);
-        Assert.Equal(SoaResolution.Explicit, companyReq.Resolution);
+        Assert.Equal(SoaResolution.Asset, companyReq.Resolution);
 
         var dept = nodes.Single(n => n.Id == "company-dept");
         var deptReq = Assert.Single(dept.Requirements);
@@ -144,7 +148,7 @@ public sealed class StatementOfApplicabilityTests
         var dept = nodes.Single(n => n.Id == "company-dept");
         var deptReq = Assert.Single(dept.Requirements);
         Assert.Equal("In", deptReq.Disposition);
-        Assert.Equal(SoaResolution.Explicit, deptReq.Resolution);
+        Assert.Equal(SoaResolution.Asset, deptReq.Resolution);
     }
 
     [Fact]
@@ -195,13 +199,13 @@ public sealed class StatementOfApplicabilityTests
         var companyReq = Assert.Single(company.Requirements);
         Assert.Equal("req-a", companyReq.Requirement);
         Assert.Equal("Out", companyReq.Disposition);
-        Assert.Equal(SoaResolution.Explicit, companyReq.Resolution);
+        Assert.Equal(SoaResolution.Asset, companyReq.Resolution);
     }
 
     [Fact]
     public void DescendantInOverridesOptedOutAncestor()
     {
-        var sibling = new OrganisationRow("company-other", "Other", "Department", "company");
+        var sibling = TestAssets.Org("company-other", "company", "Department", "Other");
         var scopes = new[]
         {
             Std("s1", "Out at company", "company", "std", "Out"),
@@ -212,7 +216,7 @@ public sealed class StatementOfApplicabilityTests
 
         var dept = nodes.Single(n => n.Id == "company-dept");
         Assert.Equal("In", dept.Disposition);
-        Assert.Equal(SoaResolution.Explicit, dept.Resolution);
+        Assert.Equal(SoaResolution.Asset, dept.Resolution);
 
         var other = nodes.Single(n => n.Id == "company-other");
         Assert.Equal("Out", other.Disposition);
@@ -278,6 +282,158 @@ public sealed class StatementOfApplicabilityTests
         Assert.Equal(SoaResolution.Inherited, deptReq.Resolution);
     }
 
+    // The node set is every organisation unconditionally, plus every other asset whose inclusive parent
+    // chain reaches one. A mixed declared/discovered machine tree exercises both arms at once.
+    private static readonly AssetNode DeclaredMachine = TestAssets.Machine("m-declared", "company-dept");
+    private static readonly AssetNode DiscoveredMachine =
+        TestAssets.Machine("m-discovered", "company-dept", source: "discovered", state: "Seen");
+
+    private static IReadOnlyList<AssetNode> MixedTree() =>
+        [Company, Department, DeclaredMachine, DiscoveredMachine];
+
+    [Fact]
+    public void MachinesResolveAssetInheritedAndDefaultOverAMixedTree()
+    {
+        // company: In at itself (asset). dept and the discovered machine inherit it. The declared
+        // machine carries its own leaf scope, which wins over the inherited value.
+        var scopes = new[]
+        {
+            Std("s1", "In at company", "company", "std", "In"),
+            Std("s2", "Out at the declared machine", "m-declared", "std", "Out"),
+        };
+
+        var nodes = StatementOfApplicability.Resolve(MixedTree(), scopes, [], "std");
+
+        Assert.Equal(
+            ["company", "company-dept", "m-declared", "m-discovered"], nodes.Select(n => n.Id).ToArray());
+        Assert.Equal(("In", SoaResolution.Asset), Disposition(nodes, "company"));
+        Assert.Equal(("In", SoaResolution.Inherited), Disposition(nodes, "company-dept"));
+        Assert.Equal(("Out", SoaResolution.Asset), Disposition(nodes, "m-declared"));
+        Assert.Equal(("In", SoaResolution.Inherited), Disposition(nodes, "m-discovered"));
+    }
+
+    [Fact]
+    public void EveryNodeOfAScopelessMixedTreeDefaultsIn()
+    {
+        var nodes = StatementOfApplicability.Resolve(MixedTree(), [], [], "std");
+
+        Assert.All(nodes, n => Assert.Equal(("In", SoaResolution.Default), (n.Disposition, n.Resolution)));
+        Assert.Equal(4, nodes.Count);
+    }
+
+    [Fact]
+    public void MachineCarriesItsTypeAndParentOntoTheNode()
+    {
+        var node = StatementOfApplicability.Resolve(MixedTree(), [], [], "std").Single(n => n.Id == "m-discovered");
+
+        Assert.Equal("Machine", node.Kind);
+        Assert.Equal("company-dept", node.Parent);
+    }
+
+    [Fact]
+    public void RequirementLayerIsSuppressedUnderAnOutStandardAndOverridableAtAMachine()
+    {
+        var scopes = new[]
+        {
+            Std("s1", "Out at company", "company", "std", "Out"),
+            Std("s2", "In at the declared machine", "m-declared", "std", "In"),
+            Req("rs1", "Exclude req-a at company", "company", "req-a", "Out"),
+            Req("rs2", "Re-include req-a at the machine", "m-declared", "req-a", "In"),
+        };
+
+        var nodes = StatementOfApplicability.Resolve(MixedTree(), scopes, [ReqA], "std");
+
+        // Every Out node lists no requirement deviations at all: the layer is not consulted.
+        Assert.Empty(nodes.Single(n => n.Id == "company").Requirements);
+        Assert.Empty(nodes.Single(n => n.Id == "company-dept").Requirements);
+        Assert.Empty(nodes.Single(n => n.Id == "m-discovered").Requirements);
+
+        // The machine re-scopes the standard In, so its own requirement leaf resolves there.
+        var machineReq = Assert.Single(nodes.Single(n => n.Id == "m-declared").Requirements);
+        Assert.Equal("req-a", machineReq.Requirement);
+        Assert.Equal("In", machineReq.Disposition);
+        Assert.Equal(SoaResolution.Asset, machineReq.Resolution);
+    }
+
+    [Fact]
+    public void AVendorIsNotANode()
+    {
+        // A vendor is neither organisation-typed nor parent-carrying, so it satisfies neither arm and
+        // falls out with no vendor-specific branch.
+        IReadOnlyList<AssetNode> assets = [Company, TestAssets.Vendor("vendor-x", "company")];
+
+        Assert.Equal(["company"], StatementOfApplicability.Resolve(assets, [], [], "std").Select(n => n.Id).ToArray());
+    }
+
+    [Fact]
+    public void AnUnrootedOrDanglingParentMachineIsNotANode()
+    {
+        IReadOnlyList<AssetNode> assets =
+        [
+            Company,
+            TestAssets.Machine("m-unrooted", null),
+            TestAssets.Machine("m-dangling", "gone-org"),
+            TestAssets.Machine("m-rooted", "company"),
+        ];
+
+        Assert.Equal(
+            ["company", "m-rooted"],
+            StatementOfApplicability.Resolve(assets, [], [], "std").Select(n => n.Id).ToArray());
+    }
+
+    [Fact]
+    public void AnOrganisationWithADanglingParentIsStillANodeResolvingTheDefaultIn()
+    {
+        // A dangling parent is a non-blocking sync warning, so the organisation must not drop out of
+        // the projection, out of the ingest gate, or out of the default In the scoping model grants it.
+        IReadOnlyList<AssetNode> assets = [TestAssets.Org("org-mid", "gone-org")];
+
+        var node = Assert.Single(StatementOfApplicability.Resolve(assets, [], [], "std"));
+        Assert.Equal("org-mid", node.Id);
+        Assert.Equal(("In", SoaResolution.Default), (node.Disposition, node.Resolution));
+    }
+
+    [Fact]
+    public void TwoOrganisationsInAParentCycleBothResolveAndTheNodeSetIsFinite()
+    {
+        IReadOnlyList<AssetNode> assets = [TestAssets.Org("org-c1", "org-c2"), TestAssets.Org("org-c2", "org-c1")];
+
+        var nodes = StatementOfApplicability.Resolve(assets, [], [], "std");
+
+        Assert.Equal(["org-c1", "org-c2"], nodes.Select(n => n.Id).ToArray());
+        Assert.All(nodes, n => Assert.Equal(("In", SoaResolution.Default), (n.Disposition, n.Resolution)));
+    }
+
+    [Fact]
+    public void AMachineUnderACycleIsANodeAndInheritsThroughIt()
+    {
+        IReadOnlyList<AssetNode> assets =
+        [
+            TestAssets.Org("org-c1", "org-c2"), TestAssets.Org("org-c2", "org-c1"),
+            TestAssets.Machine("m-cyc", "org-c1"),
+        ];
+        var scopes = new[] { Std("s1", "Out at c2", "org-c2", "std", "Out") };
+
+        var nodes = StatementOfApplicability.Resolve(assets, scopes, [], "std");
+
+        Assert.Equal(("Out", SoaResolution.Inherited), Disposition(nodes, "m-cyc"));
+    }
+
+    [Fact]
+    public void DrilldownNodeListIsOrganisationOnly()
+    {
+        var nodes = StatementOfApplicability.ResolveDrilldown(
+            MixedTree(), [], [ReqA], [], [], NoneAccessible, "std");
+
+        Assert.Equal(["company", "company-dept"], nodes.Select(n => n.Id).ToArray());
+    }
+
+    private static (string, SoaResolution) Disposition(IReadOnlyList<SoaNode> nodes, string id)
+    {
+        var node = nodes.Single(n => n.Id == id);
+        return (node.Disposition, node.Resolution);
+    }
+
     private static ControlRow Ctrl(string id, string[] mapsTo, string? evaluation = null) =>
         new(id, "Control " + id, mapsTo, evaluation);
 
@@ -303,7 +459,7 @@ public sealed class StatementOfApplicabilityTests
         var controls = new[] { Ctrl("ctrl-a", ["req-a"]), Ctrl("ctrl-b", ["req-b"]) };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company, Department], scopes, [ReqA, ReqB], controls, [], [], "std");
+            [Company, Department], scopes, [ReqA, ReqB], controls, [], NoneAccessible, "std");
 
         // The node lists every requirement of the standard (In and Out), ordered by id, not only the deviation.
         var company = nodes.Single(n => n.Id == "company");
@@ -311,7 +467,7 @@ public sealed class StatementOfApplicabilityTests
 
         var reqA = company.Requirements.Single(r => r.Id == "req-a");
         Assert.Equal("Out", reqA.Disposition);
-        Assert.Equal(SoaResolution.Explicit, reqA.Resolution);
+        Assert.Equal(SoaResolution.Asset, reqA.Resolution);
         // An excluded (Out) requirement is a leaf: no controls even though ctrl-a maps to it.
         Assert.Empty(reqA.Controls);
 
@@ -334,7 +490,7 @@ public sealed class StatementOfApplicabilityTests
         var scopes = new[] { Std("s1", "Out at company", "company", "std", "Out") };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], scopes, [ReqA, ReqB], [], [], [], "std");
+            [Company], scopes, [ReqA, ReqB], [], [], NoneAccessible, "std");
 
         Assert.Empty(Assert.Single(nodes).Requirements);
     }
@@ -352,10 +508,9 @@ public sealed class StatementOfApplicabilityTests
             Coll("coll-a", "ctrl-a", vendor: "vendor-x"),
             Attest("tmpl-a", "ctrl-a", vendor: "vendor-x"),
         };
-        var vendors = new[] { new VendorRow("vendor-x", "Vendor X", null) };
-
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA, ReqB], controls, collectors, vendors, "std");
+            [Company, TestAssets.Vendor("vendor-x", "company", title: "Vendor X")],
+            [], [ReqA, ReqB], controls, collectors, Accessible("vendor-x"), "std");
 
         var company = Assert.Single(nodes);
         var reqA = company.Requirements.Single(r => r.Id == "req-a");
@@ -402,7 +557,7 @@ public sealed class StatementOfApplicabilityTests
         };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], controls, collectors, [], "std");
+            [Company], [], [ReqA], controls, collectors, NoneAccessible, "std");
 
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);
         Assert.Equal(["ctrl-a", "ctrl-b"], reqA.Controls.Select(c => c.Id).ToArray());
@@ -421,7 +576,7 @@ public sealed class StatementOfApplicabilityTests
         var collectors = new[] { Attest("a-manual", "ctrl-a"), Coll("z-integration", "ctrl-a") };
 
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], controls, collectors, [], "std");
+            [Company], [], [ReqA], controls, collectors, NoneAccessible, "std");
 
         var ctrlA = Assert.Single(Assert.Single(Assert.Single(nodes).Requirements).Controls);
         Assert.Equal(["z-integration", "a-manual"], ctrlA.Checks.Select(c => c.Id).ToArray());
@@ -431,33 +586,70 @@ public sealed class StatementOfApplicabilityTests
     public void DrilldownRequirementWithNoMappedControlHasEmptyControls()
     {
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], [], [], [], "std");
+            [Company], [], [ReqA], [], [], NoneAccessible, "std");
 
         var reqA = Assert.Single(Assert.Single(nodes).Requirements);
         Assert.Empty(reqA.Controls);
     }
 
+    // The drill-down renders a vendor by title and never by id. The three cases a caller can hit -
+    // readable, unreadable, and absent - must be indistinguishable except for the title itself.
     [Fact]
-    public void DrilldownVendorIsMetadataAndFallsBackToIdWhenUnknown()
+    public void DrilldownRendersAReadableVendorTitle()
     {
-        var controls = new[] { Ctrl("ctrl-a", ["req-a"]) };
-        var collectors = new[] { Coll("coll-a", "ctrl-a", vendor: "vendor-x") };
+        var vendor = TestAssets.Vendor("vendor-x", "company", title: "Vendor X");
+        var check = DrilldownCheck([Company, vendor], Accessible("vendor-x"));
 
-        // No matching vendor row, so the display falls back to the raw id.
+        Assert.Equal("Vendor X", check.Vendor);
+    }
+
+    [Fact]
+    public void DrilldownRendersAnUnreadableVendorExactlyAsAnUnsetOne()
+    {
+        // The vendor asset exists and its title is in the snapshot, but the caller cannot read it: the
+        // check must carry no vendor at all rather than the id the title lookup would fall back to.
+        var vendor = TestAssets.Vendor("vendor-x", "elsewhere", title: "Vendor X");
+        var check = DrilldownCheck([Company, vendor], NoneAccessible);
+
+        Assert.Null(check.Vendor);
+    }
+
+    [Fact]
+    public void DrilldownRendersAnAbsentVendorExactlyAsAnUnsetOne()
+    {
+        var check = DrilldownCheck([Company], Accessible("vendor-x"));
+
+        Assert.Null(check.Vendor);
+    }
+
+    [Fact]
+    public void DrilldownNeverRendersARawVendorId()
+    {
+        // Whatever the vendor's state, no rendered vendor value equals the id.
+        foreach (var (assets, accessible) in new (IReadOnlyList<AssetNode>, IReadOnlySet<string>)[]
+        {
+            ([Company, TestAssets.Vendor("vendor-x", "company", title: "Vendor X")], Accessible("vendor-x")),
+            ([Company, TestAssets.Vendor("vendor-x", "elsewhere", title: "Vendor X")], NoneAccessible),
+            ([Company, TestAssets.Vendor("vendor-x", null, title: "Vendor X")], NoneAccessible),
+            ([Company], NoneAccessible),
+        })
+        {
+            Assert.NotEqual("vendor-x", DrilldownCheck(assets, accessible).Vendor);
+        }
+    }
+
+    private static SoaCheckNode DrilldownCheck(IReadOnlyList<AssetNode> assets, IReadOnlySet<string> accessible)
+    {
         var nodes = StatementOfApplicability.ResolveDrilldown(
-            [Company], [], [ReqA], controls, collectors, [], "std");
+            assets, [], [ReqA], [Ctrl("ctrl-a", ["req-a"])], [Coll("coll-a", "ctrl-a", vendor: "vendor-x")],
+            accessible, "std");
 
-        // The collector's vendor is carried as metadata; the requirement still resolves In (default).
-        var reqA = Assert.Single(Assert.Single(nodes).Requirements);
-        Assert.Equal("In", reqA.Disposition);
-        Assert.Equal(SoaResolution.Default, reqA.Resolution);
-        Assert.Equal("vendor-x", reqA.Controls[0].Checks[0].Vendor);
+        return Assert.Single(Assert.Single(Assert.Single(nodes).Requirements).Controls).Checks[0];
     }
 
     [Fact]
     public void HasDanglingSubjectTrueWhenAnySubjectUnresolvedAcrossEveryTargetKind()
     {
-        var resolvable = new HashSet<string>(StringComparer.Ordinal) { "company" };
         // A control-target org scope whose subject resolves to no asset warns, even though the SoA does
         // not resolve a control-level disposition for it.
         var scopes = new[]
@@ -466,19 +658,30 @@ public sealed class StatementOfApplicabilityTests
             new ScopeRow("s2", "Control target, dangling subject", "ghost", null, null, "ctrl-a", "In", null),
         };
 
-        Assert.True(StatementOfApplicability.HasDanglingSubject(scopes, resolvable));
+        Assert.True(StatementOfApplicability.HasDanglingSubject(scopes, [Company]));
     }
 
     [Fact]
     public void HasDanglingSubjectFalseWhenEverySubjectResolves()
     {
-        var resolvable = new HashSet<string>(StringComparer.Ordinal) { "company", "vendor-x" };
         var scopes = new[]
         {
             Std("s1", "In at company", "company", "std", "In"),
             new ScopeRow("s2", "Vendor control", "vendor-x", null, null, "ctrl-a", "In", null),
         };
 
-        Assert.False(StatementOfApplicability.HasDanglingSubject(scopes, resolvable));
+        Assert.False(StatementOfApplicability.HasDanglingSubject(
+            scopes, [Company, TestAssets.Vendor("vendor-x", "company")]));
+    }
+
+    [Fact]
+    public void HasDanglingSubjectTreatsARetiredDiscoveredAssetAsNotLive()
+    {
+        var scopes = new[] { new ScopeRow("s1", "Retired machine", "m-1", null, null, "ctrl-a", "In", null) };
+
+        Assert.True(StatementOfApplicability.HasDanglingSubject(
+            scopes, [Company, TestAssets.Machine("m-1", "company", source: "discovered", state: "Retired")]));
+        Assert.False(StatementOfApplicability.HasDanglingSubject(
+            scopes, [Company, TestAssets.Machine("m-1", "company", source: "discovered", state: "Seen")]));
     }
 }

@@ -1,5 +1,6 @@
 using Freeboard.Compliance;
 using Freeboard.Persistence;
+using Freeboard.Web;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Freeboard.Pages.Compliance;
@@ -12,9 +13,12 @@ namespace Freeboard.Pages.Compliance;
 /// so a store outage renders an in-page notice rather than a 500. The health flag is composed at read time
 /// via <see cref="IIntegrationTokenResolver"/>; the token value is never returned, rendered, or logged
 /// (the resolver reads it only to test presence). Connections are org-independent reference data, so the
-/// page does NOT narrow by accessible organisation.
+/// ROW set is not narrowed. The vendor IS narrowed - it names a vendor asset, which the owner edge
+/// governs - and a connection whose vendor is outside the caller's accessible asset set renders exactly
+/// as one with no vendor.
 /// </summary>
-public sealed class IntegrationConnectionsModel(IComplianceStore store, IIntegrationTokenResolver tokens) : PageModel
+public sealed class IntegrationConnectionsModel(
+    IComplianceStore store, IIntegrationTokenResolver tokens, IAssetAccess assetAccess) : PageModel
 {
     /// <summary>All connections with their composed token-resolvable flag, failing (unresolvable) first (L1).</summary>
     public IReadOnlyList<ConnectionView> Connections { get; private set; } = [];
@@ -26,8 +30,12 @@ public sealed class IntegrationConnectionsModel(IComplianceStore store, IIntegra
     {
         try
         {
+            var assets = await store.GetAssetsAsync(ct).ConfigureAwait(false);
+            var accessible = await assetAccess.AccessibleAssetIdsAsync(User, assets, ct).ConfigureAwait(false);
+
             // L1: exceptions first - unresolvable-token connections sort above resolvable ones, then by id.
             Connections = (await store.GetIntegrationConnectionsAsync(ct).ConfigureAwait(false))
+                .Select(c => c.Vendor is not null && !accessible.Contains(c.Vendor) ? c with { Vendor = null } : c)
                 .Select(c => new ConnectionView(c, tokens.IsResolvable(c.Id)))
                 .OrderBy(v => v.TokenResolvable)
                 .ThenBy(v => v.Connection.Id, StringComparer.Ordinal)

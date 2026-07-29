@@ -75,10 +75,10 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     public string? AuthzMode { get; init; }
 
     /// <summary>
-    /// When set, replaces the default all-access <see cref="IOrgAccess"/> so a test can inject a
-    /// restricted seam returning a strict subset of the supplied organisation list.
+    /// When set, replaces the default all-access <see cref="IAssetAccess"/> so a test can inject a
+    /// restricted seam returning a strict subset of the supplied asset list.
     /// </summary>
-    public IOrgAccess? OrgAccess { get; init; }
+    public IAssetAccess? AssetAccess { get; init; }
 
     /// <summary>
     /// Captures every log entry the app emits at information level and above, so a test can assert a
@@ -182,10 +182,10 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
             services.RemoveAll<IAuthzAdministrationStore>();
             services.AddSingleton<IAuthzAdministrationStore>(AuthzAdmin);
 
-            if (OrgAccess is not null)
+            if (AssetAccess is not null)
             {
-                services.RemoveAll<IOrgAccess>();
-                services.AddSingleton(OrgAccess);
+                services.RemoveAll<IAssetAccess>();
+                services.AddSingleton(AssetAccess);
             }
 
             if (IncludeTestProbe)

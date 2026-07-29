@@ -21,11 +21,11 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
         Gate();
 
         App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
-        App.Compliance.Organisations =
+        App.Compliance.Assets =
         [
-            new OrganisationRow("org-a", "Org A", "Company", null),
-            new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
-            new OrganisationRow("org-b", "Org B", "Company", null),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
+            TestAssets.Org("org-b", title: "Org B"),
         ];
         App.Compliance.Scopes =
         [
@@ -63,6 +63,41 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
     }
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
+    public async Task CallerOutsideAVendorOwnerSubtreeSeesNeitherTheVendorNorItsScopes()
+    {
+        Gate();
+
+        // A vendor is readable exactly when its owner resolves into the caller's organisation union, so
+        // a reader on the other subtree sees neither the vendor row nor the justification on its scope.
+        App.Compliance.Assets =
+        [
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-b", title: "Org B"),
+            TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A"),
+            TestAssets.Vendor("vendor-b", "org-b", title: "Vendor B"),
+        ];
+        App.Compliance.Scopes =
+        [
+            new ScopeRow("vs-a", "Except req-a", "vendor-a", null, "req-a", null, "Out", "Visible justification."),
+            new ScopeRow("vs-b", "Except req-b", "vendor-b", null, "req-b", null, "Out", "Hidden justification."),
+        ];
+
+        await using var context = await NewContextAsync();
+        await SignInWithRecentSudoAsync(context, "vendor-reader-a");
+        App.Authz.GrantComplianceReader("vendor-reader-a", "org-a");
+        var page = await context.NewPageAsync();
+        await page.GotoAsync($"{App.BaseUrl}/compliance/vendors");
+
+        Assert.Equal(1, await page.Locator("[data-vendor-id='vendor-a']").CountAsync());
+        Assert.Equal(0, await page.Locator("[data-vendor-id='vendor-b']").CountAsync());
+
+        var body = await page.Locator("body").InnerTextAsync();
+        Assert.Contains("Visible justification.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hidden justification.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Vendor B", body, StringComparison.Ordinal);
+    }
+
+    [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]
     public async Task ZeroGrantCallerUnderEnforceSeesEmptyAccessibleSet()
     {
         Gate();
@@ -72,7 +107,7 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
         await using var enforce = new E2EAppFixture { RegisterEmailSender = true, AuthzMode = "Enforce" };
         enforce.EnsureStarted();
         enforce.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
-        enforce.Compliance.Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)];
+        enforce.Compliance.Assets = [TestAssets.Org("org-a", title: "Org A")];
         enforce.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
 
         var user = E2EAppFixture.MakeUser("no-grant");

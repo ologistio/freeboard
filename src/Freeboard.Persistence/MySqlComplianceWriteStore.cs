@@ -15,6 +15,11 @@ namespace Freeboard.Persistence;
 /// app-level guards (not a DB self-FK) are what hold the org tree acyclic and referentially whole; the
 /// unified scopes table's <c>(subject_id, standard_id)</c> and <c>(subject_id, requirement_id)</c> unique
 /// keys remain the DB backstop.
+///
+/// The <c>type IN ('Company', 'Department')</c> predicates throughout are DEFENCE IN DEPTH, not the thing
+/// holding the authorization line: an unauthorized caller is refused before this store is reached. They
+/// stay because a caller arriving by another path still has to meet them, but a write that leans on them
+/// would answer an authorization failure as a 404 or a no-op, neither of which is auditable as a denial.
 /// </summary>
 public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFactory) : IComplianceWriteStore
 {

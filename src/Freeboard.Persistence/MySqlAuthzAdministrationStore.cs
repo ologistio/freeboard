@@ -126,7 +126,9 @@ public sealed class MySqlAuthzAdministrationStore(IDbConnectionFactory connectio
         }
 
         // Org rows live in the unified assets table; an org-role can only be assigned on a Company or
-        // Department asset, never a Vendor or Machine sharing the id space.
+        // Department asset, never a Vendor or Machine sharing the id space. This is what makes it true
+        // that no grant exists on a non-organisation id, which the organisation-bounded ancestry the web
+        // layer's gates anchor on relies on.
         if (!await OrganisationExistsAsync(connection, transaction, organisationId, cancellationToken).ConfigureAwait(false))
         {
             return AuthzWriteResult.Invalid($"Organisation '{organisationId}' does not exist.");

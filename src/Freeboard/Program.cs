@@ -113,7 +113,7 @@ if (trustForwardedHeaders)
 
 // Per-org authorization. The read/write authz stores; the pure Core engine and its ordered policy
 // pipeline (singletons, I/O-free); and the request-scoped seam: ONE shared fact/grant cache, the
-// authorizer, and the authz-backed IOrgAccess are SCOPED so per-user grants load once per request and
+// authorizer, and the authz-backed IAssetAccess are SCOPED so per-user grants load once per request and
 // never leak across requests. Authz:Mode drives read narrowing (default Compat).
 builder.Services.AddAuthz(freeboardConnectionString);
 builder.Services.AddSingleton<IAuthzPolicy>(new SessionGuardPolicy());
@@ -134,7 +134,7 @@ builder.Services.AddSingleton<IEnterpriseEntitlements, ConfigurationEnterpriseEn
 // Organisation selector: the accessibility seam (authz-backed) and the request-scoped resolver that
 // serves the layout selector. The resolver reads the cookie and user via IHttpContextAccessor.
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<Freeboard.Web.IOrgAccess, AuthzOrgAccess>();
+builder.Services.AddScoped<Freeboard.Web.IAssetAccess, AuthzAssetAccess>();
 builder.Services.AddScoped<Freeboard.Web.OrgSelectionResolver>();
 
 // The app-shell nav map is static declarative data; the resolver evaluates it per request (entitlement

@@ -32,13 +32,14 @@ public sealed class MySqlIntegrationTests
     private static async Task MigrateAsync(MySqlTestDatabase db) =>
         await RealRunner(db).ApplyPendingAsync();
 
-    // Organisations and vendors are now declared Asset rows in one id space; keep the ergonomic
-    // organisations/vendors parameters and fold both into GitOpsConfig.Assets. Every scope kind (org or
-    // vendor subject, standard/requirement/control target) is one unified Scope in the single scopes list.
+    // Every asset is a declared Asset row in one id space; the two ergonomic parameters split them by
+    // the edge they carry - parentedAssets for organisations and devices, vendors for the owner-carrying
+    // ones - and fold both into GitOpsConfig.Assets. Every scope kind (any subject, standard/requirement/
+    // control target) is one unified Scope in the single scopes list.
     private static GitOpsConfig Config(
         IEnumerable<Standard> standards,
         IEnumerable<Control> controls,
-        IEnumerable<Asset>? organisations = null,
+        IEnumerable<Asset>? parentedAssets = null,
         IEnumerable<Scope>? scopes = null,
         IEnumerable<Requirement>? requirements = null,
         IEnumerable<Asset>? vendors = null,
@@ -48,7 +49,7 @@ public sealed class MySqlIntegrationTests
             Standards = standards.ToList(),
             Requirements = requirements?.ToList() ?? [],
             Controls = controls.ToList(),
-            Assets = [.. organisations ?? [], .. vendors ?? []],
+            Assets = [.. parentedAssets ?? [], .. vendors ?? []],
             Scopes = scopes?.ToList() ?? [],
             Collectors = collectors?.ToList() ?? [],
             IntegrationConnections = integrationConnections?.ToList() ?? [],
@@ -157,6 +158,10 @@ public sealed class MySqlIntegrationTests
 
     private static Asset Org(string id, string kind = "Company", string? parent = null, string title = "T", string apiVersion = "v1") =>
         new() { Id = id, Title = title, ApiVersion = apiVersion, Type = kind, Source = "declared", Parent = parent ?? string.Empty };
+
+    /// <summary>A declared device asset. Config authors it exactly as an organisation, by type.</summary>
+    private static Asset Machine(string id, string? parent = null, string title = "T", string apiVersion = "v1") =>
+        Org(id, "Machine", parent, title, apiVersion);
 
     // A standard-target scope (subject -> standard). A blank justification defaults on Out to keep the
     // hand-built config valid under the generalized Out-requires-justification rule.
@@ -526,7 +531,7 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a", version: "3.3", authority: "NCSC"), Std("std-b")],
             [Ctrl("ctrl-a", ["req-a", "req-b"])],
-            organisations: [Org("org-a"), Org("org-eng", "Department", "org-a")],
+            parentedAssets: [Org("org-a"), Org("org-eng", "Department", "org-a")],
             scopes: [Scp("scope-a", "org-a", "std-a"), Rqs("rs-a", "org-a", "req-a"), VscReq("vs-a", "vendor-a", "req-a")],
             requirements: [Req("req-a", "std-a"), Req("req-b", "std-b")],
             vendors: [Vnd("vendor-a")]));
@@ -557,10 +562,10 @@ public sealed class MySqlIntegrationTests
         var control = Assert.Single(await store.GetControlsAsync());
         Assert.Equal(["req-a", "req-b"], control.MapsTo);
 
-        var organisations = await store.GetOrganisationsAsync();
+        var organisations = (await store.GetAssetsAsync()).Where(a => a.IsOrganisation).ToList();
         Assert.Equal(["org-a", "org-eng"], organisations.Select(o => o.Id).ToArray());
         var child = organisations.Single(o => o.Id == "org-eng");
-        Assert.Equal("Department", child.Kind);
+        Assert.Equal("Department", child.Type);
         Assert.Equal("org-a", child.Parent);
         Assert.Null(organisations.Single(o => o.Id == "org-a").Parent);
 
@@ -645,7 +650,7 @@ public sealed class MySqlIntegrationTests
         // the child before the parent (ON DELETE RESTRICT would otherwise block it).
         await importer.ImportAsync(Config([], [], [], []));
 
-        Assert.Empty(await store.GetOrganisationsAsync());
+        Assert.DoesNotContain(await store.GetAssetsAsync(), a => a.IsOrganisation);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -803,7 +808,7 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
-            organisations: [Org("org-keep"), Org("org-gone")],
+            parentedAssets: [Org("org-keep"), Org("org-gone")],
             scopes: [Rqs("rs-a", "org-gone", "req-gone")],
             requirements: [Req("req-keep", "std-a"), Req("req-gone", "std-a")]));
 
@@ -818,7 +823,7 @@ public sealed class MySqlIntegrationTests
             [Req("req-keep", "std-a")]));
 
         Assert.Empty(await store.GetScopesAsync());
-        Assert.Equal(["org-keep"], (await store.GetOrganisationsAsync()).Select(o => o.Id).ToArray());
+        Assert.Equal(["org-keep"], (await store.GetAssetsAsync()).Where(a => a.IsOrganisation).Select(o => o.Id).ToArray());
         Assert.Equal(["req-keep"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
     }
 
@@ -831,14 +836,14 @@ public sealed class MySqlIntegrationTests
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], organisations: [Org("org-a")],
+            [Std("std-a")], [], parentedAssets: [Org("org-a")],
             scopes: [Rqs("rs-old", "org-a", "req-a", "Out")],
             requirements: [Req("req-a", "std-a")]));
 
         // Rename the scope id while keeping the same (subject, requirement) pair. The whole-set replace
         // drops the old row and inserts the new id, so no unique-key collision.
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], organisations: [Org("org-a")],
+            [Std("std-a")], [], parentedAssets: [Org("org-a")],
             scopes: [Rqs("rs-new", "org-a", "req-a", "Out")],
             requirements: [Req("req-a", "std-a")]));
 
@@ -858,7 +863,7 @@ public sealed class MySqlIntegrationTests
         var store = new MySqlComplianceStore(db.ConnectionFactory);
 
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], organisations: [Org("org-a"), Org("org-b")],
+            [Std("std-a")], [], parentedAssets: [Org("org-a"), Org("org-b")],
             scopes: [Rqs("rs-1", "org-a", "req-x", "Out"), Rqs("rs-2", "org-b", "req-y", "In")],
             requirements: [Req("req-x", "std-a"), Req("req-y", "std-a")]));
 
@@ -867,7 +872,7 @@ public sealed class MySqlIntegrationTests
         // upsert could match the unique pair key instead of the primary key, corrupting the result.
         // The whole-set replace re-inserts both correctly.
         await importer.ImportAsync(Config(
-            [Std("std-a")], [], organisations: [Org("org-a"), Org("org-b")],
+            [Std("std-a")], [], parentedAssets: [Org("org-a"), Org("org-b")],
             scopes: [Rqs("rs-1", "org-b", "req-y", "Out"), Rqs("rs-2", "org-a", "req-x", "In")],
             requirements: [Req("req-x", "std-a"), Req("req-y", "std-a")]));
 
@@ -900,7 +905,7 @@ public sealed class MySqlIntegrationTests
         Assert.Equal(2, counts.Vendors);
         Assert.Equal(2, counts.Scopes);
 
-        var vendors = await store.GetVendorsAsync();
+        var vendors = (await store.GetAssetsAsync()).Where(a => a.Type is "Vendor").ToList();
         Assert.Equal(["vendor-a", "vendor-b"], vendors.Select(v => v.Id).ToArray());
         Assert.Equal("Vendor A", vendors.Single(v => v.Id == "vendor-a").Title);
 
@@ -949,7 +954,7 @@ public sealed class MySqlIntegrationTests
             vendors: [Vnd("vendor-keep")]));
 
         Assert.Empty(await store.GetScopesAsync());
-        Assert.Equal(["vendor-keep"], (await store.GetVendorsAsync()).Select(v => v.Id).ToArray());
+        Assert.Equal(["vendor-keep"], (await store.GetAssetsAsync()).Where(a => a.Type is "Vendor").Select(v => v.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1203,7 +1208,7 @@ public sealed class MySqlIntegrationTests
             vendors: [Vnd("vendor-keep")]));
 
         Assert.Empty(await store.GetCollectorsAsync());
-        Assert.Equal(["vendor-keep"], (await store.GetVendorsAsync()).Select(v => v.Id).ToArray());
+        Assert.Equal(["vendor-keep"], (await store.GetAssetsAsync()).Where(a => a.Type is "Vendor").Select(v => v.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1290,10 +1295,10 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [Ctrl("ctrl-a", ["req-a"], evaluation: "all")],
-            organisations: [Org("org-a")],
+            parentedAssets: [Org("org-a"), Machine("coll-a-host", "org-a")],
             scopes: [Scp("scope-a", "org-a", "std-a", "In"), Rqs("rs-a", "org-a", "req-a", "Out")],
             requirements: [Req("req-a", "std-a")],
-            vendors: [Vnd("vendor-a")],
+            vendors: [Vnd("vendor-a", owner: "org-a")],
             collectors:
             [
                 IntegrationColl("coll-a", "ctrl-a", "conn-a", vendor: "vendor-a"),
@@ -1304,7 +1309,13 @@ public sealed class MySqlIntegrationTests
 
         var inputs = await store.GetStatementOfApplicabilityDrilldownInputsAsync();
 
-        Assert.Equal(["org-a"], inputs.Organisations.Select(o => o.Id).ToArray());
+        // One unfiltered asset read serves the whole snapshot: the organisation, the vendor the check
+        // titles resolve through, and the machines the resolution tree hangs off, all in one list.
+        Assert.Equal(["coll-a-host", "org-a", "vendor-a"], inputs.Assets.Select(a => a.Id).ToArray());
+        var host = inputs.Assets.Single(a => a.Id == "coll-a-host");
+        Assert.Equal("Machine", host.Type);
+        Assert.Equal("org-a", host.Parent);
+        Assert.Equal("org-a", inputs.Assets.Single(a => a.Id == "vendor-a").Owner);
         // The one unified scopes list carries every target kind, ordered by id (rs-a before scope-a).
         Assert.Equal(["rs-a", "scope-a"], inputs.Scopes.Select(s => s.Id).ToArray());
         Assert.Equal(["req-a"], inputs.Requirements.Select(r => r.Id).ToArray());
@@ -1324,7 +1335,9 @@ public sealed class MySqlIntegrationTests
         // The read model carries no answer property, so the quiz answer cannot reach this snapshot.
         Assert.DoesNotContain("Answer", typeof(QuizItemView).GetProperties().Select(p => p.Name));
 
-        Assert.Equal(["vendor-a"], inputs.Vendors.Select(v => v.Id).ToArray()); // vendors read in the same snapshot
+        // The vendor is carried by the one asset list rather than a second read; its owner edge comes
+        // with it, so the drill-down can narrow the check's vendor title without another query.
+        Assert.Equal(["vendor-a"], inputs.Assets.Where(a => a.Type is "Vendor").Select(v => v.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1404,7 +1417,7 @@ public sealed class MySqlIntegrationTests
         // defaults to false, which is the create path.
         Assert.True((await writeStore.UpsertOrganisationAsync("org-x", "First", "Company", null)).Ok);
         Assert.True((await writeStore.UpsertOrganisationAsync("org-x", "Second", "Company", null)).IsConflict);
-        Assert.Equal("First", (await store.GetOrganisationsAsync()).Single(o => o.Id == "org-x").Title);
+        Assert.Equal("First", (await store.GetAssetsAsync()).Single(o => o.Id == "org-x").Title);
 
         // Scope create is INSERT-only too (expectedCurrentOrganisation null is the create path).
         Assert.True((await writeStore.UpsertScopeDispositionAsync("sc-x", "First", "org-a", "std-a", "In")).Ok);
@@ -1423,15 +1436,18 @@ public sealed class MySqlIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")],
             [],
-            organisations: [Org("org-a"), Org("org-eng", "Department", "org-a")],
+            parentedAssets: [Org("org-a"), Org("org-eng", "Department", "org-a"), Machine("m-1", "org-eng")],
             scopes: [Scp("scope-a", "org-a", "std-a"), Rqs("rs-a", "org-a", "req-a")],
             requirements: [Req("req-a", "std-a"), Req("req-b", "std-a")]));
 
         var inputs = await store.GetStatementOfApplicabilityInputsAsync();
 
         Assert.Equal(
-            (await store.GetOrganisationsAsync()).Select(o => o.Id).ToArray(),
-            inputs.Organisations.Select(o => o.Id).ToArray());
+            (await store.GetAssetsAsync()).Select(a => a.Id).ToArray(),
+            inputs.Assets.Select(a => a.Id).ToArray());
+        // The snapshot carries the machine as well as the two organisations: the resolution tree hangs
+        // off the same read, so nothing filters it back down to Company/Department.
+        Assert.Equal(["m-1", "org-a", "org-eng"], inputs.Assets.Select(a => a.Id).ToArray());
         // The one unified scopes list feeds both the standard and requirement layers of the SoA.
         Assert.Equal(
             (await store.GetScopesAsync()).Select(s => s.Id).ToArray(),

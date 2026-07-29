@@ -87,8 +87,9 @@ internal sealed record ApiScope(
 internal sealed record ApiControl(string Id, string Title, IReadOnlyList<string> MapsTo, string? Evaluation);
 
 /// <summary>
-/// A collector as returned by the API. <see cref="Vendor"/>, <see cref="Provider"/>, and
-/// <see cref="Threshold"/> are null when unset; <see cref="Config"/> is the type-specific payload.
+/// A collector as returned by the API. <see cref="Provider"/> and <see cref="Threshold"/> are null when
+/// unset; <see cref="Vendor"/> is null when unset AND when the caller cannot read the vendor it names,
+/// which are indistinguishable here by design. <see cref="Config"/> is the type-specific payload.
 /// </summary>
 internal sealed record ApiCollector(
     string Id,
@@ -102,7 +103,8 @@ internal sealed record ApiCollector(
     ApiCollectorConfig Config);
 
 /// <summary>
-/// An integration connection as returned by the API. <see cref="Vendor"/> is null when unset;
+/// An integration connection as returned by the API. <see cref="Vendor"/> is null when unset AND when
+/// the caller cannot read the vendor it names, which are indistinguishable here by design;
 /// <see cref="TokenResolvable"/> is the read-time health flag. The API never returns the token value.
 /// </summary>
 internal sealed record ApiIntegrationConnection(

@@ -67,6 +67,10 @@ public sealed class ConnectionCommandTests : IDisposable
         Assert.Contains("daily", output, StringComparison.Ordinal);
         Assert.Contains("resolvable", output, StringComparison.Ordinal);
         Assert.Contains("unresolvable", output, StringComparison.Ordinal);
+        // fleet-prod names a readable vendor; fleet-dev's is null - either because it has none or
+        // because the endpoint withheld one the caller cannot read - and renders as an unset one.
+        Assert.Contains("vendor vendor-a", output, StringComparison.Ordinal);
+        Assert.Contains("vendor -", output, StringComparison.Ordinal);
     }
 
     [Fact]

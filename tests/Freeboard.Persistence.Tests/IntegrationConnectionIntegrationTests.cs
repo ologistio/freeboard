@@ -213,7 +213,7 @@ public sealed class IntegrationConnectionIntegrationTests
         Assert.Empty(await store.GetCollectorsAsync());
         var connection = Assert.Single(await store.GetIntegrationConnectionsAsync());
         Assert.Equal("fleet-dev", connection.Id);
-        var vendor = Assert.Single(await store.GetVendorsAsync());
+        var vendor = Assert.Single(await store.GetAssetsAsync(), a => a.Type is "Vendor");
         Assert.Equal("vendor-a", vendor.Id);
     }
 }

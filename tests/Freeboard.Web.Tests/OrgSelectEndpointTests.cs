@@ -19,12 +19,12 @@ public sealed class OrgSelectEndpointTests
     private static FakeComplianceStore PopulatedStore() => new()
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-        Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+        Assets = [TestAssets.Org("org-a", title: "Org A")],
         Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)],
     };
 
-    private static AuthWebFactory Factory(bool readOnly = false, IOrgAccess? orgAccess = null)
-        => new() { Compliance = PopulatedStore(), ReadOnly = readOnly, OrgAccess = orgAccess };
+    private static AuthWebFactory Factory(bool readOnly = false, IAssetAccess? assetAccess = null)
+        => new() { Compliance = PopulatedStore(), ReadOnly = readOnly, AssetAccess = assetAccess };
 
     private static HttpClient NoRedirectClient(AuthWebFactory factory)
         => factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -132,7 +132,7 @@ public sealed class OrgSelectEndpointTests
         // org-a is present but NOT accessible. The endpoint still writes the view cookie by design -
         // fail-closed happens at read (Resolve), not at write - so this replays the cookie the endpoint
         // actually set and proves the endpoint->cookie->page flow resolves to All Organisations.
-        using var factory = Factory(orgAccess: new EmptyOrgAccess());
+        using var factory = Factory(assetAccess: new EmptyAssetAccess());
         using var client = NoRedirectClient(factory);
 
         using var select = await client.SendAsync(AuthGet(factory, SelectUrl("org-a", SoaPath)));
@@ -179,10 +179,10 @@ public sealed class OrgSelectEndpointTests
         Assert.Contains("freeboard-org=org-a", SetCookieFor(response, OrgSelection.CookieName), StringComparison.Ordinal);
     }
 
-    private sealed class EmptyOrgAccess : IOrgAccess
+    private sealed class EmptyAssetAccess : IAssetAccess
     {
-        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+        public ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
             => ValueTask.FromResult<IReadOnlySet<string>>(new HashSet<string>(StringComparer.Ordinal));
     }
 }

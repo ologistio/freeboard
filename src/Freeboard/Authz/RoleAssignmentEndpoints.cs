@@ -124,10 +124,15 @@ public static class RoleAssignmentEndpoints
     private static async ValueTask<AuthzResource?> OrgVisibilitySelector(EndpointFilterInvocationContext context)
     {
         var orgId = (string)context.HttpContext.Request.RouteValues["orgId"]!;
-        var resource = new AuthzResource("organisation", orgId, orgId, []);
+        var cache = context.HttpContext.RequestServices.GetRequiredService<AuthzRequestCache>();
+        var resource = await cache.OrganisationResourceAsync(
+            "organisation", orgId, orgId, context.HttpContext.RequestAborted);
 
         // Existence non-disclosure: if the caller cannot READ the org (mode-aware, so a Compat
-        // zero-grant caller who sees everything still gets 403 not 404), hide it as a 404.
+        // zero-grant caller who sees everything still gets 403 not 404), hide it as a 404. That check
+        // runs ahead of the assignment gate, so these routes answer a refusal here with 404 rather than
+        // the 403 every other organisation gate gives - a 403 on an id the caller cannot see would
+        // disclose that the id exists.
         var authorizer = context.HttpContext.RequestServices.GetRequiredService<IAuthorizer>();
         var canRead = await authorizer.AuthorizeAsync(
             context.HttpContext.User, AuthzActions.OrgRead, resource, alwaysEnforce: false, context.HttpContext.RequestAborted);

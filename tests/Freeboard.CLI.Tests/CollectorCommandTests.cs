@@ -75,6 +75,28 @@ public sealed class CollectorCommandTests : IDisposable
         Assert.Contains("Hard", output, StringComparison.Ordinal);
     }
 
+    // The endpoint sends a null vendor for one the caller cannot read, so the column must render as an
+    // unset one. This is the CLI half of the vendor-id narrowing: no client change, but the rendering
+    // has to be asserted for the parity claim to mean anything.
+    [Fact]
+    public void ListRendersADashForACollectorWhoseVendorTheEndpointWithholds()
+    {
+        Install(new FakeApiClient
+        {
+            ControlListResult = ApiResult<IReadOnlyList<ApiControl>>.Success(
+                [new ApiControl("ctrl-a", "Control A", ["req-a"], "all")]),
+            CollectorListResult = ApiResult<IReadOnlyList<ApiCollector>>.Success(
+                [FakeApiClient.SampleCollector with { Vendor = null }]),
+        });
+
+        var (exit, output, _) = Capture(() => new CollectorCommands().List());
+
+        Assert.Equal(0, exit);
+        Assert.Contains("collector-a", output, StringComparison.Ordinal);
+        Assert.Contains("vendor -", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("vendor-a", output, StringComparison.Ordinal);
+    }
+
     // The merge's point at the command surface: a former template lists under the same command, in the
     // same control block, as a data source.
     [Fact]

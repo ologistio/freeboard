@@ -32,20 +32,29 @@ public sealed record RequirementRow(
 public sealed record ControlRow(string Id, string Title, IReadOnlyList<string> MapsTo, string? Evaluation);
 
 /// <summary>
-/// A persisted organisation node. <see cref="Kind"/> is <c>Company</c> or <c>Department</c>;
-/// <see cref="Parent"/> is the parent organisation id, null for a root.
+/// One persisted asset of any type, as the read side sees it. <see cref="Parent"/> and
+/// <see cref="Owner"/> are the two scalar edges and are mutually exclusive: an organisation or a device
+/// carries <c>parent</c>, a vendor carries <c>owner</c>. <see cref="State"/> is a discovered-only column
+/// and reads null on a declared asset, which the live-subject predicate treats as live.
 /// </summary>
-public sealed record OrganisationRow(string Id, string Title, string Kind, string? Parent);
+public sealed record AssetNode(
+    string Id, string Title, string Type, string Source, string? State, string? Parent, string? Owner)
+{
+    /// <summary>
+    /// True when this asset is an organisation node. The ONE expression of that rule on
+    /// <see cref="AssetNode"/>: the resolver's node set, the read surfaces that present organisations,
+    /// the write-path authorization guards, and the evidence-ingest acceptance gate all decide it here,
+    /// so they cannot drift apart.
+    /// </summary>
+    public bool IsOrganisation => Type is "Company" or "Department";
+}
 
 /// <summary>
 /// A persisted scope mapping one asset <see cref="Subject"/> to exactly one target - a standard,
 /// requirement, or control (the other two null) - with a disposition (<c>In</c> or <c>Out</c>) and an
-/// optional <see cref="Justification"/> (null when unset; always present for an <c>Out</c>). The first
-/// eight fields are the public/wire (<c>ApiScope</c>) shape. The trailing five subject-narrowing fields are
-/// populated by the <c>GetScopesAsync</c> <c>LEFT JOIN assets</c> on <see cref="Subject"/>, are
-/// server-side only (used for the read-visibility branches and the resolution predicate), and are NEVER
-/// serialized: the <c>/scopes</c> endpoint projects only the eight public fields. They are null when the
-/// subject resolves to no asset row.
+/// optional <see cref="Justification"/> (null when unset; always present for an <c>Out</c>). These are
+/// exactly the public/wire (<c>ApiScope</c>) fields: readability is decided by resolving
+/// <see cref="Subject"/> against the asset read, not by narrowing fields carried on the row.
 /// </summary>
 public sealed record ScopeRow(
     string Id,
@@ -55,49 +64,34 @@ public sealed record ScopeRow(
     string? Requirement,
     string? Control,
     string Disposition,
-    string? Justification,
-    string? SubjectType = null,
-    string? SubjectSource = null,
-    string? SubjectState = null,
-    string? SubjectParent = null,
-    string? SubjectOwner = null);
+    string? Justification);
 
 /// <summary>
 /// The inputs the Statement of Applicability projection needs, read together in one
-/// repeatable-read snapshot so they cannot straddle a concurrent importer commit. The requirement layer
-/// comes from the one unified <see cref="Scopes"/> list (requirement-target rows). <see cref="ResolvableAssetIds"/>
-/// is the set of subject-resolving asset ids (present, and not a retired discovered asset) for the
-/// dangling-subject notice.
+/// repeatable-read snapshot so they cannot straddle a concurrent importer commit. <see cref="Assets"/>
+/// is the whole unfiltered asset set: the resolution tree and the live-subject predicate need different
+/// subsets of it, so retirement and type are applied by the consumer. The requirement layer comes from
+/// the one unified <see cref="Scopes"/> list (requirement-target rows).
 /// </summary>
 public sealed record SoaInputs(
-    IReadOnlyList<OrganisationRow> Organisations,
+    IReadOnlyList<AssetNode> Assets,
     IReadOnlyList<ScopeRow> Scopes,
-    IReadOnlyList<RequirementRow> Requirements,
-    IReadOnlySet<string> ResolvableAssetIds);
+    IReadOnlyList<RequirementRow> Requirements);
 
 /// <summary>
 /// The inputs the Statement of Applicability drill-down projection needs, read together in one
 /// repeatable-read snapshot so they cannot straddle a concurrent importer commit. Extends the flat
-/// <see cref="SoaInputs"/> with controls (resolved <c>maps_to</c>), collectors, and vendors so the
-/// requirement -> control -> check hierarchy resolves from one
-/// consistent read and a collector's vendor id maps to a vendor title. The requirement layer comes from
-/// the one unified <see cref="Scopes"/> list.
+/// <see cref="SoaInputs"/> with controls (resolved <c>maps_to</c>) and collectors so the
+/// requirement -> control -> check hierarchy resolves from one consistent read; a collector's vendor id
+/// maps to a title through the <c>Vendor</c>-typed rows of <see cref="Assets"/>. The requirement layer
+/// comes from the one unified <see cref="Scopes"/> list.
 /// </summary>
 public sealed record SoaDrilldownInputs(
-    IReadOnlyList<OrganisationRow> Organisations,
+    IReadOnlyList<AssetNode> Assets,
     IReadOnlyList<ScopeRow> Scopes,
     IReadOnlyList<RequirementRow> Requirements,
-    IReadOnlySet<string> ResolvableAssetIds,
     IReadOnlyList<ControlRow> Controls,
-    IReadOnlyList<CollectorRow> Collectors,
-    IReadOnlyList<VendorRow> Vendors);
-
-/// <summary>
-/// A persisted vendor (a piece of software or platform in use). <see cref="Owner"/> is the
-/// Company/Department asset accountable for the vendor and drives read-access narrowing; it is null when
-/// unset (a vendor with a null or dangling owner is visible to no caller, fail-closed).
-/// </summary>
-public sealed record VendorRow(string Id, string Title, string? Owner);
+    IReadOnlyList<CollectorRow> Collectors);
 
 /// <summary>
 /// A persisted collector attached to one control - a data source or an attestation form. Identity is

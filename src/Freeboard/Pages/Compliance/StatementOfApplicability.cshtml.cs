@@ -10,15 +10,14 @@ namespace Freeboard.Pages.Compliance;
 /// organisation and its descendants. GET-only, so the GitOps read-only middleware never blocks it.
 /// Derives its ENTIRE scope from its own store reads and consumes the layout selection resolver for
 /// nothing: it reads standards for the selector and the Statement-of-Applicability drill-down inputs
-/// (organisations, scopes, requirements, controls, collectors, templates, vendors)
-/// in one repeatable-read snapshot through
+/// (assets, scopes, requirements, controls, collectors) in one repeatable-read snapshot through
 /// <see cref="IComplianceStore"/> inside one try/catch that sets <see cref="StoreUnreachable"/>, so a
 /// store outage renders an in-page notice rather than a 500. The projection resolves inheritance over
 /// the full tree first, then filters the node list to the in-scope set, so a selected department still
 /// inherits a disposition from a company above it.
 /// </summary>
 public sealed class StatementOfApplicabilityModel(
-    IComplianceStore store, IOrgAccess orgAccess, IEvidenceStore evidenceStore) : PageModel
+    IComplianceStore store, IAssetAccess assetAccess, IEvidenceStore evidenceStore) : PageModel
 {
     /// <summary>Default for a configured collector with no store row: never collected.</summary>
     private const string UnknownStatus = "Unknown";
@@ -76,22 +75,29 @@ public sealed class StatementOfApplicabilityModel(
             // Derive the whole scope from the page's own reads, never from the layout resolver: the
             // resolver degrades a failed org load to an empty list and "All Organisations", which would
             // silently drop this page's cookie-selected subtree or hide a real outage.
-            var accessibleIds = await orgAccess.AccessibleOrgIdsAsync(User, inputs.Organisations, ct).ConfigureAwait(false);
-            var selectedId = OrgSelection.Resolve(OrgSelection.ReadCandidate(HttpContext), accessibleIds);
-            var inScope = OrgScope.InScopeIds(inputs.Organisations, accessibleIds, selectedId);
+            var accessibleIds = await assetAccess.AccessibleAssetIdsAsync(User, inputs.Assets, ct).ConfigureAwait(false);
+
+            // The selection is an organisation, so the cookie resolves against the accessible
+            // ORGANISATIONS: one naming a readable machine or vendor falls back to "All Organisations".
+            var accessibleOrgIds = inputs.Assets
+                .Where(a => a.IsOrganisation && accessibleIds.Contains(a.Id))
+                .Select(a => a.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            var selectedId = OrgSelection.Resolve(OrgSelection.ReadCandidate(HttpContext), accessibleOrgIds);
+            var inScope = OrgScope.InScopeIds(inputs.Assets, accessibleIds, selectedId);
 
             // Resolve over the full tree first, then filter: filtering before resolving would drop
             // ancestors above the selection and lose inherited dispositions.
             var resolved = global::Freeboard.Compliance.StatementOfApplicability.ResolveDrilldown(
-                inputs.Organisations, inputs.Scopes, inputs.Requirements,
-                inputs.Controls, inputs.Collectors, inputs.Vendors, StandardId);
+                inputs.Assets, inputs.Scopes, inputs.Requirements,
+                inputs.Controls, inputs.Collectors, accessibleIds, StandardId);
             Nodes = resolved.Where(n => inScope.Contains(n.Id)).ToList();
 
             // A generic, non-blocking notice when any scope names a subject that resolves to no live asset
             // (any target kind). Deliberately id-less: an unresolved subject has no authorization anchor, so
             // disclosing the scope or subject id to an ordinary viewer would leak.
             HasDanglingScopeSubject = global::Freeboard.Compliance.StatementOfApplicability.HasDanglingSubject(
-                inputs.Scopes, inputs.ResolvableAssetIds);
+                inputs.Scopes, inputs.Assets);
 
             // One batched read for every in-scope node so the page never fans out per organisation.
             var nodeIds = Nodes.Select(n => n.Id).ToList();
@@ -106,7 +112,7 @@ public sealed class StatementOfApplicabilityModel(
 
             ActiveScope = selectedId is null
                 ? "All Organisations"
-                : inputs.Organisations.FirstOrDefault(o => string.Equals(o.Id, selectedId, StringComparison.Ordinal))?.Title
+                : inputs.Assets.FirstOrDefault(a => string.Equals(a.Id, selectedId, StringComparison.Ordinal))?.Title
                     ?? "All Organisations";
         }
         catch (Exception ex) when (IsStoreFailure(ex))

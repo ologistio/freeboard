@@ -39,26 +39,23 @@ public sealed class ComplianceEndpointTests
             new RequirementRow("req-b", "Requirement B", "std-a", "Theme A", "Do the other thing.", "Some guidance.", "Source B", "https://example.com/b"),
         ],
         Controls = [new ControlRow("ctrl-a", "Control A", ["req-a", "req-b"], "all")],
-        Organisations =
+        Assets =
         [
-            new OrganisationRow("org-a", "Org A", "Company", null),
-            new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
+            TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A"),
+            TestAssets.Vendor("vendor-b", "org-a", title: "Vendor B"),
         ],
         // One unified scope set: a standard-target and two requirement-target org scopes, plus two
-        // vendor-subject scopes (owner-narrowed). The trailing subject-narrowing fields drive /scopes
-        // readability; SoA resolution ignores them.
+        // vendor-subject scopes. Readability resolves each Subject against the asset set; SoA
+        // resolution reads the same list.
         Scopes =
         [
-            new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null, SubjectType: "Company"),
-            new ScopeRow("rs-a", "Exclude req-a", "org-a", null, "req-a", null, "Out", "req-a excluded", SubjectType: "Company"),
-            new ScopeRow("rs-b", "Exclude req-b", "org-a", null, "req-b", null, "Out", "req-b excluded", SubjectType: "Company"),
-            new ScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO.", SubjectType: "Vendor", SubjectOwner: "org-a"),
-            new ScopeRow("vs-b", "Include ctrl-a for vendor-a", "vendor-a", null, null, "ctrl-a", "In", null, SubjectType: "Vendor", SubjectOwner: "org-a"),
-        ],
-        Vendors =
-        [
-            new VendorRow("vendor-a", "Vendor A", "org-a"),
-            new VendorRow("vendor-b", "Vendor B", "org-a"),
+            new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null),
+            new ScopeRow("rs-a", "Exclude req-a", "org-a", null, "req-a", null, "Out", "req-a excluded"),
+            new ScopeRow("rs-b", "Exclude req-b", "org-a", null, "req-b", null, "Out", "req-b excluded"),
+            new ScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO."),
+            new ScopeRow("vs-b", "Include ctrl-a for vendor-a", "vendor-a", null, null, "ctrl-a", "In", null),
         ],
         Collectors =
         [
@@ -293,7 +290,7 @@ public sealed class ComplianceEndpointTests
     [Fact]
     public async Task ZeroGrantEnforceCallerStillReadsEveryCollector()
     {
-        // The collectors endpoint does NOT narrow by IOrgAccess. Under strict Enforce with no grants a
+        // The collectors endpoint does NOT narrow by IAssetAccess. Under strict Enforce with no grants a
         // member still reads every collector.
         using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
@@ -302,6 +299,37 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(
             ["collector-a", "collector-script", "attest-manual", "attest-training"],
             json.EnumerateArray().Select(c => c.GetProperty("id").GetString()!).ToArray());
+    }
+
+    [Fact]
+    public async Task CollectorsEndpointReturnsEveryRowWithAnUnreadableVendorNulled()
+    {
+        // The vendor id names a vendor asset the owner edge governs, so it is withheld from a caller who
+        // cannot read it - but the ROW stays, because collectors carry no organisation dimension.
+        var store = PopulatedStore();
+        store.Assets = [TestAssets.Org("org-a"), TestAssets.Org("org-x"), TestAssets.Vendor("vendor-a", "org-x")];
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/collectors");
+
+        Assert.Equal(4, json.GetArrayLength());
+        Assert.All(json.EnumerateArray(), c => Assert.Equal(JsonValueKind.Null, c.GetProperty("vendor").ValueKind));
+        Assert.DoesNotContain("vendor-a", (await client.GetStringAsync("/api/v1/freeboard/collectors")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CollectorsEndpointKeepsAReadableVendorId()
+    {
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = authz };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/collectors");
+
+        Assert.Equal("vendor-a", json.EnumerateArray().Single(c => c.GetProperty("id").GetString() == "collector-a")
+            .GetProperty("vendor").GetString());
     }
 
     // The credential routes are exercised as an admin, so a route that came back would answer rather
@@ -334,6 +362,41 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(JsonValueKind.Null, json[0].GetProperty("parent").ValueKind);
         Assert.Equal("org-eng", json[1].GetProperty("id").GetString());
         Assert.Equal("org-a", json[1].GetProperty("parent").GetString());
+    }
+
+    [Fact]
+    public async Task OrganisationsEndpointOmitsEveryNonOrganisationAssetAndKeepsParentOrganisationOnly()
+    {
+        // The listing is served from the one asset read, so its type filter and its parent field must
+        // both stay organisation-only: parent always names a row of this same listing, or null.
+        var store = PopulatedStore();
+        store.Assets =
+        [
+            TestAssets.Org("org-a"), TestAssets.Machine("m-1", "org-a"),
+            TestAssets.Org("org-under-machine", "m-1"), TestAssets.Vendor("vendor-a", "org-a"),
+        ];
+        using var factory = Factory(store);
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/organisations");
+
+        var ids = json.EnumerateArray().Select(e => e.GetProperty("id").GetString()!).ToArray();
+        Assert.Equal(["org-a", "org-under-machine"], ids);
+        // m-1 is readable to this caller, but it is not an organisation, so it must not surface here.
+        var nested = json.EnumerateArray().Single(e => e.GetProperty("id").GetString() == "org-under-machine");
+        Assert.Equal(JsonValueKind.Null, nested.GetProperty("parent").ValueKind);
+    }
+
+    [Fact]
+    public async Task VendorsEndpointKeepsItsIdAndTitleShape()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
+
+        // The owner edge is the authorization anchor and is deliberately not published.
+        Assert.Equal(["id", "title"], json[0].EnumerateObject().Select(p => p.Name).ToArray());
     }
 
     [Fact]
@@ -457,20 +520,17 @@ public sealed class ComplianceEndpointTests
         // hidden vendor subject fails closed.
         var store = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("org-a", "Org A", "Company", null),
-                new OrganisationRow("org-b", "Org B", "Company", null),
-            ],
-            Vendors =
-            [
-                new VendorRow("vendor-a", "Vendor A", "org-a"),
-                new VendorRow("vendor-b", "Vendor B", "org-b"),
+                TestAssets.Org("org-a", title: "Org A"),
+                TestAssets.Org("org-b", title: "Org B"),
+                TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A"),
+                TestAssets.Vendor("vendor-b", "org-b", title: "Vendor B"),
             ],
             Scopes =
             [
-                new ScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", null, "req-a", null, "In", null, SubjectType: "Vendor", SubjectOwner: "org-a"),
-                new ScopeRow("vs-b", "Except req-b for vendor-b", "vendor-b", null, "req-b", null, "Out", "Owned elsewhere.", SubjectType: "Vendor", SubjectOwner: "org-b"),
+                new ScopeRow("vs-a", "Except req-a for vendor-a", "vendor-a", null, "req-a", null, "In", null),
+                new ScopeRow("vs-b", "Except req-b for vendor-b", "vendor-b", null, "req-b", null, "Out", "Owned elsewhere."),
             ],
         };
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
@@ -498,11 +558,40 @@ public sealed class ComplianceEndpointTests
         // org-a is explicitly In; org-eng (its child, unstated) inherits In. Ordered by id.
         Assert.Equal("org-a", nodes[0].GetProperty("id").GetString());
         Assert.Equal("In", nodes[0].GetProperty("disposition").GetString());
-        Assert.Equal("explicit", nodes[0].GetProperty("resolution").GetString());
+        Assert.Equal("asset", nodes[0].GetProperty("resolution").GetString());
 
         Assert.Equal("org-eng", nodes[1].GetProperty("id").GetString());
         Assert.Equal("In", nodes[1].GetProperty("disposition").GetString());
         Assert.Equal("inherited", nodes[1].GetProperty("resolution").GetString());
+    }
+
+    [Fact]
+    public async Task StatementOfApplicabilityIncludesReadableMachineNodesAndExcludesUnreadableOnes()
+    {
+        // The JSON endpoint's node set is the whole readable forest, not just organisations: a machine
+        // under an accessible organisation is a node, one under an inaccessible organisation is not,
+        // and a retired discovered machine anchors no read in either subtree.
+        var store = PopulatedStore();
+        store.Assets =
+        [
+            TestAssets.Org("org-a"), TestAssets.Org("org-eng", "org-a", "Department"),
+            TestAssets.Org("org-x"),
+            TestAssets.Machine("m-mine", "org-eng"),
+            TestAssets.Machine("m-retired", "org-eng", source: "discovered", state: "Retired"),
+            TestAssets.Machine("m-theirs", "org-x"),
+        ];
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/statement-of-applicability/std-a");
+        var nodes = json.GetProperty("nodes").EnumerateArray().ToList();
+
+        Assert.Equal(["m-mine", "org-a", "org-eng"], nodes.Select(n => n.GetProperty("id").GetString()!).ToArray());
+        var machine = nodes.Single(n => n.GetProperty("id").GetString() == "m-mine");
+        Assert.Equal("Machine", machine.GetProperty("kind").GetString());
+        Assert.Equal("In", machine.GetProperty("disposition").GetString());
+        Assert.Equal("inherited", machine.GetProperty("resolution").GetString());
     }
 
     [Fact]
@@ -520,7 +609,7 @@ public sealed class ComplianceEndpointTests
         Assert.Equal(2, requirements.Count);
         Assert.Equal("req-a", requirements[0].GetProperty("requirement").GetString());
         Assert.Equal("Out", requirements[0].GetProperty("disposition").GetString());
-        Assert.Equal("explicit", requirements[0].GetProperty("resolution").GetString());
+        Assert.Equal("asset", requirements[0].GetProperty("resolution").GetString());
         Assert.Equal("req-b", requirements[1].GetProperty("requirement").GetString());
 
         var orgEng = nodes.EnumerateArray().Single(n => n.GetProperty("id").GetString() == "org-eng");

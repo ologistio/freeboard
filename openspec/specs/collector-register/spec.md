@@ -8,13 +8,22 @@ TBD - created by archiving change object-model-v2-collector-merge. Update Purpos
 The web app SHALL serve a read-only collector register page at `/settings/collectors`
 that lists controls and, under each control, its `evaluation` rule and its attached
 collectors. For each collector the page SHALL show its `type`, its `provider` (when set),
-its `vendor` (when set), its `frequency`, and its `threshold` (when set); and, for a
-`manual` or `training` collector, the form carried in its `config` - the `body` (when
-set), the `fields` (each field's `label`, `type`, and `options` when set), and, for a
-`training` collector, the `pass_mark` and the `quiz` items (each item's `prompt` and
-`options`). For an `integration` collector the page SHALL show the `checks` carried in its
-`config` (each check's `name` and `severity`), so a reader can see which checks the
+its `vendor` (when set AND readable by the caller), its `frequency`, and its `threshold`
+(when set); and, for a `manual` or `training` collector, the form carried in its `config` -
+the `body` (when set), the `fields` (each field's `label`, `type`, and `options` when set),
+and, for a `training` collector, the `pass_mark` and the `quiz` items (each item's `prompt`
+and `options`). For an `integration` collector the page SHALL show the `checks` carried in
+its `config` (each check's `name` and `severity`), so a reader can see which checks the
 collector tracks.
+
+A collector's `vendor` SHALL be shown only when that vendor id is in the caller's
+ACCESSIBLE ASSET set (as defined by the authorization enforcement capability), and SHALL
+be omitted otherwise, rendering exactly as a collector with no vendor renders. This
+narrows one FIELD and SHALL NOT narrow the row: the collector is still listed. Without it
+a hidden vendor's id would be readable from the register even though vendor readability
+follows the `owner` edge. The rule bounds the vendor ASSET id only; a collector's `title`
+and `config` describe the integration rather than the vendor asset and SHALL NOT be
+narrowed by it.
 
 This one page replaces the retired evidence-collector and attestation-template register
 pages. The page SHALL NOT render a quiz `answer` (the correct answer is redacted from the
@@ -28,7 +37,7 @@ mode, and SHALL require an authenticated user: an anonymous browser GET SHALL re
 `/login`. When the store is unreachable the page SHALL render an in-page notice rather
 than an error page. The page SHALL be reachable from the shell navigation as a single
 `Collectors` entry. Unlike the per-org compliance pages, the register SHALL NOT narrow its
-rows to the caller's accessible organisations: controls and collectors are org-independent
+ROWS to the caller's accessible set: controls and collectors are org-independent
 reference data, so any authenticated user - including one with zero organisation grants
 under strict enforcement - SHALL see every control and every collector.
 
@@ -43,8 +52,15 @@ break in pre-release software).
 - **WHEN** an authenticated user opens `/settings/collectors` with persisted controls and
   collectors
 - **THEN** the page lists each control with its `evaluation` rule and, under it, each
-  attached collector's `type`, `provider` (when set), `vendor` (when set), `frequency`,
-  and `threshold` (when set)
+  attached collector's `type`, `provider` (when set), `vendor` (when set and readable),
+  `frequency`, and `threshold` (when set)
+
+#### Scenario: An unreadable vendor is omitted but the collector still renders
+
+- **WHEN** an authenticated user with no grant reaching a vendor's `owner` opens
+  `/settings/collectors` and a collector names that vendor
+- **THEN** the collector is still listed under its control with all its other fields and
+  shows no vendor, so the hidden vendor's id does not appear on the register
 
 #### Scenario: Manual and training collectors show their form
 
@@ -95,8 +111,9 @@ break in pre-release software).
 - **WHEN** authorization runs in strict enforce mode and an authenticated user with
   no organisation grants opens `/settings/collectors`
 - **THEN** the page renders every control and every collector, not narrowed to the
-  caller's empty accessible-organisation set, because the register intentionally does
-  not filter by accessible organisations
+  caller's empty accessible asset set, because the register intentionally does
+  not filter its rows by that set - while no collector shows a vendor, since none is in
+  that empty set
 
 #### Scenario: Retired register routes no longer answer
 

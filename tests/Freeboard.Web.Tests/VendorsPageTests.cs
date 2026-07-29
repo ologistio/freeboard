@@ -11,9 +11,10 @@ namespace Freeboard.Web.Tests;
 /// Server-rendered vendor register page: requires an authenticated user (an anonymous browser is
 /// redirected to /login; the admin role is NOT required), lists each vendor the caller may see with its
 /// scopes, shows the justification for every Out exception, is GET-only and served in GitOps read-only
-/// mode, reads through the injected <see cref="IComplianceStore"/> (no MySQL), and narrows to vendors
-/// whose owner is in the caller's accessible-org set (a vendor with a hidden owner is hidden with its
-/// vendor-scope justifications).
+/// mode, reads through the injected <see cref="IComplianceStore"/> (no MySQL), and narrows to the
+/// vendors in the caller's accessible asset set - which admits a vendor exactly when its owner resolves
+/// into the caller's organisation union (a vendor with a hidden owner is hidden with its vendor-scope
+/// justifications).
 /// </summary>
 public sealed class VendorsPageTests
 {
@@ -21,11 +22,11 @@ public sealed class VendorsPageTests
 
     private static FakeComplianceStore PopulatedStore() => new()
     {
-        Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
-        Vendors =
+        Assets =
         [
-            new VendorRow("vendor-a", "Vendor A", "org-a"),
-            new VendorRow("vendor-b", "Vendor B", "org-a"),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A"),
+            TestAssets.Vendor("vendor-b", "org-a", title: "Vendor B"),
         ],
         Scopes =
         [
@@ -121,8 +122,8 @@ public sealed class VendorsPageTests
     [Fact]
     public async Task OwnerExcludedEnforceCallerSeesNoVendorOrJustification()
     {
-        // The register narrows by vendor owner. Under strict Enforce with no grants the accessible-org
-        // set is empty, so no vendor renders and no Out justification leaks.
+        // The register narrows by the accessible asset set. Under strict Enforce with no grants that set
+        // is empty, so no vendor renders and no Out justification leaks.
         using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
         using var client = NoRedirectClient(factory);
 
@@ -141,15 +142,12 @@ public sealed class VendorsPageTests
         // page renders vendor-a and its justification, but neither vendor-b nor vendor-b's justification.
         var store = new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("org-a", "Org A", "Company", null),
-                new OrganisationRow("org-b", "Org B", "Company", null),
-            ],
-            Vendors =
-            [
-                new VendorRow("vendor-a", "Vendor A", "org-a"),
-                new VendorRow("vendor-b", "Vendor B", "org-b"),
+                TestAssets.Org("org-a", title: "Org A"),
+                TestAssets.Org("org-b", title: "Org B"),
+                TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A"),
+                TestAssets.Vendor("vendor-b", "org-b", title: "Vendor B"),
             ],
             Scopes =
             [
@@ -172,11 +170,11 @@ public sealed class VendorsPageTests
     }
 
     [Fact]
-    public void ConstructorTakesComplianceStoreAndOrgAccess()
+    public void ConstructorTakesComplianceStoreAndAssetAccess()
     {
         var ctor = Assert.Single(typeof(VendorsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
-        Assert.Equal(new HashSet<Type> { typeof(IComplianceStore), typeof(IOrgAccess) }, paramTypes);
+        Assert.Equal(new HashSet<Type> { typeof(IComplianceStore), typeof(IAssetAccess) }, paramTypes);
     }
 }

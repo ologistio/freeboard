@@ -2,6 +2,7 @@ using System.Globalization;
 using Deque.AxeCore.Playwright;
 using Freeboard.Persistence;
 using Freeboard.TestInfrastructure;
+using Freeboard.Web.Tests;
 using Microsoft.Playwright;
 using Xunit;
 
@@ -24,7 +25,7 @@ public sealed class DrawerE2ETests : E2ETestBase
     private void SeedControl()
     {
         App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
-        App.Compliance.Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)];
+        App.Compliance.Assets = [TestAssets.Org("org-a", title: "Org A")];
         App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
         App.Compliance.Requirements =
         [

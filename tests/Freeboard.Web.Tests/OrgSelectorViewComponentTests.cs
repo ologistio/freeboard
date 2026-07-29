@@ -16,8 +16,8 @@ public sealed class OrgSelectorViewComponentTests
 {
     private const string HomePath = "/home";
 
-    private static AuthWebFactory Factory(FakeComplianceStore store, IOrgAccess? orgAccess = null)
-        => new() { Compliance = store, OrgAccess = orgAccess };
+    private static AuthWebFactory Factory(FakeComplianceStore store, IAssetAccess? assetAccess = null)
+        => new() { Compliance = store, AssetAccess = assetAccess };
 
     private static HttpClient NoRedirectClient(AuthWebFactory factory)
         => factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -42,10 +42,10 @@ public sealed class OrgSelectorViewComponentTests
     {
         using var factory = Factory(new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("org-a", "Org A", "Company", null),
-                new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+                TestAssets.Org("org-a", title: "Org A"),
+                TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
             ],
         });
         using var client = NoRedirectClient(factory);
@@ -70,7 +70,7 @@ public sealed class OrgSelectorViewComponentTests
     {
         using var factory = Factory(new FakeComplianceStore
         {
-            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+            Assets = [TestAssets.Org("org-a", title: "Org A")],
         });
         using var client = NoRedirectClient(factory);
 
@@ -89,13 +89,13 @@ public sealed class OrgSelectorViewComponentTests
         // path down to a deep selection is unrolled in the picker on load.
         using var factory = Factory(new FakeComplianceStore
         {
-            Organisations =
+            Assets =
             [
-                new OrganisationRow("org-a", "Org A", "Company", null),
-                new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
-                new OrganisationRow("org-team", "Platform", "Department", "org-eng"),
-                new OrganisationRow("org-b", "Org B", "Company", null),
-                new OrganisationRow("org-sales", "Sales", "Department", "org-b"),
+                TestAssets.Org("org-a", title: "Org A"),
+                TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
+                TestAssets.Org("org-team", "org-eng", "Department", "Platform"),
+                TestAssets.Org("org-b", title: "Org B"),
+                TestAssets.Org("org-sales", "org-b", "Department", "Sales"),
             ],
         });
         using var client = NoRedirectClient(factory);
@@ -119,13 +119,13 @@ public sealed class OrgSelectorViewComponentTests
         using var factory = Factory(
             new FakeComplianceStore
             {
-                Organisations =
+                Assets =
                 [
-                    new OrganisationRow("org-a", "Org A", "Company", null),
-                    new OrganisationRow("org-b", "Org B", "Company", null),
+                    TestAssets.Org("org-a", title: "Org A"),
+                    TestAssets.Org("org-b", title: "Org B"),
                 ],
             },
-            orgAccess: new SubsetOrgAccess(new HashSet<string>(StringComparer.Ordinal) { "org-a" }));
+            assetAccess: new SubsetAssetAccess(new HashSet<string>(StringComparer.Ordinal) { "org-a" }));
         using var client = NoRedirectClient(factory);
 
         // No cookie -> "All Organisations": org-b is out of the accessible set and must not render.
@@ -134,6 +134,37 @@ public sealed class OrgSelectorViewComponentTests
 
         Assert.Contains("org=org-a", html, StringComparison.Ordinal);
         Assert.DoesNotContain("org=org-b", html, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("m-1")]
+    [InlineData("vendor-a")]
+    public async Task NoNonOrganisationAssetBecomesASelectorEntry(string? orgCookie)
+    {
+        // The seam hands back an ASSET set, so a readable machine and vendor reach the selector. It
+        // presents organisations only, and a cookie naming either falls back to "All Organisations".
+        using var factory = Factory(
+            new FakeComplianceStore
+            {
+                Assets =
+                [
+                    TestAssets.Org("org-a", title: "Org A"),
+                    TestAssets.Machine("m-1", "org-a"),
+                    TestAssets.Vendor("vendor-a", "org-a"),
+                ],
+            },
+            assetAccess: new SubsetAssetAccess(
+                new HashSet<string>(StringComparer.Ordinal) { "org-a", "m-1", "vendor-a" }));
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAsync(factory, client, HomePath, orgCookie);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("org=org-a", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("org=m-1", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("org=vendor-a", html, StringComparison.Ordinal);
+        Assert.Contains("All Organisations", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -151,10 +182,10 @@ public sealed class OrgSelectorViewComponentTests
         Assert.DoesNotContain("?org=", html, StringComparison.Ordinal);
     }
 
-    private sealed class SubsetOrgAccess(IReadOnlySet<string> accessible) : IOrgAccess
+    private sealed class SubsetAssetAccess(IReadOnlySet<string> accessible) : IAssetAccess
     {
-        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+        public ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
             => ValueTask.FromResult<IReadOnlySet<string>>(accessible);
     }
 }
