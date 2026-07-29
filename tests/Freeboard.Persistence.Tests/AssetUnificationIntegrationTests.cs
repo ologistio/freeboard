@@ -265,6 +265,65 @@ public sealed class AssetUnificationIntegrationTests
             + "AND identity_kind = 'Serial' AND identity_value = 'SN-1';"));
     }
 
+    // The one compliance asset read is unfiltered: it carries every type, both sources, and both scalar
+    // edges, because the resolution tree, the drill-down's vendor titles, and the live-subject predicate
+    // each need a different subset of it.
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task GetAssetsReadsTheWholeMixedTreeWithBothEdges()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var machines = new MySqlAssetWriteStore(db.ConnectionFactory, new UlidFactory());
+        var reads = new MySqlComplianceStore(db.ConnectionFactory);
+
+        await importer.ImportAsync(new GitOpsConfig
+        {
+            Assets =
+            [
+                DeclaredOrg("org-a"),
+                DeclaredOrg("dept-a", "Department", parent: "org-a"),
+                DeclaredOrg("m-declared", "Machine", parent: "dept-a"),
+                DeclaredVendor("vendor-a", owner: "org-a"),
+            ],
+        });
+        var seen = await machines.UpsertMachineFromSourceAsync(Obs("dept-a", "fleetdm", "host-1", "SN-1"));
+        var retired = await machines.UpsertMachineFromSourceAsync(Obs("dept-a", "fleetdm", "host-2", "SN-2"));
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(
+            "UPDATE assets SET state = 'Retired' WHERE id = @Id;", new { Id = retired.AssetId });
+
+        var assets = await reads.GetAssetsAsync();
+
+        Assert.Equal(
+            new[] { "dept-a", "m-declared", "org-a", "vendor-a", seen.AssetId!, retired.AssetId! }
+                .OrderBy(id => id, StringComparer.Ordinal).ToArray(),
+            assets.Select(a => a.Id).ToArray());
+
+        var declaredMachine = assets.Single(a => a.Id == "m-declared");
+        Assert.Equal(("Machine", "declared", "dept-a"), (declaredMachine.Type, declaredMachine.Source, declaredMachine.Parent));
+        Assert.False(declaredMachine.IsOrganisation);
+        Assert.Null(declaredMachine.State); // discovered-only column; a declared row reads null, which is live
+
+        // Both discovered machines are returned, retirement included: the consumers filter it, not the SQL.
+        Assert.Equal(("discovered", "Seen"), Sourced(assets, seen.AssetId!));
+        Assert.Equal(("discovered", "Retired"), Sourced(assets, retired.AssetId!));
+
+        // Both scalar edges survive the one read, and they stay mutually exclusive.
+        var vendor = assets.Single(a => a.Id == "vendor-a");
+        Assert.Equal("org-a", vendor.Owner);
+        Assert.Null(vendor.Parent);
+        Assert.Null(assets.Single(a => a.Id == "dept-a").Owner);
+        Assert.Equal("org-a", assets.Single(a => a.Id == "dept-a").Parent);
+    }
+
+    private static (string Source, string? State) Sourced(IReadOnlyList<AssetNode> assets, string id)
+    {
+        var asset = assets.Single(a => a.Id == id);
+        return (asset.Source, asset.State);
+    }
+
     // The app-managed org CRUD writes to the merged assets table and keeps its stricter
     // write-time guards (self-parent, cycle, no-delete-with-children); org-role assignment validates the
     // target against assets.
@@ -280,7 +339,7 @@ public sealed class AssetUnificationIntegrationTests
         Assert.True((await store.UpsertOrganisationAsync("child", "Child", "Department", "root", expectExisting: false)).Ok);
 
         // The org projection reads back the two Company/Department assets.
-        var orgs = await reads.GetOrganisationsAsync();
+        var orgs = (await reads.GetAssetsAsync()).Where(a => a.IsOrganisation).ToList();
         Assert.Equal(["child", "root"], orgs.Select(o => o.Id).OrderBy(x => x, StringComparer.Ordinal).ToArray());
         Assert.Equal("root", orgs.Single(o => o.Id == "child").Parent);
 
@@ -292,7 +351,7 @@ public sealed class AssetUnificationIntegrationTests
         Assert.False((await store.DeleteOrganisationAsync("root")).Ok);
         Assert.True((await store.DeleteOrganisationAsync("child")).Ok);
         Assert.True((await store.DeleteOrganisationAsync("root")).Ok);
-        Assert.Empty(await reads.GetOrganisationsAsync());
+        Assert.DoesNotContain(await reads.GetAssetsAsync(), a => a.IsOrganisation);
 
         // Authz org-role assignment validates the target org against the Company/Department asset subset.
         var authz = new MySqlAuthzAdministrationStore(db.ConnectionFactory, new UlidFactory());

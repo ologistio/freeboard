@@ -200,7 +200,7 @@ standard out, and a descendant `In` overrides an opted-out ancestor. The Stateme
 of Applicability (below) resolves this per node. A standard left unscoped is in
 scope; a deployment that wants a standard to stay out MUST author an explicit `Out`
 at the appropriate organisation. A root-level `In` is a redundant no-op (it resolves
-`In` marked `explicit` instead of `default`) and may be deleted.
+`In` marked `asset` instead of `default`) and may be deleted.
 
 **Requirement-target scopes** layer under the standard-level scope. For a node and a
 requirement (owned by standard S): if the node's disposition for S resolves `Out`,
@@ -629,41 +629,50 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
 - `GET /api/v1/freeboard/scopes` - persisted scopes (`id`, `title`, `subject`,
   `standard`, `requirement`, `control`, `disposition`, `justification`; exactly one
   of `standard`/`requirement`/`control` is set, the others null; `justification` is
-  null when unset). Rows are narrowed by subject readability: an org-tree subject in
-  the caller's accessible-organisation set, a vendor subject whose `owner` is in that
-  set, and a machine (or other parent-anchored) subject whose parent-org ancestry
-  reaches that set. A subject that is missing, dangling, or resolves to no live asset
-  hides the scope (fail-closed), so a hidden subject's `Out` justification never
-  leaks.
+  null when unset). Rows are narrowed by one membership test: the scope's `subject`
+  must be in the caller's accessible asset set. That set is the caller's granted
+  organisation union closed over the asset tree - an asset is in it when its `parent`
+  chain or its `owner` reaches the union, or when its own id is in it. A subject that
+  is missing, dangling, or resolves to no live asset hides the scope (fail-closed),
+  so a hidden subject's `Out` justification never leaks.
 - `GET /api/v1/freeboard/vendors` - persisted vendors (`id`, `title`). Narrowed by
-  owner access: a vendor is returned only when its `owner` (a Company/Department
-  asset) is in the caller's accessible-organisation set; a vendor with a null or
+  the same test, which admits a vendor exactly when its `owner` (a Company/Department
+  asset) resolves into the caller's organisation union; a vendor with a null or
   dangling owner is hidden from everyone (fail-closed).
 - `GET /api/v1/freeboard/collectors` - persisted collectors (`id`, `title`,
   `control`, `vendor`, `type`, `provider`, `frequency`, `threshold`, and a `config`
   object carrying only the payload keys the row actually holds; an absent one is
   omitted). Each quiz item carries its `id`, `prompt`, and `options` and NEVER its
-  `answer`. `connection` is not projected. These are not narrowed by organisation
-  access - any authenticated user reads every row.
+  `answer`. `connection` is not projected. The ROWS are not narrowed by organisation
+  access - any authenticated user reads every row - but `vendor` is: it names a vendor
+  asset, so it is sent only when that id is in the caller's accessible asset set, and
+  `null` otherwise.
 - `GET /api/v1/freeboard/integration-connections` - persisted integration
   connections (`id`, `provider`, `base_url`, `discovery_cadence`, `vendor`, and a
-  read-time `token_resolvable` health flag). The API token is never returned. These
-  are not narrowed by organisation access - any authenticated user reads every row.
+  read-time `token_resolvable` health flag). The API token is never returned. The
+  ROWS are not narrowed by organisation access - any authenticated user reads every
+  row - but `vendor` is: it names a vendor asset, so it is sent only when that id is
+  in the caller's accessible asset set, and `null` otherwise.
 - `GET /api/v1/freeboard/statement-of-applicability/{standardId}` - the SoA
-  projection for a standard: every organisation node with its resolved
-  `disposition` (always `In` or `Out`) and whether that value is `explicit`,
-  `inherited`, or `default` (`default` means in scope with no authored scope on the
-  path), plus a `requirements` list of the per-requirement deviations for nodes
-  whose standard resolves `In` (each with its `requirement`, resolved
-  `disposition`, and `explicit`/`inherited` resolution; a requirement not listed
-  follows the node's standard disposition). A node resolving `Out` always carries an
-  empty `requirements` list (requirement-target scopes are not applied under an
-  out-of-scope standard); an in-scope node (`explicit`, `inherited`, or `default`)
-  carries its per-requirement deviations, which is an empty list when it has none.
-  The `/compliance/statement-of-applicability` page additionally shows a generic,
-  non-blocking notice ("rule targets a resource that does not currently exist") when
-  any scope of any target kind has a subject that resolves to no live asset; the
-  notice names neither the scope nor the subject id.
+  projection for a standard. The node set is the asset forest, narrowed to the
+  caller's accessible asset set: every `Company` and `Department` asset, plus every
+  other asset (a `Machine`, say) whose `parent` chain reaches one. A vendor is never
+  a node - it carries `owner`, not `parent`. Each node carries its resolved
+  `disposition` (always `In` or `Out`) and whether that value is `asset`,
+  `inherited`, or `default` (`asset` means the node's own scope set it; `default`
+  means in scope with no authored scope on the path), plus a `requirements` list of
+  the per-requirement deviations for nodes whose standard resolves `In` (each with
+  its `requirement`, resolved `disposition`, and `asset`/`inherited` resolution; a
+  requirement not listed follows the node's standard disposition). A node resolving
+  `Out` always carries an empty `requirements` list (requirement-target scopes are
+  not applied under an out-of-scope standard); an in-scope node (`asset`,
+  `inherited`, or `default`) carries its per-requirement deviations, which is an
+  empty list when it has none. The `/compliance/statement-of-applicability` page
+  keeps an organisation-only node set - its selector scoping, active-scope label, and
+  per-collector evidence status are all keyed on an organisation id - and
+  additionally shows a generic, non-blocking notice ("rule targets a resource that
+  does not currently exist") when any scope of any target kind has a subject that
+  resolves to no live asset; the notice names neither the scope nor the subject id.
 - `GET /api/v1/freeboard/compliance/status` - a `persisted` object of per-kind
   counts, carrying one `scopes` count for the unified scope table.
 

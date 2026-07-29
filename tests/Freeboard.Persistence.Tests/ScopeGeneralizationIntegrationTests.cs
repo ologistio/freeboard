@@ -341,9 +341,12 @@ public sealed class ScopeGeneralizationIntegrationTests
         var result = await importer.ImportAsync(Config(
             [Std("std-a")], scopes: [Scope("sc-1", "org-a", standard: "std-a")]));
 
-        Assert.Empty(await store.GetOrganisationsAsync());
+        Assert.DoesNotContain(await store.GetAssetsAsync(), a => a.IsOrganisation);
+        // The scope read carries no join to assets, so a row whose subject resolves to nothing still
+        // reads back whole; readability is decided by resolving Subject against the asset read instead.
         var scope = Assert.Single(await store.GetScopesAsync());
         Assert.Equal("org-a", scope.Subject);
+        Assert.Equal("std-a", scope.Standard);
         Assert.Contains("org-a", result.UnresolvedScopeSubjects);
     }
 

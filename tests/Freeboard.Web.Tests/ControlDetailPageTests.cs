@@ -10,7 +10,7 @@ namespace Freeboard.Web.Tests;
 /// <summary>
 /// The full-page control detail (O4): it renders the same shared anatomy the drawer shows for the same
 /// control (facet parity, actions slot excluded), raises the store-unreachable notice, authorizes on the
-/// caller's full accessible org set rather than the active-scope cookie, and returns not-found without
+/// caller's full accessible asset set rather than the active-scope cookie, and returns not-found without
 /// leaking a record name for a missing or inaccessible control.
 /// </summary>
 public sealed class ControlDetailPageTests
@@ -40,7 +40,7 @@ public sealed class ControlDetailPageTests
     private static FakeComplianceStore SingleOrgStore() => new()
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-        Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+        Assets = [TestAssets.Org("org-a", title: "Org A")],
         Requirements =
         [
             new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),
@@ -56,10 +56,10 @@ public sealed class ControlDetailPageTests
     private static FakeComplianceStore TwoOrgStore() => new()
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-        Organisations =
+        Assets =
         [
-            new OrganisationRow("org-a", "Org A", "Company", null),
-            new OrganisationRow("org-b", "Org B", "Company", null),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-b", title: "Org B"),
         ],
         Requirements =
         [
@@ -281,7 +281,7 @@ public sealed class ControlDetailPageTests
     public async Task OrgOutsideAccessibleSetReturnsNotFound()
     {
         var accessible = new HashSet<string>(StringComparer.Ordinal) { "org-a" };
-        using var factory = new AuthWebFactory { Compliance = TwoOrgStore(), OrgAccess = new SubsetOrgAccess(accessible) };
+        using var factory = new AuthWebFactory { Compliance = TwoOrgStore(), AssetAccess = new SubsetAssetAccess(accessible) };
         using var client = NoRedirectClient(factory);
 
         var response = await GetAsync(
@@ -293,19 +293,19 @@ public sealed class ControlDetailPageTests
     }
 
     [Fact]
-    public void ConstructorTakesComplianceStoreOrgAccessAndEvidenceStore()
+    public void ConstructorTakesComplianceStoreAssetAccessAndEvidenceStore()
     {
         var ctor = Assert.Single(typeof(Freeboard.Pages.Compliance.ControlDetailModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
         Assert.Equal(
-            new HashSet<Type> { typeof(IComplianceStore), typeof(IOrgAccess), typeof(IEvidenceStore) }, paramTypes);
+            new HashSet<Type> { typeof(IComplianceStore), typeof(IAssetAccess), typeof(IEvidenceStore) }, paramTypes);
     }
 
-    private sealed class SubsetOrgAccess(IReadOnlySet<string> accessible) : IOrgAccess
+    private sealed class SubsetAssetAccess(IReadOnlySet<string> accessible) : IAssetAccess
     {
-        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+        public ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
             => ValueTask.FromResult(accessible);
     }
 }

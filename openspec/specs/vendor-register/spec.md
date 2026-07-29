@@ -18,9 +18,10 @@ When the store is unreachable the page SHALL render an in-page notice rather tha
 page. The page SHALL be reachable from the compliance navigation.
 
 The register SHALL narrow its rows to the vendors the caller may read: a vendor is
-readable when its `owner` (a `Company`/`Department` asset) is in the caller's
-accessible-organisation set. The prior global-readability behavior - every
-authenticated user seeing every vendor regardless of grants - SHALL NOT apply. A
+readable when it is in the caller's accessible asset set, which admits it exactly when
+its `owner` (a `Company`/`Department` asset) resolves into the caller's organisation
+union. The prior global-readability behavior - every authenticated user seeing every
+vendor regardless of grants - SHALL NOT apply. A
 vendor whose `owner` is not in the caller's accessible set (including a vendor with
 no readable owner) SHALL NOT be listed for that caller.
 
@@ -59,7 +60,7 @@ scope surface: a missing or dangling owner hides the vendor AND its scopes.
 #### Scenario: Vendor with an unreadable owner is hidden
 
 - **WHEN** an authenticated user opens `/compliance/vendors` and a vendor's `owner`
-  is not in the user's accessible-organisation set (or the vendor has no readable
+  does not resolve into the user's organisation union (or the vendor has no readable
   owner)
 - **THEN** that vendor is not listed, because vendor readability follows the owner
   edge and is not global

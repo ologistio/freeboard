@@ -20,10 +20,10 @@ public sealed class StatementOfApplicabilityPageTests
     private static FakeComplianceStore PopulatedStore() => new()
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-        Organisations =
+        Assets =
         [
-            new OrganisationRow("org-a", "Org A", "Company", null),
-            new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
         ],
         Scopes =
         [
@@ -36,24 +36,24 @@ public sealed class StatementOfApplicabilityPageTests
         ],
     };
 
-    // company -> dept -> team, plus a separate sibling company. std-a is explicit In at the company,
+    // company -> dept -> team, plus a separate sibling company. std-a is In on the company's own row,
     // so the department inherits In from the company above it.
     private static FakeComplianceStore ScopedStore() => new()
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-        Organisations =
+        Assets =
         [
-            new OrganisationRow("org-co", "Company Co", "Company", null),
-            new OrganisationRow("org-dept", "Department", "Department", "org-co"),
-            new OrganisationRow("org-team", "Team", "Department", "org-dept"),
-            new OrganisationRow("org-sib", "Sibling Co", "Company", null),
+            TestAssets.Org("org-co", title: "Company Co"),
+            TestAssets.Org("org-dept", "org-co", "Department", "Department"),
+            TestAssets.Org("org-team", "org-dept", "Department", "Team"),
+            TestAssets.Org("org-sib", title: "Sibling Co"),
         ],
         Scopes = [new ScopeRow("scope-a", "Scope A", "org-co", "std-a", null, null, "In", null)],
     };
 
     private static AuthWebFactory Factory(
-        FakeComplianceStore store, bool readOnly = false, IOrgAccess? orgAccess = null, FakeEvidenceStore? evidence = null)
-        => new() { Compliance = store, ReadOnly = readOnly, OrgAccess = orgAccess, EvidenceReads = evidence ?? new() };
+        FakeComplianceStore store, bool readOnly = false, IAssetAccess? assetAccess = null, FakeEvidenceStore? evidence = null)
+        => new() { Compliance = store, ReadOnly = readOnly, AssetAccess = assetAccess, EvidenceReads = evidence ?? new() };
 
     private static HttpClient NoRedirectClient(AuthWebFactory factory)
         => factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -104,6 +104,26 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
+    public async Task PageRendersOrganisationRowsOnly()
+    {
+        // The page's selector scoping, active-scope label, and per-collector evidence status are all
+        // keyed on an organisation id, so it keeps an organisation-only node set even though the JSON
+        // endpoint over the same resolver returns readable machines.
+        var store = PopulatedStore();
+        store.Assets = [.. store.Assets, TestAssets.Machine("m-1", "org-a"), TestAssets.Vendor("vendor-x", "org-a")];
+        using var factory = Factory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-node-id=\"org-a\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-node-id=\"m-1\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-node-id=\"vendor-x\"", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RendersResolvedNodesForChosenStandard()
     {
         using var factory = Factory(PopulatedStore());
@@ -113,11 +133,11 @@ public sealed class StatementOfApplicabilityPageTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var html = await response.Content.ReadAsStringAsync();
-        // Explicit In at org-a; org-eng inherits In. Ordered by id.
+        // In on org-a's own row; org-eng inherits In. Ordered by id.
         var orgIndex = html.IndexOf("org-a", StringComparison.Ordinal);
         var engIndex = html.IndexOf("org-eng", StringComparison.Ordinal);
         Assert.True(orgIndex >= 0 && engIndex > orgIndex, "nodes should render ordered by id");
-        Assert.Contains("explicit", html, StringComparison.Ordinal);
+        Assert.Contains("asset", html, StringComparison.Ordinal);
         Assert.Contains("inherited", html, StringComparison.Ordinal);
         Assert.Contains("In", html, StringComparison.Ordinal);
     }
@@ -132,11 +152,11 @@ public sealed class StatementOfApplicabilityPageTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var table = ResultsTable(await response.Content.ReadAsStringAsync());
-        // org-a excludes req-a (explicit); org-eng inherits it. The requirement disclosure row carries the
-        // hook, an Out badge, and its provenance - both explicit and inherited appear across the two nodes.
+        // org-a excludes req-a on its own row; org-eng inherits it. The requirement disclosure row carries
+        // the hook, an Out badge, and its provenance - both asset and inherited appear across the two nodes.
         Assert.Contains("data-requirement-id=\"req-a\"", table, StringComparison.Ordinal);
         Assert.Contains("badge-danger", table, StringComparison.Ordinal);
-        Assert.Contains("explicit", table, StringComparison.Ordinal);
+        Assert.Contains("asset", table, StringComparison.Ordinal);
         Assert.Contains("inherited", table, StringComparison.Ordinal);
     }
 
@@ -146,7 +166,7 @@ public sealed class StatementOfApplicabilityPageTests
     private static FakeComplianceStore DrilldownStore() => new()
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-        Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+        Assets = [TestAssets.Org("org-a", title: "Org A"), TestAssets.Vendor("vendor-x", "org-a", title: "Vendor X")],
         Scopes =
         [
             new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null),
@@ -167,7 +187,6 @@ public sealed class StatementOfApplicabilityPageTests
             new CollectorRow("coll-a", "Collector A", "ctrl-a", "vendor-x", "integration", "fleet", "daily", null, CollectorConfigView.Empty),
             new CollectorRow("tmpl-a", "Template A", "ctrl-a", null, "manual", null, "annual", null, CollectorConfigView.Empty),
         ],
-        Vendors = [new VendorRow("vendor-x", "Vendor X", null)],
     };
 
     [Fact]
@@ -268,7 +287,7 @@ public sealed class StatementOfApplicabilityPageTests
         var reqB = table[table.IndexOf("data-requirement-id=\"req-b\"", StringComparison.Ordinal)..];
         reqB = reqB[..reqB.IndexOf("</li>", StringComparison.Ordinal)];
         Assert.Contains("badge-danger", reqB, StringComparison.Ordinal);
-        Assert.Contains("explicit", reqB, StringComparison.Ordinal);
+        Assert.Contains("asset", reqB, StringComparison.Ordinal);
         // ...but it is a leaf: no expand toggle and no nested control row, even though ctrl-b maps to it.
         Assert.DoesNotContain("Toggle requirement req-b", reqB, StringComparison.Ordinal);
         Assert.DoesNotContain("data-control-id=\"ctrl-b\"", table, StringComparison.Ordinal);
@@ -295,7 +314,7 @@ public sealed class StatementOfApplicabilityPageTests
         var store = new FakeComplianceStore
         {
             Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+            Assets = [TestAssets.Org("org-a", title: "Org A")],
             Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "Out", "org-a out")],
             Requirements =
             [
@@ -320,7 +339,7 @@ public sealed class StatementOfApplicabilityPageTests
         var store = new FakeComplianceStore
         {
             Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+            Assets = [TestAssets.Org("org-a", title: "Org A")],
         };
         using var factory = Factory(store);
         using var client = NoRedirectClient(factory);
@@ -456,7 +475,7 @@ public sealed class StatementOfApplicabilityPageTests
     public async Task RestrictedAccessKeepsOutOfAccessOrgsAbsentUnderAll()
     {
         var accessible = new HashSet<string>(StringComparer.Ordinal) { "org-co", "org-dept", "org-team" };
-        using var factory = Factory(ScopedStore(), orgAccess: new SubsetOrgAccess(accessible));
+        using var factory = Factory(ScopedStore(), assetAccess: new SubsetAssetAccess(accessible));
         using var client = NoRedirectClient(factory);
 
         // No selection -> "All", but bounded by the accessible set, so the sibling never renders.
@@ -522,13 +541,13 @@ public sealed class StatementOfApplicabilityPageTests
     public async Task InputsLoadFailingAfterStandardsStillRendersNotice()
     {
         // The standards read succeeds, but the Statement-of-Applicability inputs read (which carries
-        // the organisation list) throws: the page reads its organisations from its own inputs read,
+        // the asset list) throws: the page reads its organisations from its own inputs read,
         // so that read failing raises the notice - it does not take the layout resolver's degraded
         // empty list and render a healthy empty table.
         var store = ScopedStore();
         using var factory = Factory(new FakeComplianceStore
         {
-            OrganisationsUnreachable = true,
+            AssetsUnreachable = true,
             Standards = store.Standards,
             Scopes = store.Scopes,
         });
@@ -548,7 +567,7 @@ public sealed class StatementOfApplicabilityPageTests
         var store = new FakeComplianceStore
         {
             Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-            Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+            Assets = [TestAssets.Org("org-a", title: "Org A")],
             Scopes =
             [
                 new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null),
@@ -574,20 +593,20 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
-    public void ConstructorTakesComplianceStoreOrgAccessAndEvidenceStore()
+    public void ConstructorTakesComplianceStoreAssetAccessAndEvidenceStore()
     {
         var ctor = Assert.Single(typeof(StatementOfApplicabilityModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
         Assert.Equal(
-            new HashSet<Type> { typeof(IComplianceStore), typeof(IOrgAccess), typeof(IEvidenceStore) }, paramTypes);
+            new HashSet<Type> { typeof(IComplianceStore), typeof(IAssetAccess), typeof(IEvidenceStore) }, paramTypes);
         Assert.DoesNotContain(typeof(OrgSelectionResolver), paramTypes);
     }
 
-    private sealed class SubsetOrgAccess(IReadOnlySet<string> accessible) : IOrgAccess
+    private sealed class SubsetAssetAccess(IReadOnlySet<string> accessible) : IAssetAccess
     {
-        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+        public ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
             => ValueTask.FromResult<IReadOnlySet<string>>(accessible);
     }
 }

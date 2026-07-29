@@ -32,7 +32,7 @@ public sealed class ObjectDrawerRenderTests
     private static FakeComplianceStore DrilldownStore() => new()
     {
         Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)],
-        Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)],
+        Assets = [TestAssets.Org("org-a", title: "Org A")],
         Requirements =
         [
             new RequirementRow("req-a", "Requirement A", "std-a", "Theme", "Do the thing.", null, "L", "https://example.com/a"),

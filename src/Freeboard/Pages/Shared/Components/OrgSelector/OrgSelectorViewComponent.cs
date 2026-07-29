@@ -43,7 +43,7 @@ public sealed class OrgSelectorViewComponent(OrgSelectionResolver resolver) : Vi
     }
 
     private static IReadOnlyList<OrgSelectorNode> BuildRoots(
-        IReadOnlyList<OrganisationRow> organisations, string? selectedId)
+        IReadOnlyList<AssetNode> organisations, string? selectedId)
     {
         var ids = organisations.Select(o => o.Id).ToHashSet(StringComparer.Ordinal);
         var childrenByParent = organisations
@@ -61,8 +61,8 @@ public sealed class OrgSelectorViewComponent(OrgSelectionResolver resolver) : Vi
     }
 
     private static OrgSelectorNode Build(
-        OrganisationRow organisation,
-        IReadOnlyDictionary<string, List<OrganisationRow>> childrenByParent,
+        AssetNode organisation,
+        IReadOnlyDictionary<string, List<AssetNode>> childrenByParent,
         string? selectedId)
     {
         var children = childrenByParent.TryGetValue(organisation.Id, out var kids)
@@ -75,6 +75,6 @@ public sealed class OrgSelectorViewComponent(OrgSelectionResolver resolver) : Vi
         var onSelectionPath = string.Equals(organisation.Id, selectedId, StringComparison.Ordinal)
             || children.Any(c => c.OnSelectionPath);
         return new OrgSelectorNode(
-            organisation.Id, organisation.Title, organisation.Kind, onSelectionPath, children);
+            organisation.Id, organisation.Title, organisation.Type, onSelectionPath, children);
     }
 }

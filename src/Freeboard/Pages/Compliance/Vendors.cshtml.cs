@@ -10,14 +10,15 @@ namespace Freeboard.Pages.Compliance;
 /// never silent). GET-only, so the GitOps read-only middleware never blocks it. Reads vendors and the
 /// unified scopes through <see cref="IComplianceStore"/> in-process (like the Statement of
 /// Applicability page) inside one try/catch that sets <see cref="StoreUnreachable"/>, so a store
-/// outage renders an in-page notice rather than a 500. A vendor is shown only when its owner is in the
-/// caller's accessible-org set; a vendor with a null or dangling owner is hidden (fail-closed), and its
-/// scope justifications are hidden with it.
+/// outage renders an in-page notice rather than a 500. A vendor is shown when it is in the caller's
+/// accessible asset set, which admits it exactly when its owner resolves into the caller's organisation
+/// union; a vendor with a null or dangling owner is hidden (fail-closed), and its scope justifications
+/// are hidden with it.
 /// </summary>
-public sealed class VendorsModel(IComplianceStore store, IOrgAccess orgAccess) : PageModel
+public sealed class VendorsModel(IComplianceStore store, IAssetAccess assetAccess) : PageModel
 {
-    /// <summary>All vendors, ordered by id.</summary>
-    public IReadOnlyList<VendorRow> Vendors { get; private set; } = [];
+    /// <summary>The vendors the caller may read, ordered by id.</summary>
+    public IReadOnlyList<AssetNode> Vendors { get; private set; } = [];
 
     /// <summary>Set when the store is unreachable; rendered as an in-page notice.</summary>
     public bool StoreUnreachable { get; private set; }
@@ -29,11 +30,11 @@ public sealed class VendorsModel(IComplianceStore store, IOrgAccess orgAccess) :
     {
         try
         {
-            var accessible = await orgAccess.AccessibleOrgIdsAsync(
-                User, await store.GetOrganisationsAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+            var assets = await store.GetAssetsAsync(ct).ConfigureAwait(false);
+            var accessible = await assetAccess.AccessibleAssetIdsAsync(User, assets, ct).ConfigureAwait(false);
 
-            Vendors = (await store.GetVendorsAsync(ct).ConfigureAwait(false))
-                .Where(v => v.Owner is not null && accessible.Contains(v.Owner))
+            Vendors = assets
+                .Where(a => a.Type is "Vendor" && accessible.Contains(a.Id))
                 .OrderBy(v => v.Id, StringComparer.Ordinal).ToList();
 
             var visibleVendorIds = Vendors.Select(v => v.Id).ToHashSet(StringComparer.Ordinal);

@@ -104,9 +104,9 @@ public sealed class Authorizer(
             return resource;
         }
 
-        var organisations = await cache.GetOrganisationsAsync(ct).ConfigureAwait(false);
-        var byId = organisations.ToDictionary(o => o.Id, StringComparer.Ordinal);
-        var ancestry = Compliance.OrgAncestry.InclusiveAncestors(resource.OrganisationId, byId);
+        var assets = await cache.GetAssetsAsync(ct).ConfigureAwait(false);
+        var byId = assets.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        var ancestry = Compliance.AssetAncestry.InclusiveAncestors(resource.OrganisationId, byId);
         return resource with { OrgAncestryInclusive = ancestry };
     }
 

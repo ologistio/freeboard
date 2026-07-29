@@ -17,7 +17,8 @@ namespace Freeboard.Web.Tests;
 /// expose, render, or log the token value. The page requires an authenticated user (anonymous redirects
 /// to /login), degrades to an in-page notice on a store outage, and shows an empty state when there are
 /// none. The endpoint 401s an anonymous caller and 503s on a store outage. The startup warning names an
-/// unresolvable connection id and never the token value.
+/// unresolvable connection id and never the token value. Both surfaces keep the ROW set global while
+/// withholding a vendor id the caller cannot read.
 /// </summary>
 public sealed class IntegrationConnectionsTests
 {
@@ -27,6 +28,7 @@ public sealed class IntegrationConnectionsTests
 
     private static FakeComplianceStore PopulatedStore() => new()
     {
+        Assets = [TestAssets.Org("org-a"), TestAssets.Vendor("vendor-a", "org-a")],
         Connections =
         [
             new IntegrationConnectionRow("fleet-prod", "fleet", "https://fleet.example.com", "daily", "vendor-a"),
@@ -259,11 +261,71 @@ public sealed class IntegrationConnectionsTests
     }
 
     [Fact]
-    public void PageConstructorTakesStoreAndTokenResolver()
+    public void PageConstructorTakesStoreTokenResolverAndAssetAccess()
     {
         var ctor = Assert.Single(typeof(IntegrationConnectionsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToList();
 
-        Assert.Equal([typeof(IComplianceStore), typeof(Freeboard.Compliance.IIntegrationTokenResolver)], paramTypes);
+        Assert.Equal(
+            [typeof(IComplianceStore), typeof(Freeboard.Compliance.IIntegrationTokenResolver), typeof(IAssetAccess)],
+            paramTypes);
+    }
+
+    // The vendor id names a vendor asset, which the owner edge governs, so it is withheld from a caller
+    // who cannot read it. The row itself stays: connections carry no organisation dimension.
+    private static FakeComplianceStore UnreadableVendorStore()
+    {
+        var store = PopulatedStore();
+        store.Assets = [TestAssets.Org("org-a"), TestAssets.Org("org-x"), TestAssets.Vendor("vendor-a", "org-x")];
+        return store;
+    }
+
+    private static AuthWebFactory EnforcedReaderFactory(FakeComplianceStore store) => new()
+    {
+        Compliance = store,
+        AuthzMode = "Enforce",
+        Authz = new FakeAuthzStore().GrantComplianceReader("member1", "org-a"),
+        Settings = new Dictionary<string, string?> { ["Freeboard:Integrations:fleet-prod:ApiToken"] = SecretToken },
+    };
+
+    [Fact]
+    public async Task EndpointReturnsEveryRowWithAnUnreadableVendorNulled()
+    {
+        using var factory = EnforcedReaderFactory(UnreadableVendorStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>(Endpoint);
+
+        Assert.Equal(["fleet-prod", "fleet-dev"], json.EnumerateArray().Select(c => c.GetProperty("id").GetString()!).ToArray());
+        Assert.All(json.EnumerateArray(), c => Assert.Equal(JsonValueKind.Null, c.GetProperty("vendor").ValueKind));
+        Assert.DoesNotContain("vendor-a", json.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EndpointKeepsAReadableVendorId()
+    {
+        using var factory = EnforcedReaderFactory(PopulatedStore());
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>(Endpoint);
+
+        Assert.Equal("vendor-a", json[0].GetProperty("vendor").GetString());
+    }
+
+    [Fact]
+    public async Task PageRendersAnUnreadableVendorExactlyAsAnUnsetOne()
+    {
+        using var factory = EnforcedReaderFactory(UnreadableVendorStore());
+        using var client = NoRedirectClient(factory);
+
+        var token = factory.SeedSession(AuthWebFactory.MakeUser("member1"));
+        using var request = new HttpRequestMessage(HttpMethod.Get, Path);
+        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
+        var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-connection-id=\"fleet-prod\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("vendor-a", html, StringComparison.Ordinal);
     }
 }

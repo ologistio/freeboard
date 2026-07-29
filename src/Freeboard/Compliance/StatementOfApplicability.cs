@@ -6,8 +6,8 @@ namespace Freeboard.Compliance;
 /// <summary>How a node's disposition for a standard was determined.</summary>
 public enum SoaResolution
 {
-    /// <summary>The node has its own Scope for the standard.</summary>
-    Explicit,
+    /// <summary>The asset the node stands for has its own Scope for the standard.</summary>
+    Asset,
 
     /// <summary>The value came from the nearest ancestor that has a Scope.</summary>
     Inherited,
@@ -21,7 +21,7 @@ public static class SoaResolutionNames
 {
     public static string ToWireValue(this SoaResolution resolution) => resolution switch
     {
-        SoaResolution.Explicit => "explicit",
+        SoaResolution.Asset => "asset",
         SoaResolution.Inherited => "inherited",
         _ => "default",
     };
@@ -30,17 +30,17 @@ public static class SoaResolutionNames
 /// <summary>
 /// One requirement-level deviation on a node: the requirement's resolved disposition
 /// (<c>In</c> or <c>Out</c>) and whether the node's own requirement-scope set it
-/// (<see cref="SoaResolution.Explicit"/>) or it was inherited from an ancestor.
+/// (<see cref="SoaResolution.Asset"/>) or it was inherited from an ancestor.
 /// </summary>
 public sealed record SoaRequirementResolution(
     string Requirement, string Disposition, SoaResolution Resolution);
 
 /// <summary>
-/// One organisation node in a Statement of Applicability: its resolved standard disposition
+/// One node in a Statement of Applicability: its resolved standard disposition
 /// (always <c>In</c> or <c>Out</c>, never null) and how that value was reached
 /// (<see cref="SoaResolution.Default"/> means in-scope with no authored Scope on the path).
 /// <see cref="Requirements"/> lists only the requirement-level deviations (requirements with
-/// an explicit or inherited requirement-scope) and is populated only where the standard
+/// an own or inherited requirement-scope) and is populated only where the standard
 /// resolves <c>In</c>; an unlisted requirement follows the node's standard disposition.
 /// </summary>
 public sealed record SoaNode(
@@ -95,7 +95,7 @@ public sealed record SoaControlNode(
 
 /// <summary>
 /// One requirement under an in-scope organisation node: its resolved <see cref="Disposition"/>
-/// (<c>In</c> or <c>Out</c>) and provenance (explicit/inherited/default), with the controls that map
+/// (<c>In</c> or <c>Out</c>) and provenance (asset/inherited/default), with the controls that map
 /// to it. Unlike the flat <see cref="SoaNode"/>, this is the full requirement set of the standard, not
 /// only deviations. An excluded (<c>Out</c>) requirement is a leaf: <see cref="Controls"/> is empty, so
 /// only an <c>In</c> requirement carries controls (and their checks).
@@ -118,24 +118,24 @@ public sealed record SoaDrilldownNode(
     IReadOnlyList<SoaRequirementNode> Requirements);
 
 /// <summary>
-/// Resolves a Statement of Applicability for a standard: a projection over the
-/// organisation tree that assigns each node a disposition by nearest-ancestor
-/// inheritance. Pure (no I/O), so the inheritance rule is unit testable. A node with no
-/// Scope on its path defaults to <c>In</c>, so the standard disposition is always
-/// <c>In</c> or <c>Out</c>.
+/// Resolves a Statement of Applicability for a standard: a projection over the asset
+/// tree that assigns each node a disposition by nearest-ancestor inheritance. Pure (no
+/// I/O), so the inheritance rule is unit testable. A node with no Scope on its path
+/// defaults to <c>In</c>, so the standard disposition is always <c>In</c> or <c>Out</c>.
 /// </summary>
 public static class StatementOfApplicability
 {
     public static IReadOnlyList<SoaNode> Resolve(
-        IReadOnlyList<OrganisationRow> organisations,
+        IReadOnlyList<AssetNode> assets,
         IReadOnlyList<ScopeRow> scopes,
         IReadOnlyList<RequirementRow> requirements,
         string standardId)
     {
-        var byId = organisations.ToDictionary(o => o.Id, StringComparer.Ordinal);
+        var byId = assets.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        var ancestryCache = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
-        // Standard-target scopes for this standard, keyed by subject (an org id resolves against a node).
-        var explicitByOrg = scopes
+        // Standard-target scopes for this standard, keyed by subject (an asset id resolves against a node).
+        var scopeByAsset = scopes
             .Where(s => string.Equals(s.Standard, standardId, StringComparison.Ordinal))
             .GroupBy(s => s.Subject, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First().Disposition, StringComparer.Ordinal);
@@ -160,24 +160,29 @@ public static class StatementOfApplicability
                     .ToDictionary(rg => rg.Key, rg => rg.First().Disposition, StringComparer.Ordinal),
                 StringComparer.Ordinal);
 
-        var nodes = new List<SoaNode>(organisations.Count);
-        foreach (var organisation in organisations)
+        var nodes = new List<SoaNode>(assets.Count);
+        foreach (var asset in assets)
         {
-            // Build the node's inclusive ancestry ONCE via the shared helper, then consume it for both
-            // the standard-level and requirement-level nearest-ancestor lookups.
-            var ancestry = OrgAncestry.InclusiveAncestors(organisation.Id, byId);
-            var (disposition, resolution) = ResolveNode(organisation.Id, ancestry, explicitByOrg);
+            // Build the node's inclusive ancestry ONCE via the shared helper, then consume it for the
+            // node-set test and for both nearest-ancestor lookups.
+            var ancestry = AssetAncestry.InclusiveAncestors(asset.Id, byId, ancestryCache);
+            if (!IsNode(asset, ancestry, byId))
+            {
+                continue;
+            }
+
+            var (disposition, resolution) = ResolveNode(asset.Id, ancestry, scopeByAsset);
 
             // Requirement-scopes apply only under a standard that resolves In at this node.
             var requirementResolutions = string.Equals(disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal)
-                ? ResolveRequirements(organisation.Id, ancestry, standardRequirementIds, requirementScopeByOrg)
+                ? ResolveRequirements(asset.Id, ancestry, standardRequirementIds, requirementScopeByOrg)
                 : [];
 
             nodes.Add(new SoaNode(
-                organisation.Id,
-                organisation.Title,
-                organisation.Kind,
-                organisation.Parent,
+                asset.Id,
+                asset.Title,
+                asset.Type,
+                asset.Parent,
                 disposition,
                 resolution,
                 requirementResolutions));
@@ -187,6 +192,22 @@ public static class StatementOfApplicability
     }
 
     /// <summary>
+    /// The node set: every organisation UNCONDITIONALLY, plus every other asset whose inclusive
+    /// <c>parent</c> chain reaches one.
+    ///
+    /// The first arm is a type test on purpose. A dangling <c>parent</c> and a <c>parent</c> cycle are
+    /// both non-blocking sync warnings, so both are reachable in a validly synced deployment; making an
+    /// organisation's membership depend on reaching a root would drop it from the Statement of
+    /// Applicability and from the evidence-ingest gate, and deny it the default <c>In</c> the opt-out
+    /// scoping model guarantees every organisation. A vendor falls out with no vendor-specific branch:
+    /// it is not organisation-typed and carries <c>owner</c> rather than <c>parent</c>.
+    /// </summary>
+    private static bool IsNode(
+        AssetNode asset, IReadOnlyList<string> ancestry, IReadOnlyDictionary<string, AssetNode> byId)
+        => asset.IsOrganisation
+            || ancestry.Any(id => byId.TryGetValue(id, out var node) && node.IsOrganisation);
+
+    /// <summary>
     /// Projects the four-level drill-down (organisation -> requirement -> control -> check) for a
     /// standard. Reuses <see cref="Resolve"/> for each node's org-level disposition and provenance, then
     /// enumerates every requirement of the standard per node (not only deviations), each tagged with its
@@ -194,23 +215,33 @@ public static class StatementOfApplicability
     /// controls (by <c>maps_to</c>) and checks (collectors and templates by their <c>Control</c>, tagged
     /// by kind); an <c>Out</c> requirement is a leaf and carries no controls. The
     /// requirement -> control -> check catalogue is org-independent, so it is built once and shared. A
-    /// collector's vendor is shown by title (falling back to its id when unknown). Pure (no I/O).
+    /// collector's vendor is shown by title, and only when that vendor is in
+    /// <paramref name="accessibleAssetIds"/>; an unreadable vendor renders exactly as an unset one.
+    ///
+    /// The node list is organisation-only: the page's selector scoping, active-scope label, and batched
+    /// per-collector evidence status are all keyed on an organisation id, so a machine row would be a
+    /// data-shape change rather than a resolution one. The flat <see cref="Resolve"/> does not filter.
+    /// Pure (no I/O).
     /// </summary>
     public static IReadOnlyList<SoaDrilldownNode> ResolveDrilldown(
-        IReadOnlyList<OrganisationRow> organisations,
+        IReadOnlyList<AssetNode> assets,
         IReadOnlyList<ScopeRow> scopes,
         IReadOnlyList<RequirementRow> requirements,
         IReadOnlyList<ControlRow> controls,
         IReadOnlyList<CollectorRow> collectors,
-        IReadOnlyList<VendorRow> vendors,
+        IReadOnlySet<string> accessibleAssetIds,
         string standardId)
     {
         // Org-level disposition/provenance: reuse the flat resolver so the inheritance rule is not
         // duplicated. The full in-scope requirement enumeration below is new: Resolve yields only
         // deviations and never a requirement-level Default.
-        var resolved = Resolve(organisations, scopes, requirements, standardId);
+        var organisationIds = assets.Where(a => a.IsOrganisation).Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
+        var resolved = Resolve(assets, scopes, requirements, standardId)
+            .Where(n => organisationIds.Contains(n.Id))
+            .ToList();
 
-        var byId = organisations.ToDictionary(o => o.Id, StringComparer.Ordinal);
+        var byId = assets.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        var ancestryCache = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
         var standardRequirements = requirements
             .Where(r => string.Equals(r.Standard, standardId, StringComparison.Ordinal))
@@ -227,7 +258,11 @@ public static class StatementOfApplicability
                     .ToDictionary(rg => rg.Key, rg => rg.First().Disposition, StringComparer.Ordinal),
                 StringComparer.Ordinal);
 
-        var vendorTitleById = vendors.ToDictionary(v => v.Id, v => v.Title, StringComparer.Ordinal);
+        // Only the vendors the caller may read contribute a title. A vendor outside the set has no entry,
+        // so the check's vendor resolves null and renders as an unset one.
+        var vendorTitleById = assets
+            .Where(a => a.Type is "Vendor" && accessibleAssetIds.Contains(a.Id))
+            .ToDictionary(a => a.Id, a => a.Title, StringComparer.Ordinal);
         var controlsByRequirement = BuildControlCatalogue(standardRequirementIds, controls, collectors, vendorTitleById);
 
         var nodes = new List<SoaDrilldownNode>(resolved.Count);
@@ -238,7 +273,7 @@ public static class StatementOfApplicability
             IReadOnlyList<SoaRequirementNode> requirementNodes;
             if (string.Equals(node.Disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal))
             {
-                var ancestry = OrgAncestry.InclusiveAncestors(node.Id, byId);
+                var ancestry = AssetAncestry.InclusiveAncestors(node.Id, byId, ancestryCache);
                 var list = new List<SoaRequirementNode>(standardRequirements.Count);
                 foreach (var requirement in standardRequirements)
                 {
@@ -284,10 +319,11 @@ public static class StatementOfApplicability
         var checksByControl = new Dictionary<string, List<SoaCheckNode>>(StringComparer.Ordinal);
         foreach (var collector in collectors)
         {
-            // Show the vendor's title, not its raw id; fall back to the id when no vendor matches.
-            var vendor = collector.Vendor is null
-                ? null
-                : vendorTitleById.TryGetValue(collector.Vendor, out var title) ? title : collector.Vendor;
+            // Show the vendor's title, never its raw id: the map holds only the vendors the caller may
+            // read, so a vendor it does not name is withheld rather than printed as an id.
+            var vendor = collector.Vendor is not null && vendorTitleById.TryGetValue(collector.Vendor, out var title)
+                ? title
+                : null;
             // The tag and the cadence are one decision: an attestation-tagged check carries no evidence
             // status, so it must not advertise a collection cadence either.
             var attestation = collector.Type is "manual" or "training";
@@ -337,14 +373,20 @@ public static class StatementOfApplicability
 
     /// <summary>
     /// True when any scope of ANY target kind (standard, requirement, or control) names a subject that
-    /// resolves to no live asset (no asset row, or a retired discovered asset; applied via
-    /// <paramref name="resolvableAssetIds"/>).
+    /// resolves to no live asset - no asset row, or a retired discovered one.
     /// Drives the generic page-level dangling-subject notice; the caller must NOT disclose the scope id or
     /// subject id (an unresolved subject has no authorization anchor to check readability against).
     /// </summary>
     public static bool HasDanglingSubject(
-        IReadOnlyList<ScopeRow> scopes, IReadOnlySet<string> resolvableAssetIds) =>
-        scopes.Any(s => !resolvableAssetIds.Contains(s.Subject));
+        IReadOnlyList<ScopeRow> scopes, IReadOnlyList<AssetNode> assets)
+    {
+        var live = assets
+            .Where(a => !(string.Equals(a.Source, "discovered", StringComparison.Ordinal)
+                && string.Equals(a.State, "Retired", StringComparison.Ordinal)))
+            .Select(a => a.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        return scopes.Any(s => !live.Contains(s.Subject));
+    }
 
     private static void AddCheck(Dictionary<string, List<SoaCheckNode>> checksByControl, string controlId, SoaCheckNode check)
     {
@@ -359,7 +401,7 @@ public static class StatementOfApplicability
 
     /// <summary>
     /// Resolves one requirement's disposition and provenance for a node by walking its inclusive
-    /// ancestry: the node's own requirement-scope wins (explicit); else the nearest ancestor's
+    /// ancestry: the node's own requirement-scope wins (asset); else the nearest ancestor's
     /// (inherited); else the requirement follows the node's standard disposition In (default).
     /// </summary>
     private static (string Disposition, SoaResolution Resolution) ResolveRequirement(
@@ -373,7 +415,7 @@ public static class StatementOfApplicability
             if (TryGetRequirementDisposition(orgId, requirementId, requirementScopeByOrg, out var found))
             {
                 return string.Equals(orgId, nodeId, StringComparison.Ordinal)
-                    ? (found, SoaResolution.Explicit)
+                    ? (found, SoaResolution.Asset)
                     : (found, SoaResolution.Inherited);
             }
         }
@@ -391,14 +433,14 @@ public static class StatementOfApplicability
         foreach (var requirementId in standardRequirementIds)
         {
             // Walk the inclusive ancestry [node, parent, ..., root]: the node's own requirement-scope
-            // wins (explicit); else the nearest ancestor's (inherited); else the requirement is not a
+            // wins (asset); else the nearest ancestor's (inherited); else the requirement is not a
             // deviation and follows the node's standard disposition (In).
             foreach (var orgId in ancestry)
             {
                 if (TryGetRequirementDisposition(orgId, requirementId, requirementScopeByOrg, out var found))
                 {
                     var resolution = string.Equals(orgId, nodeId, StringComparison.Ordinal)
-                        ? SoaResolution.Explicit
+                        ? SoaResolution.Asset
                         : SoaResolution.Inherited;
                     results.Add(new SoaRequirementResolution(requirementId, found, resolution));
                     break;
@@ -429,16 +471,16 @@ public static class StatementOfApplicability
     private static (string Disposition, SoaResolution Resolution) ResolveNode(
         string nodeId,
         IReadOnlyList<string> ancestry,
-        IReadOnlyDictionary<string, string> explicitByOrg)
+        IReadOnlyDictionary<string, string> scopeByAsset)
     {
-        // Walk the inclusive ancestry to the first node with an explicit disposition: the node itself
-        // is Explicit, any ancestor is Inherited; none on the path defaults to In.
+        // Walk the inclusive ancestry to the first entry carrying a disposition: the node itself is
+        // Asset, any ancestor is Inherited; none on the path defaults to In.
         foreach (var orgId in ancestry)
         {
-            if (explicitByOrg.TryGetValue(orgId, out var found))
+            if (scopeByAsset.TryGetValue(orgId, out var found))
             {
                 return string.Equals(orgId, nodeId, StringComparison.Ordinal)
-                    ? (found, SoaResolution.Explicit)
+                    ? (found, SoaResolution.Asset)
                     : (found, SoaResolution.Inherited);
             }
         }

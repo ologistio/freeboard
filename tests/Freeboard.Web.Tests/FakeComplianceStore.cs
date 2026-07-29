@@ -5,18 +5,18 @@ namespace Freeboard.Web.Tests;
 /// <summary>
 /// In-memory <see cref="IComplianceStore"/> double for web tests so the suite is green
 /// without MySQL. When <see cref="Unreachable"/> is true, every read throws to
-/// simulate a down store. <see cref="Scopes"/> carries the unified enriched
-/// <see cref="ScopeRow"/>s (subject-narrowing fields set by the readability tests).
+/// simulate a down store. <see cref="Assets"/> is the one unfiltered asset set every read
+/// projects from, exactly as the real store serves it.
 /// </summary>
 internal sealed class FakeComplianceStore : IComplianceStore
 {
     public bool Unreachable { get; init; }
 
     /// <summary>
-    /// When true, the reads that surface the organisation list - <see cref="GetOrganisationsAsync"/>
+    /// When true, the reads that surface the asset list - <see cref="GetAssetsAsync"/>
     /// and <see cref="GetStatementOfApplicabilityInputsAsync"/> - throw; the other reads succeed.
     /// </summary>
-    public bool OrganisationsUnreachable { get; init; }
+    public bool AssetsUnreachable { get; init; }
 
     public IReadOnlyList<StandardRow> Standards { get; set; } = [];
 
@@ -24,22 +24,13 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public IReadOnlyList<ControlRow> Controls { get; set; } = [];
 
-    public IReadOnlyList<OrganisationRow> Organisations { get; set; } = [];
+    public IReadOnlyList<AssetNode> Assets { get; set; } = [];
 
     public IReadOnlyList<ScopeRow> Scopes { get; set; } = [];
-
-    public IReadOnlyList<VendorRow> Vendors { get; set; } = [];
 
     public IReadOnlyList<CollectorRow> Collectors { get; set; } = [];
 
     public IReadOnlyList<IntegrationConnectionRow> Connections { get; set; } = [];
-
-    /// <summary>
-    /// The subject-resolving asset id set (present, and not a retired discovered asset) fed to the SoA inputs for the
-    /// dangling-subject notice. Null defaults to the ids of every organisation and vendor in the store,
-    /// so a scope whose subject is one of those resolves and any other subject dangles.
-    /// </summary>
-    public IReadOnlySet<string>? ResolvableAssetIds { get; set; }
 
     public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Standards);
@@ -50,36 +41,18 @@ internal sealed class FakeComplianceStore : IComplianceStore
     public Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Controls);
 
-    public Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
     {
-        if (OrganisationsUnreachable)
+        if (AssetsUnreachable)
         {
-            throw new InvalidOperationException("organisations unreachable");
+            throw new InvalidOperationException("assets unreachable");
         }
 
-        return Guard(() => Organisations);
+        return Guard(() => Assets);
     }
 
     public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => (IReadOnlyList<ScopeRow>)Scopes.Select(ResolveSubject).ToList());
-
-    // Mirror the real store's LEFT JOIN assets: when a fixture leaves the subject-narrowing fields unset,
-    // fill an org subject's type and parent from the Organisations list so a Company/Department subject
-    // scope resolves as one. A row that sets SubjectType explicitly (a vendor or machine subject) is left
-    // as authored, and a subject with no matching organisation stays unresolved (SubjectType null).
-    private ScopeRow ResolveSubject(ScopeRow scope)
-    {
-        if (scope.SubjectType is not null)
-        {
-            return scope;
-        }
-
-        var org = Organisations.FirstOrDefault(o => string.Equals(o.Id, scope.Subject, StringComparison.Ordinal));
-        return org is null ? scope : scope with { SubjectType = org.Kind, SubjectParent = org.Parent };
-    }
-
-    public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Vendors);
+        Guard(() => Scopes);
 
     public Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Collectors);
@@ -89,34 +62,28 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
     public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
     {
-        if (OrganisationsUnreachable)
+        if (AssetsUnreachable)
         {
-            throw new InvalidOperationException("organisations unreachable");
+            throw new InvalidOperationException("assets unreachable");
         }
 
-        return Guard(() => new SoaInputs(Organisations, Scopes, Requirements, ResolvableAssets()));
+        return Guard(() => new SoaInputs(Assets, Scopes, Requirements));
     }
 
     public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
     {
-        if (OrganisationsUnreachable)
+        if (AssetsUnreachable)
         {
-            throw new InvalidOperationException("organisations unreachable");
+            throw new InvalidOperationException("assets unreachable");
         }
 
-        return Guard(() => new SoaDrilldownInputs(
-            Organisations, Scopes, Requirements, ResolvableAssets(), Controls, Collectors, Vendors));
+        return Guard(() => new SoaDrilldownInputs(Assets, Scopes, Requirements, Controls, Collectors));
     }
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => new ComplianceCounts(
-            Standards.Count, Controls.Count, Requirements.Count, Organisations.Count, Scopes.Count,
-            Vendors.Count, Collectors.Count));
-
-    private IReadOnlySet<string> ResolvableAssets() =>
-        ResolvableAssetIds ?? Organisations.Select(o => o.Id)
-            .Concat(Vendors.Select(v => v.Id))
-            .ToHashSet(StringComparer.Ordinal);
+            Standards.Count, Controls.Count, Requirements.Count, Assets.Count(a => a.IsOrganisation), Scopes.Count,
+            Assets.Count(a => a.Type is "Vendor"), Collectors.Count));
 
     private Task<T> Guard<T>(Func<T> value)
     {
@@ -127,4 +94,21 @@ internal sealed class FakeComplianceStore : IComplianceStore
 
         return Task.FromResult(value());
     }
+}
+
+/// <summary>
+/// Terse <see cref="AssetNode"/> constructors for fixtures, so a test names only the fields its case
+/// turns on rather than spelling every column of the unified row at ~130 call sites.
+/// </summary>
+internal static class TestAssets
+{
+    public static AssetNode Org(string id, string? parent = null, string kind = "Company", string? title = null)
+        => new(id, title ?? id, kind, "declared", null, parent, null);
+
+    public static AssetNode Vendor(string id, string? owner, string? title = null)
+        => new(id, title ?? id, "Vendor", "declared", null, null, owner);
+
+    public static AssetNode Machine(
+        string id, string? parent, string source = "declared", string? state = null, string? title = null)
+        => new(id, title ?? id, "Machine", source, state, parent, null);
 }

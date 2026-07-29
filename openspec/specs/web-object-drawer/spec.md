@@ -129,7 +129,7 @@ existing Statement of Applicability behavior - the drill-down disclosure, scopin
 authorization boundary, read-only mode, and store-unreachable notice - SHALL continue to hold,
 and the page's existing row markers SHALL be preserved. Because the page is read-only, the
 drawer's actions region SHALL carry no mutating action. The full-page detail SHALL authorize the
-requested control against the caller's full accessible organisation set - not the active list
+requested control against the caller's full accessible asset set - not the active list
 scope or org-selection cookie - so a direct link to any accessible control renders regardless of
 which org the active scope currently selects; a control that is missing or outside the accessible
 set SHALL render a not-found response that does not leak the names of records the caller cannot
@@ -162,7 +162,7 @@ closes.
 #### Scenario: An inaccessible or missing control does not leak
 
 - **WHEN** the caller opens a direct control URL that is missing or outside the caller's
-  accessible organisations
+  accessible asset set
 - **THEN** the page renders a not-found response and does not disclose the name or any facet of
   a record the caller is not authorized to see
 
@@ -171,7 +171,7 @@ closes.
 - **WHEN** the caller's active-org selection is org A and the caller opens a direct control URL
   for a different organisation B that is within the caller's accessible set
 - **THEN** the control detail for B renders, while a direct URL for an organisation outside the
-  accessible set returns not-found - authorization follows the accessible organisation set, not
+  accessible set returns not-found - authorization follows the accessible asset set, not
   the active scope selection
 
 #### Scenario: Opening the drawer suppresses the command palette

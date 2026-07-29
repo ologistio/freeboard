@@ -13,8 +13,8 @@ namespace Freeboard.Web.Tests;
 /// /login; admin is NOT required), renders each control with its evaluation rule and its attached
 /// collectors (type, provider, vendor, frequency, threshold, and the typed config), is GET-only and
 /// served in GitOps read-only mode, reads through the injected <see cref="IComplianceStore"/> (no MySQL),
-/// never narrows to the caller's accessible organisations, renders an attestation body as HTML-encoded
-/// text (no stored-XSS), and never renders a quiz answer.
+/// keeps the ROW set global while narrowing the vendor id to the caller's accessible asset set, renders
+/// an attestation body as HTML-encoded text (no stored-XSS), and never renders a quiz answer.
 ///
 /// The old per-entry <c>data-config-key="&lt;key&gt;"</c> attribute is GONE and no test looks for it. It
 /// existed to label an open, page-unknown key set; the merged block renders five named sections instead,
@@ -33,6 +33,7 @@ public sealed class CollectorsPageTests
 
     private static FakeComplianceStore PopulatedStore() => new()
     {
+        Assets = [TestAssets.Org("org-a"), TestAssets.Vendor("vendor-a", "org-a")],
         Controls =
         [
             new ControlRow("ctrl-a", "Control A", ["req-a"], "all"),
@@ -253,8 +254,8 @@ public sealed class CollectorsPageTests
     [Fact]
     public async Task ZeroGrantEnforceCallerSeesEveryControlAndCollector()
     {
-        // The register does not narrow by accessible organisation, so a zero-grant Enforce caller still
-        // sees every control and collector.
+        // The register does not narrow the ROW set by accessible organisation, so a zero-grant Enforce
+        // caller still sees every control and collector.
         using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = new FakeAuthzStore() };
         using var client = NoRedirectClient(factory);
 
@@ -282,11 +283,42 @@ public sealed class CollectorsPageTests
     }
 
     [Fact]
-    public void ConstructorTakesOnlyComplianceStore()
+    public void ConstructorTakesComplianceStoreAndAssetAccess()
     {
         var ctor = Assert.Single(typeof(CollectorsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToList();
 
-        Assert.Equal([typeof(IComplianceStore)], paramTypes);
+        Assert.Equal([typeof(IComplianceStore), typeof(IAssetAccess)], paramTypes);
+    }
+
+    [Fact]
+    public async Task UnreadableVendorRendersExactlyAsAnUnsetOne()
+    {
+        // vendor-a is owned by org-x, which the reader cannot reach. The collector ROW still renders;
+        // its vendor id must not, and the row must be indistinguishable from one with no vendor.
+        var store = PopulatedStore();
+        store.Assets = [TestAssets.Org("org-a"), TestAssets.Org("org-x"), TestAssets.Vendor("vendor-a", "org-x")];
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = store, AuthzMode = "Enforce", Authz = authz };
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path, AuthWebFactory.MakeUser("u1"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-collector-id=\"collector-a\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("vendor-a", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadableVendorStillRenders()
+    {
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory { Compliance = PopulatedStore(), AuthzMode = "Enforce", Authz = authz };
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path, AuthWebFactory.MakeUser("u1"));
+
+        Assert.Contains("vendor-a", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 }

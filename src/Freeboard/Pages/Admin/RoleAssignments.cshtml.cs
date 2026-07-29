@@ -14,7 +14,7 @@ namespace Freeboard.Pages.Admin;
 /// </summary>
 public sealed class RoleAssignmentsModel(
     IAuthzStore store, IAuthzAdministrationStore admin, AuthzPageGuard pageGuard,
-    ILogger<RoleAssignmentsModel> logger) : PageModel
+    AuthzRequestCache cache, ILogger<RoleAssignmentsModel> logger) : PageModel
 {
     public string? OrgId { get; private set; }
 
@@ -74,8 +74,11 @@ public sealed class RoleAssignmentsModel(
         return RedirectToPage(new { orgId });
     }
 
-    private Task<IActionResult?> GuardAsync(string orgId, CancellationToken ct)
-        => pageGuard.CheckAsync(User, AuthzActions.AuthzAssignmentWrite, new AuthzResource("organisation", orgId, orgId, []), ct);
+    private async Task<IActionResult?> GuardAsync(string orgId, CancellationToken ct)
+    {
+        var resource = await cache.OrganisationResourceAsync("organisation", orgId, orgId, ct);
+        return await pageGuard.CheckAsync(User, AuthzActions.AuthzAssignmentWrite, resource, ct);
+    }
 
     private Task AuditAsync(string action, string targetUserId, string orgId, CancellationToken ct)
         => AuthzMutationAudit.AppendAsync(

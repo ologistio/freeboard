@@ -41,7 +41,7 @@ public sealed class EvidenceIngestEndpointTests
         [
             new RequirementRow(ExampleRequirement, "MFA", Standard, "Access", "Enforce MFA", null, "A.5", "https://x/r"),
         ],
-            Organisations = [new OrganisationRow(ExampleOrg, "Acme", "Company", null)],
+            Assets = [TestAssets.Org(ExampleOrg, title: "Acme")],
             Scopes = [new ScopeRow("scope-1", "Acme in", ExampleOrg, Standard, null, null, "In", null)],
         };
 
@@ -320,8 +320,8 @@ public sealed class EvidenceIngestEndpointTests
         using var client = ClientWith(factory, token);
 
         // org-out exists but has an explicit Out scope for the standard.
-        factory.Compliance.Organisations =
-            [.. factory.Compliance.Organisations, new OrganisationRow("org-out", "Out", "Company", null)];
+        factory.Compliance.Assets =
+            [.. factory.Compliance.Assets, TestAssets.Org("org-out", title: "Out")];
         factory.Compliance.Scopes =
             [.. factory.Compliance.Scopes, new ScopeRow("scope-out", "Out", "org-out", Standard, null, null, "Out", "org-out is excluded from the standard.")];
 
@@ -338,14 +338,92 @@ public sealed class EvidenceIngestEndpointTests
         var token = factory.SeedCollectorCredential("col-1");
         using var client = ClientWith(factory, token);
 
-        factory.Compliance.Organisations =
-            [.. factory.Compliance.Organisations, new OrganisationRow("org-default", "Default", "Company", null)];
+        factory.Compliance.Assets =
+            [.. factory.Compliance.Assets, TestAssets.Org("org-default", title: "Default")];
 
         var response = await client.PostAsync(Route, Body(Valid(organisationId: "org-default")));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var run = Assert.Single(factory.EvidenceStore.Appended);
         Assert.Equal("org-default", run.OrganisationId);
+    }
+
+    [Fact]
+    public async Task MachineIdResolvingInScopeIsStillRejected()
+    {
+        // The resolver now has machine nodes, and this one inherits the organisation's In. Ingest is
+        // still organisation-only: evidence_runs.organisation_id and every roll-up are keyed on an
+        // organisation, so admitting a machine would be an unspecced widening of a public API.
+        using var factory = FactoryFor("col-1");
+        var token = factory.SeedCollectorCredential("col-1");
+        using var client = ClientWith(factory, token);
+
+        factory.Compliance.Assets = [.. factory.Compliance.Assets, TestAssets.Machine("m-1", ExampleOrg)];
+
+        var response = await client.PostAsync(Route, Body(Valid(organisationId: "m-1")));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Empty(factory.EvidenceStore.Appended);
+    }
+
+    [Fact]
+    public async Task VendorIdIsRejectedEvenWhenItsOwnerIsInScope()
+    {
+        using var factory = FactoryFor("col-1");
+        var token = factory.SeedCollectorCredential("col-1");
+        using var client = ClientWith(factory, token);
+
+        factory.Compliance.Assets = [.. factory.Compliance.Assets, TestAssets.Vendor("vendor-a", ExampleOrg)];
+
+        var response = await client.PostAsync(Route, Body(Valid(organisationId: "vendor-a")));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+    }
+
+    // A dangling parent and a parent cycle are both non-blocking sync warnings, so an organisation in
+    // either state is still a node and must not fall out of the acceptance set.
+    [Theory]
+    [InlineData("org-dangling", "gone-org")]
+    [InlineData("org-cyclic", "org-cyclic")]
+    public async Task OrganisationWithAMalformedParentIsStillAcceptedWhenInScope(string id, string parent)
+    {
+        using var factory = FactoryFor("col-1");
+        var token = factory.SeedCollectorCredential("col-1");
+        using var client = ClientWith(factory, token);
+
+        factory.Compliance.Assets = [.. factory.Compliance.Assets, TestAssets.Org(id, parent)];
+
+        var response = await client.PostAsync(Route, Body(Valid(organisationId: id)));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(id, Assert.Single(factory.EvidenceStore.Appended).OrganisationId);
+    }
+
+    [Fact]
+    public async Task IngestVerdictMatchesWhatTheSoaReadSurfaceReportsForTheSameNode()
+    {
+        // One resolver behind both, so the read surface and the gate cannot disagree about a node.
+        using var factory = FactoryFor("col-1");
+        var token = factory.SeedCollectorCredential("col-1");
+        using var client = ClientWith(factory, token);
+        factory.Compliance.Assets = [.. factory.Compliance.Assets, TestAssets.Org("org-out", title: "Out")];
+        factory.Compliance.Scopes =
+        [
+            .. factory.Compliance.Scopes,
+            new ScopeRow("scope-out", "Out", "org-out", Standard, null, null, "Out", "Excluded from the standard."),
+        ];
+
+        var nodes = Freeboard.Compliance.StatementOfApplicability.Resolve(
+            factory.Compliance.Assets, factory.Compliance.Scopes, factory.Compliance.Requirements, Standard);
+
+        Assert.Equal("In", nodes.Single(n => n.Id == ExampleOrg).Disposition);
+        Assert.Equal("Out", nodes.Single(n => n.Id == "org-out").Disposition);
+        Assert.Equal(
+            HttpStatusCode.Created,
+            (await client.PostAsync(Route, Body(Valid(organisationId: ExampleOrg)))).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.UnprocessableEntity,
+            (await client.PostAsync(Route, Body(Valid(organisationId: "org-out")))).StatusCode);
     }
 
     [Fact]

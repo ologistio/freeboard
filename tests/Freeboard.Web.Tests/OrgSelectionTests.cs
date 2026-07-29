@@ -7,14 +7,15 @@ namespace Freeboard.Web.Tests;
 /// <summary>
 /// Unit tests for the pure <see cref="OrgSelection.Resolve"/> rule and the request-scoped
 /// <see cref="OrgSelectionResolver"/>: fail-closed resolution against the accessible set, memoized
-/// reads, accessible-set bounding, and silent degrade to "All Organisations" on a store failure.
+/// reads, accessible-set bounding, organisation-only selection, and silent degrade to
+/// "All Organisations" on a store failure.
 /// </summary>
 public sealed class OrgSelectionTests
 {
-    private static IReadOnlyList<OrganisationRow> Orgs() =>
+    private static IReadOnlyList<AssetNode> Assets() =>
     [
-        new OrganisationRow("org-a", "Org A", "Company", null),
-        new OrganisationRow("org-b", "Org B", "Company", null),
+        TestAssets.Org("org-a", title: "Org A"),
+        TestAssets.Org("org-b", title: "Org B"),
     ];
 
     private static IReadOnlySet<string> Set(params string[] ids) =>
@@ -35,7 +36,7 @@ public sealed class OrgSelectionTests
     [Fact]
     public async Task Resolver_AbsentCookie_ResolvesToAll()
     {
-        var resolver = Resolver(new FakeComplianceStore { Organisations = Orgs() }, new AllOrgAccess(), cookie: null);
+        var resolver = Resolver(new FakeComplianceStore { Assets = Assets() }, new AllAssetAccess(), cookie: null);
         var state = await resolver.GetAsync();
         Assert.Null(state.SelectedId);
     }
@@ -43,7 +44,7 @@ public sealed class OrgSelectionTests
     [Fact]
     public async Task Resolver_AccessibleId_ResolvesToItself()
     {
-        var resolver = Resolver(new FakeComplianceStore { Organisations = Orgs() }, new AllOrgAccess(), cookie: "org-a");
+        var resolver = Resolver(new FakeComplianceStore { Assets = Assets() }, new AllAssetAccess(), cookie: "org-a");
         var state = await resolver.GetAsync();
         Assert.Equal("org-a", state.SelectedId);
     }
@@ -51,9 +52,29 @@ public sealed class OrgSelectionTests
     [Fact]
     public async Task Resolver_UnknownId_DropsToAll()
     {
-        var resolver = Resolver(new FakeComplianceStore { Organisations = Orgs() }, new AllOrgAccess(), cookie: "org-x");
+        var resolver = Resolver(new FakeComplianceStore { Assets = Assets() }, new AllAssetAccess(), cookie: "org-x");
         var state = await resolver.GetAsync();
         Assert.Null(state.SelectedId);
+    }
+
+    [Theory]
+    [InlineData("m-1")]
+    [InlineData("v-1")]
+    public async Task Resolver_NonOrganisationCookie_DropsToAllAndIsNotAnAccessibleSelection(string cookie)
+    {
+        // The seam hands back an ASSET set, so a readable machine or vendor reaches the resolver. The
+        // selector presents organisations only, so neither may become a selection.
+        var store = new FakeComplianceStore
+        {
+            Assets = [.. Assets(), TestAssets.Machine("m-1", "org-a"), TestAssets.Vendor("v-1", "org-a")],
+        };
+        var resolver = Resolver(store, new AllAssetAccess(), cookie);
+
+        var state = await resolver.GetAsync();
+
+        Assert.Null(state.SelectedId);
+        Assert.Equal(Set("org-a", "org-b"), state.AccessibleIds);
+        Assert.Equal(["org-a", "org-b"], state.Organisations.Select(o => o.Id).ToArray());
     }
 
     [Fact]
@@ -61,7 +82,7 @@ public sealed class OrgSelectionTests
     {
         // org-b is accessible; org-a is not. The accessible set is what bounds selection and the tree.
         var resolver = Resolver(
-            new FakeComplianceStore { Organisations = Orgs() }, new RestrictedOrgAccess(Set("org-b")), cookie: "org-a");
+            new FakeComplianceStore { Assets = Assets() }, new RestrictedAssetAccess(Set("org-b")), cookie: "org-a");
         var state = await resolver.GetAsync();
         Assert.Null(state.SelectedId);
         Assert.Equal(Set("org-b"), state.AccessibleIds);
@@ -70,24 +91,24 @@ public sealed class OrgSelectionTests
     [Fact]
     public async Task Resolver_RepeatedReads_HitStoreOnce()
     {
-        var store = new CountingComplianceStore { Organisations = Orgs() };
-        var resolver = Resolver(store, new AllOrgAccess(), cookie: "org-a");
+        var store = new CountingComplianceStore { Assets = Assets() };
+        var resolver = Resolver(store, new AllAssetAccess(), cookie: "org-a");
         await resolver.GetAsync();
         await resolver.GetAsync();
-        Assert.Equal(1, store.OrganisationReads);
+        Assert.Equal(1, store.AssetReads);
     }
 
     [Fact]
     public async Task Resolver_StoreFailure_DegradesToAllWithEmptyList()
     {
-        var resolver = Resolver(new FakeComplianceStore { Unreachable = true }, new AllOrgAccess(), cookie: "org-a");
+        var resolver = Resolver(new FakeComplianceStore { Unreachable = true }, new AllAssetAccess(), cookie: "org-a");
         var state = await resolver.GetAsync();
         Assert.Null(state.SelectedId);
         Assert.Empty(state.Organisations);
         Assert.Empty(state.AccessibleIds);
     }
 
-    private static OrgSelectionResolver Resolver(IComplianceStore store, IOrgAccess access, string? cookie)
+    private static OrgSelectionResolver Resolver(IComplianceStore store, IAssetAccess access, string? cookie)
     {
         var context = new DefaultHttpContext();
         if (cookie is not null)
@@ -98,23 +119,23 @@ public sealed class OrgSelectionTests
         return new OrgSelectionResolver(new HttpContextAccessor { HttpContext = context }, store, access);
     }
 
-    private sealed class RestrictedOrgAccess(IReadOnlySet<string> accessible) : IOrgAccess
+    private sealed class RestrictedAssetAccess(IReadOnlySet<string> accessible) : IAssetAccess
     {
-        public ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
-            ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<IReadOnlySet<string>>(accessible);
+        public ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
+            ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(accessible);
     }
 
     private sealed class CountingComplianceStore : IComplianceStore
     {
-        public int OrganisationReads { get; private set; }
+        public int AssetReads { get; private set; }
 
-        public IReadOnlyList<OrganisationRow> Organisations { get; init; } = [];
+        public IReadOnlyList<AssetNode> Assets { get; init; } = [];
 
-        public Task<IReadOnlyList<OrganisationRow>> GetOrganisationsAsync(CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
         {
-            OrganisationReads++;
-            return Task.FromResult(Organisations);
+            AssetReads++;
+            return Task.FromResult(Assets);
         }
 
         public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
@@ -129,9 +150,6 @@ public sealed class OrgSelectionTests
         public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<ScopeRow>)[]);
 
-        public Task<IReadOnlyList<VendorRow>> GetVendorsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<VendorRow>)[]);
-
         public Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<CollectorRow>)[]);
 
@@ -139,10 +157,10 @@ public sealed class OrgSelectionTests
             Task.FromResult((IReadOnlyList<IntegrationConnectionRow>)[]);
 
         public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SoaInputs(Organisations, [], [], new HashSet<string>(StringComparer.Ordinal)));
+            Task.FromResult(new SoaInputs(Assets, [], []));
 
         public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SoaDrilldownInputs([], [], [], new HashSet<string>(StringComparer.Ordinal), [], [], []));
+            Task.FromResult(new SoaDrilldownInputs(Assets, [], [], [], []));
 
         public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0));

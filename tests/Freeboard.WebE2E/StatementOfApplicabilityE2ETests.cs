@@ -1,6 +1,7 @@
 using Deque.AxeCore.Playwright;
 using Freeboard.Persistence;
 using Freeboard.TestInfrastructure;
+using Freeboard.Web.Tests;
 using Microsoft.Playwright;
 using Xunit;
 
@@ -21,10 +22,10 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
         Gate();
 
         App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
-        App.Compliance.Organisations =
+        App.Compliance.Assets =
         [
-            new OrganisationRow("org-a", "Org A", "Company", null),
-            new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
         ];
         App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
 
@@ -38,9 +39,9 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
         var rows = page.Locator("table.soa-nodes tbody tr");
         Assert.Equal(2, await rows.CountAsync());
 
-        // Ordered by id: org-a (explicit In) then org-eng (inherited In).
+        // Ordered by id: org-a (In on its own row) then org-eng (inherited In).
         Assert.Equal("org-a", await rows.Nth(0).GetAttributeAsync("data-node-id"));
-        Assert.Contains("explicit", await rows.Nth(0).InnerTextAsync(), StringComparison.Ordinal);
+        Assert.Contains("asset", await rows.Nth(0).InnerTextAsync(), StringComparison.Ordinal);
         Assert.Contains("In", await rows.Nth(0).InnerTextAsync(), StringComparison.Ordinal);
 
         Assert.Equal("org-eng", await rows.Nth(1).GetAttributeAsync("data-node-id"));
@@ -53,11 +54,11 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
         Gate();
 
         App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
-        App.Compliance.Organisations =
+        App.Compliance.Assets =
         [
-            new OrganisationRow("org-a", "Org A", "Company", null),
-            new OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
-            new OrganisationRow("org-b", "Org B", "Company", null),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
+            TestAssets.Org("org-b", title: "Org B"),
         ];
         App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
 
@@ -98,7 +99,7 @@ public sealed class StatementOfApplicabilityE2ETests : E2ETestBase
         Gate();
 
         App.Compliance.Standards = [new StandardRow("std-a", "Standard A", "1.0", "Example Authority", null, null)];
-        App.Compliance.Organisations = [new OrganisationRow("org-a", "Org A", "Company", null)];
+        App.Compliance.Assets = [TestAssets.Org("org-a", title: "Org A")];
         App.Compliance.Scopes = [new ScopeRow("scope-a", "Scope A", "org-a", "std-a", null, null, "In", null)];
         App.Compliance.Requirements =
         [

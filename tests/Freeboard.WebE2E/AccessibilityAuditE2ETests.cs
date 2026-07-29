@@ -133,10 +133,10 @@ public sealed class AccessibilityAuditE2ETests : E2ETestBase
     {
         Gate();
 
-        App.Compliance.Organisations =
+        App.Compliance.Assets =
         [
-            new Freeboard.Persistence.OrganisationRow("org-a", "Org A", "Company", null),
-            new Freeboard.Persistence.OrganisationRow("org-eng", "Engineering", "Department", "org-a"),
+            TestAssets.Org("org-a", title: "Org A"),
+            TestAssets.Org("org-eng", "org-a", "Department", "Engineering"),
         ];
 
         await using var context = await NewContextAsync();

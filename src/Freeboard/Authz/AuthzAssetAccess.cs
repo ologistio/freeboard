@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Freeboard.Compliance;
 using Freeboard.Core.Authz;
 using Freeboard.Persistence;
 using Freeboard.Auth;
@@ -8,21 +9,42 @@ using Freeboard.Web;
 namespace Freeboard.Authz;
 
 /// <summary>
-/// The authz-backed <see cref="IOrgAccess"/> default. Resolves the accessible organisation set by the
-/// rollout mode: Observe never narrows (full set for every caller); Compat narrows a grant-holder to
-/// its read-subtree union and gives a zero-grant caller the audited full read fallback; Enforce is
-/// strict (subtree union, empty for a zero-grant caller). A super-admin gets all organisations in
-/// every mode.
+/// The authz-backed <see cref="IAssetAccess"/> default. Two steps. First it resolves the accessible
+/// ORGANISATION union by the rollout mode: Observe never narrows (every organisation for every caller);
+/// Compat narrows a grant-holder to its read-subtree union and gives a zero-grant caller the audited
+/// full read fallback; Enforce is strict (subtree union, empty for a zero-grant caller). A super-admin
+/// gets every organisation in every mode. Then it closes that union over the asset tree.
+///
+/// The mode governs step one ONLY. Widening the union to everything under Observe still leaves an asset
+/// with a missing or dangling edge, and a retired discovered asset, outside the set - otherwise Observe
+/// would preview a mode with different fail-closed semantics from the one it stands in for.
+///
+/// The whole resolution runs at most once per principal per request, memoized on the request cache.
+/// A page render asks for it at least twice (the layout selector, then the page), and the Compat
+/// zero-grant fallback writes an audit row each time it actually runs - one use, one row.
 /// </summary>
-public sealed class AuthzOrgAccess(
+public sealed class AuthzAssetAccess(
     AuthzRequestCache cache,
     AuthzRuntimeOptions options,
     IAuthzAdministrationStore auditStore,
-    ILogger<AuthzOrgAccess> logger) : IOrgAccess
+    ILogger<AuthzAssetAccess> logger) : IAssetAccess
 {
-    public async ValueTask<IReadOnlySet<string>> AccessibleOrgIdsAsync(
-        ClaimsPrincipal user, IReadOnlyList<OrganisationRow> organisations, CancellationToken cancellationToken = default)
+    public ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
+        ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
+        => cache.AccessibleAssetIdsAsync(
+            PrincipalKey(user),
+            async () => AssetReadAccess.AccessibleAssetIds(
+                assets, await OrganisationUnionAsync(user, assets, cancellationToken).ConfigureAwait(false)));
+
+    // Both inputs to the resolution: the id whose grants it loads, and whether the identity is
+    // authenticated at all (an unauthenticated one gets no facts however it is named).
+    private static string PrincipalKey(ClaimsPrincipal user)
+        => $"{user.Identity?.IsAuthenticated ?? false}:{user.FindFirst(AuthClaims.UserId)?.Value}";
+
+    private async ValueTask<IReadOnlySet<string>> OrganisationUnionAsync(
+        ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken)
     {
+        var organisations = assets.Where(a => a.IsOrganisation).ToList();
         var all = organisations.Select(o => o.Id).ToHashSet(StringComparer.Ordinal);
 
         var userId = user.FindFirst(AuthClaims.UserId)?.Value;
@@ -59,7 +81,7 @@ public sealed class AuthzOrgAccess(
     }
 
     private void LogObserveReadNarrowing(
-        string? userId, AuthzPrincipalFacts facts, IReadOnlyList<OrganisationRow> organisations, IReadOnlySet<string> all)
+        string? userId, AuthzPrincipalFacts facts, IReadOnlyList<AssetNode> organisations, IReadOnlySet<string> all)
     {
         var wouldBe = ReadSubtreeUnion(facts, organisations);
         if (wouldBe.Count < all.Count)
@@ -71,7 +93,7 @@ public sealed class AuthzOrgAccess(
     }
 
     private static IReadOnlySet<string> ReadSubtreeUnion(
-        AuthzPrincipalFacts facts, IReadOnlyList<OrganisationRow> organisations)
+        AuthzPrincipalFacts facts, IReadOnlyList<AssetNode> organisations)
     {
         var readRoots = facts.OrgGrants
             .Where(g => string.Equals(g.PermissionKey, AuthzActions.ComplianceRead, StringComparison.Ordinal))
