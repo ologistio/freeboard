@@ -21,6 +21,17 @@
     ]
   },
   {
+    "label": "Resources",
+    "template": "guide",
+    "items": [
+      {
+        "slug": "resources/vendors",
+        "label": "Vendors",
+        "lede": "What a vendor is in Freeboard, and how to add one, exclude it from a requirement, and read the register."
+      }
+    ]
+  },
+  {
     "label": "API reference",
     "template": "api",
     "items": [

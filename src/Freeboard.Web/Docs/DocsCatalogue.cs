@@ -59,6 +59,8 @@ public sealed class DocsCatalogue
         .UseAutoIdentifiers(AutoIdentifierOptions.GitHub)
         .UsePipeTables()
         .UseAutoLinks()
+        .UseCustomContainers()
+        .Use<DocsTabsExtension>()
         .Build();
 
     private readonly string contentDir;
@@ -132,8 +134,10 @@ public sealed class DocsCatalogue
             document.Remove(h1);
         }
 
+        // Top-level only: a level-two heading inside a tab panel is hidden whenever another tab
+        // is selected, so linking to it from the contents list would land the reader nowhere.
         var headings = document.Descendants<HeadingBlock>()
-            .Where(h => h.Level == 2)
+            .Where(h => h.Level == 2 && h.Parent is MarkdownDocument)
             .Select(h => new DocsHeading(h.GetAttributes().Id ?? string.Empty, HeadingText(h)))
             .Where(h => h.Id.Length > 0)
             .ToList();

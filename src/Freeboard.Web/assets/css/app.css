@@ -663,6 +663,56 @@
         padding-top: 14px;
     }
 
+    /* Tab strip a documentation page uses to show one procedure per interaction model.
+       Alpine switches the panels; without it the first panel stays open. */
+    .fb-tabs {
+        border: 1px solid var(--color-line);
+        border-radius: var(--r-sm);
+        background: var(--color-panel);
+        margin: 0 0 18px;
+    }
+
+    .fb-tabs__list {
+        display: flex;
+        flex-wrap: wrap;
+        padding: 0 6px;
+        background: var(--color-panel-dim);
+        border-bottom: 1px solid var(--color-line);
+        border-radius: var(--r-sm) var(--r-sm) 0 0;
+    }
+
+    .fb-tabs__tab {
+        min-height: 40px;
+        padding: 10px 13px;
+        border: none;
+        border-bottom: 2px solid transparent;
+        background: none;
+        color: var(--color-muted);
+        font: 600 13px var(--font-sans);
+        cursor: pointer;
+    }
+
+    .fb-tabs__tab:hover {
+        color: var(--color-ink);
+    }
+
+    .fb-tabs__tab.is-on {
+        color: var(--color-brand-ink);
+        border-bottom-color: var(--color-brand);
+    }
+
+    .fb-tabs__panel {
+        padding: 16px;
+    }
+
+    .fb-tabs__panel > *:first-child {
+        margin-top: 0;
+    }
+
+    .fb-tabs__panel > *:last-child {
+        margin-bottom: 0;
+    }
+
     /* .md is the only element-level ruleset here: it styles the raw HTML the
        markdown converter emits, which carries no classes of its own. */
     .md {

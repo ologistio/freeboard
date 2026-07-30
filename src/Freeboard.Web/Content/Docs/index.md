@@ -14,3 +14,24 @@ Freeboard.
 Add a markdown file under `Content/Docs`, then list it in `Content/Docs/docs.json` with
 its rail label, page title and lede. The body starts at a level-two heading; the title
 comes from the manifest, and level-two headings become the contents list on the right.
+
+## Tabs
+
+A page that shows one procedure per interaction model wraps each version in a tab. The
+outer fence names the group, and every group of that name on the page shares one
+selection, so a reader who picks GitOps once reads the rest of the page in GitOps. See
+[Vendors](/docs/resources/vendors) for a worked example.
+
+```text
+::::tabs Interaction model
+:::tab UI
+Body markdown.
+:::
+:::tab GitOps
+Body markdown.
+:::
+::::
+```
+
+Keep level-two headings out of a tab. They would reach the contents list on the right
+while their panel is closed, and the link would land the reader nowhere.
