@@ -5,6 +5,9 @@
 set -eu
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# run_id must not contain ':' - that character delimits collector_id from run_id server-side, so a
+# run_id built from an ISO timestamp is rejected. collected_at keeps its colons; its format requires them.
+run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 
 cat <<JSON
 {
@@ -12,7 +15,7 @@ cat <<JSON
   "collector_id": "${FREEBOARD_COLLECTOR_ID:-example-collector}",
   "organisation_id": "${FREEBOARD_ORGANISATION_ID:-example-org}",
   "requirement_id": "${FREEBOARD_REQUIREMENT_ID:-example-requirement}",
-  "run_id": "${FREEBOARD_RUN_ID:-${now}-example}",
+  "run_id": "${FREEBOARD_RUN_ID:-${run_stamp}-example}",
   "collector_version": "reference-example",
   "collected_at": "${now}",
   "checks": [
