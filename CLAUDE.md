@@ -47,6 +47,13 @@ dotnet run --project src/Freeboard      # web UI
 `assets/css/app.css` (Tailwind entry) and `assets/js/app.js` (Alpine entry).
 Output goes to `wwwroot/css/app.css` and `wwwroot/js/app.js` (both gitignored).
 
+Both entry stylesheets import the repo-level `assets/css/tokens.css`, which is the
+single source for the palette, type scale, web fonts, `data-theme` overrides and
+the reduced-motion guard. Change a colour there and it lands in both front-ends.
+Component classes stay with the app that uses them. The website has no `fonts/` of
+its own: the build copies `src/Freeboard/wwwroot/fonts/` into
+`src/Freeboard.Web/wwwroot/fonts/` (gitignored) so `/fonts` resolves in both.
+
 `dotnet build` runs the asset build automatically (MSBuild `BuildAssets` target,
 which runs `bun install` on first use then `bun run build`), so **bun must be on
 PATH** to build these two projects. The build is incremental: it re-runs only
@@ -68,12 +75,74 @@ render the content; routes to generate are registered as `PageResource` entries
 in `Program.cs`.
 
 ```sh
-dotnet run --project src/Freeboard.Web              # serve live for editing
+scripts/run-web.sh                                  # serve live on localhost:5300
+scripts/run-web.sh --watch                          # the same, with hot reload
+scripts/run-web.sh --static                         # generate _site, then serve those files
 dotnet run --project src/Freeboard.Web -- ssg-only  # generate static site, then exit
 ```
 
 `ssg-only` writes the static files to `src/Freeboard.Web/_site/` (gitignored)
-and exits.
+and exits. Every page lands at `<route>/index.html`, and `wwwroot` is copied in
+alongside, since AspNetStatic writes only the routes it is given.
+
+### Deployment (Vercel)
+
+The `website` job in `.github/workflows/build.yml` deploys the site: production on
+push to `main` and on a published release, a preview URL on a pull request (commented
+on the PR). Vercel is handed finished files rather than a build to run, so no .NET or
+bun toolchain is needed there: the job copies `_site` into the Build Output API
+layout (`.vercel/output/static`) with `src/Freeboard.Web/vercel-output-config.json`
+as `config.json`, then runs `vercel deploy --prebuilt`. Routing and cache headers
+live in that committed config, not in Vercel dashboard settings.
+
+That config only understands `routes` - `trailingSlash`, `headers`, `cleanUrls` and
+friends are `vercel.json` properties and are **silently ignored** in Build Output
+API config, so everything is expressed as routes. The `handle: error` route is what
+serves `404.html`: a prebuilt deployment does not pick that file up by convention,
+and without the route Vercel serves its own default 404. The `/legal/terms` route is
+a permanent redirect to `/docs/legal/terms`, kept because `src/Freeboard.Enterprise/LICENSE`
+incorporates the subscription terms by reference at that URL - it must keep resolving.
+
+Needs three repo secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`. If
+**any** is missing (not yet configured, mid-rotation, or a pull request from a fork)
+the deploy steps skip and the site is still generated.
+
+**Pre-launch:** the site is deliberately kept out of search results while the copy is
+placeholder, by `wwwroot/robots.txt` and a `robots` meta tag in
+`Pages/Shared/_Head.cshtml`. Remove **both** at launch.
+
+### Pages
+
+`Pages/Index.cshtml` is the single-page homepage. `Pages/DocsPage.cshtml` renders
+every documentation page from one catch-all route, `/docs/{*slug}`.
+`Pages/NotFound.cshtml` is the not-found page; its `PageResource` sets
+`OutFile = "404.html"` so it generates at the output root rather than as
+`404/index.html`.
+
+### Documentation content
+
+Documentation bodies are markdown under `Content/Docs/`, rendered with Markdig.
+`Content/Docs/docs.json` is the manifest: it orders the rail, groups the pages and
+carries each page's metadata. A group's `template` picks the shell - `guide` for
+prose, `legal` for a dated agreement, `api` for a reference page.
+
+To add a page, write the markdown file and list its slug in `docs.json`. The slug
+is both the path under `Content/Docs` (without `.md`) and the URL; the slug
+`index` answers `/docs`. Startup fails if a listed slug has no markdown file.
+Each file opens with an H1, which becomes the page title and is lifted out of the
+body; level-two headings become the contents list on the right.
+
+### API reference
+
+`Content/openapi.yaml` is the API spec the reference pages render from. It is
+**hand-written and partial** - it covers three real endpoints so the pages have
+something true to show, and it can drift from the app. Wiring generation into the
+build is tracked separately.
+
+A page joins the reference by setting `apiTag` in `docs.json` to an OpenAPI tag. Its
+markdown is then an introduction, and the operations carrying that tag are rendered
+under it - one block each, in document order. Startup fails if a page names a tag the
+spec does not define.
 
 `Program.cs` disables HTTP/3 (QUIC) via a `DllImportResolver`. The SSG only
 serves HTTP/1 to itself, so QUIC is never needed.

@@ -1,0 +1,18 @@
+@page "/404"
+@{
+    ViewData["Title"] = "Page not found";
+}
+
+<section class="mx-auto flex max-w-[1160px] flex-col items-start px-7 pt-24 pb-28">
+    <p class="fb-eyebrow">404</p>
+    <h1 class="max-w-[18ch] text-[36px]/[1.08] font-bold tracking-[-0.02em] text-pretty text-ink">
+        That page is not here.
+    </h1>
+    <p class="mt-4 max-w-[52ch] text-base/[1.55] text-pretty text-muted">
+        The address may be mistyped, or the page may have moved. Nothing is broken on your side.
+    </p>
+    <div class="mt-6 flex flex-wrap gap-2.5">
+        <a href="/" class="fb-btn fb-btn--brand fb-btn--lg">Go to the homepage</a>
+        <a href="/docs" class="fb-btn fb-btn--lg">Browse the docs</a>
+    </div>
+</section>

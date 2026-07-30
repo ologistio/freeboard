@@ -30,6 +30,7 @@
   <ItemGroup>
     <AssetInputs Include="assets/**/*;package.json;bun.lock" />
     <AssetInputs Include="Pages/**/*.cshtml" />
+    <AssetInputs Include="$(MSBuildThisFileDirectory)../../assets/css/*.css" />
   </ItemGroup>
 
   <Target Name="InstallAssets" BeforeTargets="BuildAssets" Condition="!Exists('node_modules')">

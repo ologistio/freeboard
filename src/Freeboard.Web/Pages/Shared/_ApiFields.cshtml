@@ -1,0 +1,33 @@
+@model IReadOnlyList<ApiField>
+<div class="overflow-x-auto">
+    <table class="fb-tbl">
+        <thead>
+        <tr>
+            <th class="w-[22%]">Name</th>
+            <th class="w-[16%]">Type</th>
+            <th class="w-[14%]">Required</th>
+            <th>Description</th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var field in Model)
+        {
+            <tr>
+                <td><code class="font-mono text-xs">@field.Name</code></td>
+                <td class="text-muted">@field.Type</td>
+                <td>
+                    @if (field.Required)
+                    {
+                        <span class="fb-tag fb-tag--fail">required</span>
+                    }
+                    else
+                    {
+                        <span class="fb-tag">optional</span>
+                    }
+                </td>
+                <td class="text-muted">@field.Description</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>

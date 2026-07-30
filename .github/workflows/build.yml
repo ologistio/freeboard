@@ -3,14 +3,20 @@ name: Build
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]      # website job only, for a Vercel preview
   release:
-    types: [published]   # draft -> released
+    types: [published]    # draft -> released
 
 permissions:
   contents: read
 
 jobs:
+  # Release artifacts are wanted for main and for published releases. A pull request
+  # only needs the website preview, so this job sits out that trigger rather than
+  # publishing three self-contained runtimes per PR.
   build:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -54,6 +60,17 @@ jobs:
 
   website:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # to comment the preview URL on the PR
+    # Read once here so the credentials check below can test for them. On a fork's
+    # pull request, and before the secrets are configured, they are empty and the
+    # deploy steps skip instead of failing: generating the site is the part that must
+    # always run. The Vercel CLI reads ORG_ID and PROJECT_ID from the environment.
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v6
 
@@ -79,6 +96,72 @@ jobs:
         run: dotnet run --project src/Freeboard.Web -c Release -- ssg-only
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: freeboard-web-${{ steps.version.outputs.version }}
           path: src/Freeboard.Web/_site
+
+      # Deploying needs all three. A partially configured or mid-rotation secret set
+      # takes the generate-only path rather than failing part-way through a deploy.
+      - name: Check for the Vercel credentials
+        id: vercel
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Vercel credentials are incomplete; the site was generated but not deployed." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The site is already built, so Vercel is given finished files rather than a
+      # build to run: no .NET or bun toolchain is needed on their side. This is the
+      # Build Output API layout (v3) that `deploy --prebuilt` expects. `vercel pull`
+      # is deliberately skipped - there is nothing to build and no environment
+      # variables to fetch, so routing stays in the committed config instead of in
+      # dashboard settings.
+      - name: Assemble the Vercel build output
+        if: steps.vercel.outputs.ready == 'true'
+        run: |
+          mkdir -p .vercel/output/static
+          cp -r src/Freeboard.Web/_site/. .vercel/output/static/
+          cp src/Freeboard.Web/vercel-output-config.json .vercel/output/config.json
+
+      - name: Install the Vercel CLI
+        if: steps.vercel.outputs.ready == 'true'
+        run: npm install -g vercel@58.4.0
+
+      - name: Deploy to Vercel
+        id: deploy
+        if: steps.vercel.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          # main and published releases go to production; a pull request gets a
+          # preview URL, which Vercel already serves with X-Robots-Tag: noindex.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            url=$(vercel deploy --prebuilt --yes --token="$VERCEL_TOKEN")
+          else
+            url=$(vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN")
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the preview URL on the pull request
+        if: github.event_name == 'pull_request' && steps.vercel.outputs.ready == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const url = ${{ toJSON(steps.deploy.outputs.url) }};
+            const marker = '<!-- website-preview -->';
+            const body = `${marker}\nWebsite preview for this branch: ${url}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            // Update the existing comment so a busy pull request keeps one preview
+            // link rather than one per push.
+            const existing = comments.data.find(c => c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

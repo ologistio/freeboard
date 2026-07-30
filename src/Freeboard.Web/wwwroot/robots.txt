@@ -1,0 +1,5 @@
+# The site is pre-launch and still carries placeholder copy, so it is kept out of
+# search results. At launch, delete this file AND the matching robots meta tag in
+# Pages/Shared/_Head.cshtml - either one left behind keeps the site deindexed.
+User-agent: *
+Disallow: /

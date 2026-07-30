@@ -1,0 +1,174 @@
+@page "/docs/{*slug}"
+@model DocsPageModel
+@inject ApiReference Api
+@functions {
+    // 2xx reads as the happy path, 5xx as ours to fix, everything else as the caller's.
+    static string StatusTag(string statusCode) => statusCode.FirstOrDefault() switch
+    {
+        '2' => "fb-tag--ok",
+        '5' => "fb-tag--fail",
+        _ => "fb-tag--warn",
+    };
+}
+@{
+    Layout = "_DocsLayout";
+    var item = Model.Entry.Item;
+    IReadOnlyList<ApiOperation> operations = item.ApiTag is { } apiTag ? Api.Operations(apiTag) : [];
+
+    ViewData["Title"] = Model.Body.Title;
+    ViewData["Description"] = item.Lede;
+    ViewData["DocsEntry"] = Model.Entry;
+    ViewData["DocsHeadings"] = operations.Count == 0
+        ? Model.Body.Headings
+        : Model.Body.Headings
+            .Concat(operations.Select(o => new DocsHeading(o.Anchor, $"{o.Method} {o.Path}")))
+            .ToList();
+}
+
+@if (Model.Entry.Group.Template == "legal")
+{
+    <div class="flex justify-center">
+        <div class="fb-rdoc w-full max-w-[780px]">
+            <div class="fb-eyebrow">@Model.Entry.Group.Label</div>
+            <h1 class="m-0 mb-1.5 text-[26px]/[1.2] font-bold tracking-[-0.015em] text-ink">@Model.Body.Title</h1>
+            @if (item.Legal is { } legal)
+            {
+                <div class="fb-fwmeta mt-4">
+                    <div class="m"><div class="ml">Effective</div><div class="mv">@legal.Effective</div></div>
+                    <div class="m"><div class="ml">Version</div><div class="mv">@legal.Version</div></div>
+                    <div class="m"><div class="ml">Applies to</div><div class="mv">@legal.AppliesTo</div></div>
+                </div>
+            }
+            <div class="md mt-5 max-w-none">
+                @if (item.Lede is { Length: > 0 })
+                {
+                    <p class="lede">@item.Lede</p>
+                }
+                @Html.Raw(Model.Body.Html)
+            </div>
+            <div class="fb-asof">Superseded versions available on request &middot; freeboardhq.com/docs/legal</div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="md">
+        <div class="fb-eyebrow">@Model.Entry.Group.Label</div>
+        <h1>@Model.Body.Title</h1>
+        @if (item.Lede is { Length: > 0 })
+        {
+            <p class="lede">@item.Lede</p>
+        }
+        @Html.Raw(Model.Body.Html)
+        @if (item.Reviewed is { Length: > 0 })
+        {
+            <hr />
+            <p class="text-[13px] text-muted">Last reviewed @item.Reviewed.</p>
+        }
+    </div>
+
+    @if (operations.Count > 0)
+    {
+        <div class="mt-6 mb-7 flex flex-wrap items-center gap-2">
+            <span class="fb-stamp gen">Generated / @Api.SourceFile</span>
+            <span class="fb-badge">@Api.Version</span>
+            <span class="text-xs text-faint">
+                Base URL <code class="font-mono text-xs">@Api.BaseUrl</code>
+            </span>
+        </div>
+
+        @foreach (var operation in operations)
+        {
+            <div id="@operation.Anchor" class="fb-panel mb-4 scroll-mt-24 overflow-hidden">
+                <div class="fb-panel__head">
+                    <div class="flex items-center gap-2.5">
+                        <span class="fb-method @operation.Method.ToLowerInvariant()">@operation.Method</span>
+                        <span class="font-mono text-[13.5px] font-medium text-ink">@operation.Path</span>
+                    </div>
+                    @if (operation.OperationId is { Length: > 0 })
+                    {
+                        <span class="fb-panel__meta">operationId: @operation.OperationId</span>
+                    }
+                </div>
+                <div class="fb-panel__body">
+                    @if (operation.Summary is { Length: > 0 })
+                    {
+                        <p class="max-w-[66ch] text-[13.5px]/[1.6] text-ink">@operation.Summary</p>
+                    }
+                    @if (operation.Description is { Length: > 0 })
+                    {
+                        <p class="mt-2 max-w-[66ch] text-[13.5px]/[1.6] text-muted">@operation.Description</p>
+                    }
+
+                    @if (operation.Parameters.Count > 0)
+                    {
+                        <h3 class="fb-eyebrow mt-5">Parameters</h3>
+                        <partial name="_ApiFields" model="operation.Parameters" />
+                    }
+
+                    @if (operation.RequestFields.Count > 0)
+                    {
+                        <h3 class="fb-eyebrow mt-5">Body</h3>
+                        <partial name="_ApiFields" model="operation.RequestFields" />
+                    }
+
+                    @{
+                        var responseExample = operation.Responses.FirstOrDefault(r => r.Example is not null);
+                    }
+                    @if (operation.RequestExample is not null || responseExample is not null)
+                    {
+                        <div class="mt-5 grid gap-3.5 lg:grid-cols-2">
+                            @if (operation.RequestExample is not null)
+                            {
+                                <div>
+                                    <h3 class="fb-eyebrow">Request</h3>
+                                    <pre class="m-0 overflow-x-auto rounded border border-line bg-panel-dim p-3.5"><code class="font-mono text-xs/[1.7] text-ink">@operation.RequestExample</code></pre>
+                                </div>
+                            }
+                            @if (responseExample is not null)
+                            {
+                                <div>
+                                    <h3 class="fb-eyebrow">Response &middot; @responseExample.StatusCode</h3>
+                                    <pre class="m-0 overflow-x-auto rounded border border-line bg-panel-dim p-3.5"><code class="font-mono text-xs/[1.7] text-ink">@responseExample.Example</code></pre>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (operation.Responses.Count > 0)
+                    {
+                        <ul class="mt-4 flex list-none flex-wrap gap-2 p-0">
+                            @foreach (var response in operation.Responses)
+                            {
+                                <li>
+                                    <span class="fb-tag @StatusTag(response.StatusCode)" title="@response.Description">
+                                        @response.StatusCode
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else if (Model.Previous is not null || Model.Next is not null)
+    {
+        <div class="mt-8 flex max-w-[68ch] gap-3">
+            @if (Model.Previous is { } previous)
+            {
+                <a href="@previous.Url" class="fb-linkcard flex-1">
+                    <div class="fb-eyebrow">Previous</div>
+                    <h3>@previous.Item.Label</h3>
+                </a>
+            }
+            @if (Model.Next is { } next)
+            {
+                <a href="@next.Url" class="fb-linkcard flex-1 text-right">
+                    <div class="fb-eyebrow">Next</div>
+                    <h3>@next.Item.Label</h3>
+                </a>
+            }
+        </div>
+    }
+}
