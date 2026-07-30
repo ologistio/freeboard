@@ -444,6 +444,37 @@ public sealed class ConfigLoaderTests
         Assert.DoesNotContain("AttestationTemplate", enumeration);
     }
 
+    // The v1 top-level asset kinds, now folded into Asset.type. They are the likeliest stale-config
+    // mistake because the same words are still legal `type` values, so a document authoring one as its
+    // `kind` must error rather than quietly load nothing.
+    [Theory]
+    [InlineData("Vendor")]
+    [InlineData("Organisation")]
+    [InlineData("Machine")]
+    public void RetiredAssetKindsAreNowUnknown(string kind)
+    {
+        using var dir = TempConfig.Create(
+            ("x.yaml", $"""
+                apiVersion: freeboard.dev/v1alpha1
+                kind: {kind}
+                id: asset-a
+                title: T
+                source: declared
+                """));
+
+        var result = ConfigLoader.Load(dir.Path);
+
+        Assert.Empty(result.Config.Assets);
+        var diagnostic = Assert.Single(result.Diagnostics, d => d.Message.Contains($"Unknown kind '{kind}'"));
+
+        const string marker = "Expected one of:";
+        var markerIndex = diagnostic.Message.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(markerIndex >= 0, $"diagnostic missing '{marker}': {diagnostic.Message}");
+        var enumeration = diagnostic.Message[(markerIndex + marker.Length)..];
+        Assert.Contains("Asset", enumeration);
+        Assert.DoesNotContain(kind, enumeration);
+    }
+
     [Fact]
     public void LoadOrderMatchesNormalizedPathThenInFileOrder()
     {
