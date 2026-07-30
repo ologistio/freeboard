@@ -60,13 +60,22 @@ public sealed class GitOpsCommandTests
         return dir.FullName;
     }
 
+    // The summary must carry a count for every declared kind, so a kind dropped from the output fails
+    // here rather than leaving an operator to notice the omission themselves.
     [Fact]
     public void ValidateValidConfigExitsZeroAndPrintsCounts()
     {
         var (exit, stdout, _) = CliRunner.Run("gitops", "validate", FixtureDir("valid"));
 
         Assert.Equal(0, exit);
-        Assert.Contains("standard(s)", stdout);
+        Assert.Contains("1 standard(s)", stdout, StringComparison.Ordinal);
+        Assert.Contains("1 requirement(s)", stdout, StringComparison.Ordinal);
+        Assert.Contains("1 control(s)", stdout, StringComparison.Ordinal);
+        Assert.Contains(
+            "2 asset(s) (1 company, 1 department, 0 machine, 0 vendor)", stdout, StringComparison.Ordinal);
+        Assert.Contains("1 scope(s)", stdout, StringComparison.Ordinal);
+        Assert.Contains("1 collector(s)", stdout, StringComparison.Ordinal);
+        Assert.Contains("1 integration(s)", stdout, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -87,6 +96,8 @@ public sealed class GitOpsCommandTests
         Assert.Contains("not found", stderr);
     }
 
+    // The planned state must carry a section per declared kind: it is the last thing an operator reads
+    // before a sync writes or hard-removes, so a kind missing from it is a silent blind spot.
     [Fact]
     public void ApplyDryRunExitsZeroAndPrintsPlannedState()
     {
@@ -94,7 +105,23 @@ public sealed class GitOpsCommandTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Planned config state", stdout);
+        Assert.Contains("Standards (1):", stdout, StringComparison.Ordinal);
+        Assert.Contains("Requirements (1):", stdout, StringComparison.Ordinal);
+        Assert.Contains("Controls (1):", stdout, StringComparison.Ordinal);
+        Assert.Contains("Assets (2):", stdout, StringComparison.Ordinal);
+        Assert.Contains("Scopes (1):", stdout, StringComparison.Ordinal);
+        Assert.Contains("Collectors (1):", stdout, StringComparison.Ordinal);
+        Assert.Contains("Integrations (1):", stdout, StringComparison.Ordinal);
         Assert.Contains("std-a", stdout);
+        // The whole integration line, terminator included: one assertion pins the id, title, the absent
+        // vendor placeholder, provider, base URL, and cadence, and simultaneously pins that no further
+        // field (a token above all) is printed. Asserting the fields separately would pass on the
+        // collector line, which carries the same provider and cadence text.
+        Assert.Contains(
+            "  - conn-a: Connection A -> vendor - [provider fleet, https://fleet.example.com, daily]"
+            + Environment.NewLine,
+            stdout,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -167,14 +194,47 @@ public sealed class GitOpsCommandTests
         }
     }
 
-    // A declared Vendor with no owner is a non-blocking Warning: validation stays valid (exit 0) but the
-    // operator must still see the warning on stderr, not have it silently swallowed.
+    // The four asset-edge warnings the commands must surface - a dangling parent, a dangling owner, a
+    // Vendor with no owner, and a Machine with no parent - plus the one case that must stay silent. The
+    // warnings are non-blocking: validation stays valid (exit 0) but the operator must still see each on
+    // stderr rather than have it silently swallowed. org-root is a legitimate parentless root, so it must
+    // draw nothing - a validator that warned on every parentless asset would flood stderr.
     private static string WarningsOnlyConfig() => """
         apiVersion: freeboard.dev/v1alpha1
         kind: Asset
         id: vendor-a
         title: Vendor A
         type: Vendor
+        source: declared
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: org-root
+        title: Root Co
+        type: Company
+        source: declared
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: dept-orphan
+        title: Orphan Department
+        type: Department
+        source: declared
+        parent: ghost-parent
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: vendor-unowned
+        title: Vendor with an unknown owner
+        type: Vendor
+        source: declared
+        owner: ghost-owner
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: machine-rootless
+        title: Rootless Machine
+        type: Machine
         source: declared
         """;
 
@@ -255,11 +315,20 @@ public sealed class GitOpsCommandTests
         var dir = WriteTempConfig(WarningsOnlyConfig());
         try
         {
-            var (exit, _, stderr) = CliRunner.Run("gitops", "validate", dir);
+            var (exit, stdout, stderr) = CliRunner.Run("gitops", "validate", dir);
 
             Assert.Equal(0, exit);
             Assert.Contains("warning:", stderr, StringComparison.Ordinal);
             Assert.Contains("vendor-a", stderr, StringComparison.Ordinal);
+            // A dangling parent and a dangling owner are separate predicates: each names the asset and the
+            // id nothing defines.
+            Assert.Contains("dept-orphan", stderr, StringComparison.Ordinal);
+            Assert.Contains("unknown parent 'ghost-parent'", stderr, StringComparison.Ordinal);
+            Assert.Contains("vendor-unowned", stderr, StringComparison.Ordinal);
+            Assert.Contains("unknown owner 'ghost-owner'", stderr, StringComparison.Ordinal);
+            // The warnings do not suppress the success summary, and the parentless root draws nothing.
+            Assert.Contains("asset(s)", stdout, StringComparison.Ordinal);
+            Assert.DoesNotContain("org-root", stderr, StringComparison.Ordinal);
         }
         finally
         {
@@ -278,6 +347,13 @@ public sealed class GitOpsCommandTests
             Assert.Equal(0, exit);
             Assert.Contains("Planned config state", stdout);
             Assert.Contains("warning:", stderr, StringComparison.Ordinal);
+            // The missing-required-edge half of the rule: a Vendor with no owner and a Machine with no
+            // parent are visible to no caller, so both warn; a parentless Company is a legitimate root.
+            // Each warning is bound to its asset - the fixture also carries vendor-unowned, whose dangling
+            // owner is a different predicate, so an unbound phrase would pass on the wrong row.
+            Assert.Contains("'vendor-a' is a Vendor with no owner", stderr, StringComparison.Ordinal);
+            Assert.Contains("'machine-rootless' is a Machine with no parent", stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("org-root", stderr, StringComparison.Ordinal);
         }
         finally
         {

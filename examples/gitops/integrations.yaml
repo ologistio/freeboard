@@ -1,0 +1,15 @@
+# Sample integration connection: one provider instance (a base URL and a discovery
+# cadence) that drives machine discovery and backs the integration collector in
+# collectors.yaml. One connection can back many per-control collectors. The optional
+# vendor points at the Fleet vendor asset in vendors.yaml.
+#
+# No token field exists: the API token is resolved out-of-band by connection id, so
+# it is never authored in git and never persisted.
+apiVersion: freeboard.dev/v1alpha1
+kind: Integration
+id: conn-fleetdm
+title: Fleet (production instance)
+provider: fleet
+base_url: https://fleet.example.com
+discovery_cadence: daily
+vendor: vendor-fleetdm

@@ -1,4 +1,6 @@
 using Dapper;
+using Freeboard.Persistence;
+using Freeboard.Persistence.Auth;
 using Freeboard.Persistence.System;
 using Freeboard.TestInfrastructure;
 using MySqlConnector;
@@ -61,6 +63,19 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         return (exit, outW.ToString(), errW.ToString());
     }
 
+    // Seeds one discovered machine through the ingest write path - the only writer of a discovered asset -
+    // and returns the id it allocated. A discovered id is a generated ULID, so a test that needs to collide
+    // with it has to author its config after the seed.
+    private static async Task<string> SeedDiscoveredMachineAsync(MySqlTestDatabase db)
+    {
+        var writes = new MySqlAssetWriteStore(db.ConnectionFactory, new UlidFactory());
+        var result = await writes.UpsertMachineFromSourceAsync(
+            new NewMachineObservation("org-a", "fleet", "host-1", "SN-1", null, null));
+
+        Assert.Equal(AssetUpsertStatus.Created, result.Status);
+        return result.AssetId!;
+    }
+
     private static async Task<long> TableCountAsync(MySqlTestDatabase db)
     {
         await using var conn = new MySqlConnection(db.ConnectionString);
@@ -69,7 +84,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE();");
     }
 
-    // IF-3 (a): sync a valid config WITHOUT --migrate on a truly empty DB -> exit 3 AND no tables.
+    // Sync a valid config WITHOUT --migrate on a truly empty DB -> exit 3 AND no tables.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncWithoutMigrateOnEmptyDbExitsThreeAndCreatesNoTables()
     {
@@ -83,7 +98,9 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Equal(0, await TableCountAsync(db));
     }
 
-    // IF-3 (b): sync --migrate on an empty DB -> exit 0, schema_migrations + six tables, data imported.
+    // sync --migrate against a truly empty database bootstraps the schema and imports in one command:
+    // exit 0, the migration-tracking table and every table the persisted kinds need exist, and each
+    // kind's rows land.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncWithMigrateOnEmptyDbBootstrapsMigratesImportsExitsZero()
     {
@@ -102,6 +119,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         foreach (var t in new[]
                  {
                      "standards", "requirements", "controls", "assets", "scopes",
+                     "collectors", "integration_connections",
                      "control_requirements", "schema_migrations",
                  })
         {
@@ -114,9 +132,11 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Equal(2, await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM assets WHERE type IN ('Company', 'Department');"));
         Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
+        Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM collectors;"));
+        Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM integration_connections;"));
     }
 
-    // IF-1 (a): an applied migration whose checksum no longer matches -> sync exits 3, imports nothing.
+    // An applied migration whose checksum no longer matches -> sync exits 3, imports nothing.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncOnChecksumMismatchExitsThreeAndImportsNothing()
     {
@@ -137,7 +157,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM standards;"));
     }
 
-    // IF-1 (b): schema_migrations records a version with no embedded migration -> sync exits 3, imports nothing.
+    // schema_migrations records a version with no embedded migration -> sync exits 3, imports nothing.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncOnRecordedButMissingMigrationExitsThreeAndImportsNothing()
     {
@@ -157,11 +177,13 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM standards;"));
     }
 
-    // A full config persists the new-kind rows; re-syncing a config that drops one scope and two
-    // collectors hard-removes exactly those rows while keeping their FK targets (the vendor subject,
-    // control, and requirement they referenced) and the other retained rows. This covers the "drop only
-    // the resource, keep its FK target" case at the command surface and exercises both removal paths: the
-    // whole-set scope replace and the DeleteAbsent collector prune.
+    // A full config persists the new-kind rows and round-trips their field values; re-syncing a config
+    // that drops one scope, three collectors, and one integration connection hard-removes exactly those
+    // rows while keeping their FK targets (the vendor subject, control, and requirement they referenced)
+    // and the other retained rows. Dropping a collector together with the connection it referenced also
+    // pins the prune order: the wrong order raises the connection's RESTRICT foreign key. Three removal
+    // paths run here - the whole-set scope replace, the DeleteAbsent collector prune, and the DeleteAbsent
+    // connection prune.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task SyncRoundTripThenDropRemovesDroppedNewKindRowsKeepingTargets()
     {
@@ -179,7 +201,8 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             await conn.OpenAsync();
 
             Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
-            Assert.Equal(4, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM collectors;"));
+            Assert.Equal(5, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM collectors;"));
+            Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM integration_connections;"));
 
             // Read back a persisted field value on a retained row to prove a true round-trip, not just
             // row identity: ec-keep's type must equal the config's 'integration'.
@@ -189,20 +212,44 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             Assert.Equal("keep-check", await conn.ExecuteScalarAsync<string>(
                 "SELECT config->>'$.Checks[0].Name' FROM collectors WHERE id = 'ec-keep';"));
 
+            // The same round-trip readback for the retained connection, its optional vendor included.
+            Assert.Equal("fleet", await conn.ExecuteScalarAsync<string>(
+                "SELECT provider FROM integration_connections WHERE id = 'conn-a';"));
+            Assert.Equal("https://fleet.example.com", await conn.ExecuteScalarAsync<string>(
+                "SELECT base_url FROM integration_connections WHERE id = 'conn-a';"));
+            Assert.Equal("daily", await conn.ExecuteScalarAsync<string>(
+                "SELECT discovery_cadence FROM integration_connections WHERE id = 'conn-a';"));
+            Assert.Equal("vendor-a", await conn.ExecuteScalarAsync<string>(
+                "SELECT vendor_id FROM integration_connections WHERE id = 'conn-a';"));
+
+            // No token value is stored because the table carries no token column by construction: the API
+            // token is resolved out-of-band by connection id.
+            Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
+                """
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'integration_connections'
+                  AND column_name LIKE '%token%';
+                """));
+
             var (dropExit, _, _) = Capture(() => new GitOpsCommands().Sync(dropped));
             Assert.Equal(0, dropExit);
 
             // The dropped rows are gone; the retained ones remain.
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM scopes;"));
             Assert.Equal(2, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM collectors;"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM integration_connections;"));
             Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM scopes WHERE id = 'vs-drop';"));
             Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM collectors WHERE id IN ('ec-drop', 'at-drop');"));
+                "SELECT COUNT(*) FROM collectors WHERE id IN ('ec-drop', 'at-drop', 'ec-conn-drop');"));
+            Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM integration_connections WHERE id = 'conn-drop';"));
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM scopes WHERE id = 'vs-keep';"));
             Assert.Equal(2, await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM collectors WHERE id IN ('ec-keep', 'at-keep');"));
+            Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM integration_connections WHERE id = 'conn-a';"));
 
             // The FK targets of the dropped rows survive: the vendor, control, and requirement are kept.
             Assert.Equal(1, await conn.ExecuteScalarAsync<long>(
@@ -216,6 +263,134 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
             Directory.Delete(dropped, recursive: true);
         }
     }
+
+    // A config that declares no Machine assets is not an error and not a removal instruction: sync exits 0
+    // and the discovered machine is still there afterwards. The exit code is the point - the row-level
+    // survival matrix belongs to the persistence suite, which owns the store guarantee.
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task SyncDeclaringNoMachinesExitsZeroAndLeavesTheDiscoveredMachine()
+    {
+        await using var db = await RequireDbAsync();
+        await new MySqlMigrationRunner(db.ConnectionFactory).ApplyPendingAsync();
+        Environment.SetEnvironmentVariable("FREEBOARD_DB", db.ConnectionString);
+        var discoveredId = await SeedDiscoveredMachineAsync(db);
+
+        var dir = WriteTempConfig(DeclaredOrgOnlyConfig);
+        try
+        {
+            var (exit, _, _) = Capture(() => new GitOpsCommands().Sync(dir));
+
+            Assert.Equal(0, exit);
+
+            await using var conn = new MySqlConnection(db.ConnectionString);
+            await conn.OpenAsync();
+            Assert.Equal("discovered", await conn.ExecuteScalarAsync<string>(
+                "SELECT source FROM assets WHERE id = @Id;", new { Id = discoveredId }));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // The case an operator most fears: a config emptied of assets against a store holding both declared and
+    // discovered rows. Sync still exits 0, the declared rows it previously wrote are hard-removed, and the
+    // discovered machine is untouched.
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task SyncOfAZeroAssetConfigExitsZeroRemovingDeclaredAndKeepingDiscovered()
+    {
+        await using var db = await RequireDbAsync();
+        await new MySqlMigrationRunner(db.ConnectionFactory).ApplyPendingAsync();
+        Environment.SetEnvironmentVariable("FREEBOARD_DB", db.ConnectionString);
+        var discoveredId = await SeedDiscoveredMachineAsync(db);
+
+        var withAssets = WriteTempConfig(DeclaredOrgOnlyConfig);
+        var withoutAssets = WriteTempConfig(NoAssetConfig);
+        try
+        {
+            Assert.Equal(0, Capture(() => new GitOpsCommands().Sync(withAssets)).Exit);
+
+            var (exit, _, _) = Capture(() => new GitOpsCommands().Sync(withoutAssets));
+
+            Assert.Equal(0, exit);
+
+            await using var conn = new MySqlConnection(db.ConnectionString);
+            await conn.OpenAsync();
+            Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM assets WHERE id = 'org-a';"));
+            Assert.Equal("discovered", await conn.ExecuteScalarAsync<string>(
+                "SELECT source FROM assets WHERE id = @Id;", new { Id = discoveredId }));
+        }
+        finally
+        {
+            Directory.Delete(withAssets, recursive: true);
+            Directory.Delete(withoutAssets, recursive: true);
+        }
+    }
+
+    // The collision is detected inside the import transaction against database state, which config
+    // validation cannot see, so the command maps it to 3 (operational) rather than 1 (validation) and its
+    // message names the id. The other declared asset in the same config proves the command aborted instead
+    // of partially applying; the whole-store no-mutation guarantee is the persistence suite's.
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task SyncOfADeclaredIdCollidingWithADiscoveredIdExitsThreeNamingTheId()
+    {
+        await using var db = await RequireDbAsync();
+        await new MySqlMigrationRunner(db.ConnectionFactory).ApplyPendingAsync();
+        Environment.SetEnvironmentVariable("FREEBOARD_DB", db.ConnectionString);
+        var discoveredId = await SeedDiscoveredMachineAsync(db);
+
+        var dir = WriteTempConfig($"""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: org-a
+            title: Org A
+            type: Company
+            source: declared
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: {discoveredId}
+            title: Colliding company
+            type: Company
+            source: declared
+            """);
+        try
+        {
+            var (exit, _, err) = Capture(() => new GitOpsCommands().Sync(dir));
+
+            Assert.Equal(3, exit);
+            Assert.Contains(discoveredId, err, StringComparison.Ordinal);
+            Assert.Contains("Nothing was written.", err, StringComparison.Ordinal);
+
+            await using var conn = new MySqlConnection(db.ConnectionString);
+            await conn.OpenAsync();
+            Assert.Equal(0, await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM assets WHERE id = 'org-a';"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // A declared Company and nothing else: the config declares no Machine assets at all.
+    private const string DeclaredOrgOnlyConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: org-a
+        title: Org A
+        type: Company
+        source: declared
+        """;
+
+    // A valid config carrying no Asset document of any type.
+    private const string NoAssetConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Standard
+        id: std-a
+        title: Standard A
+        version: "1.0"
+        authority: Example Authority
+        """;
 
     // A non-blocking validation warning (an ownerless declared Vendor) must not fail sync: the command
     // still exits 0, imports the config, and prints the warning to stderr so the operator sees it. This
@@ -266,8 +441,9 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         source: declared
         """;
 
-    // Standard/requirement/control plus a vendor, two vendor-subject scopes, and four collectors - two
-    // data sources and two attestations. ctrl-a declares evaluation because it has attached collectors.
+    // Standard/requirement/control plus a vendor, two vendor-subject scopes, two integration connections
+    // (conn-a naming the vendor, conn-drop not), and five collectors - three data sources and two
+    // attestations. ctrl-a declares evaluation because it has attached collectors.
     private const string FullConfig = """
         apiVersion: freeboard.dev/v1alpha1
         kind: Standard
@@ -308,6 +484,15 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         provider: fleet
         base_url: https://fleet.example.com
         discovery_cadence: daily
+        vendor: vendor-a
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Integration
+        id: conn-drop
+        title: Connection to drop
+        provider: fleet
+        base_url: https://drop.fleet.example.com
+        discovery_cadence: weekly
         ---
         apiVersion: freeboard.dev/v1alpha1
         kind: Scope
@@ -352,6 +537,21 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         ---
         apiVersion: freeboard.dev/v1alpha1
         kind: Collector
+        id: ec-conn-drop
+        title: Drop collector on the dropped connection
+        control: ctrl-a
+        type: integration
+        provider: fleet
+        frequency: weekly
+        connection: conn-drop
+        config:
+          checks:
+            - source_key: "2"
+              name: drop-check
+              severity: Soft
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Collector
         id: at-keep
         title: Keep attestation
         control: ctrl-a
@@ -367,7 +567,10 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         frequency: annual
         """;
 
-    // The full config with vs-drop, ec-drop, and at-drop removed; every FK target is retained.
+    // The full config narrowed: vs-drop, ec-drop, at-drop, ec-conn-drop, and conn-drop are all omitted.
+    // The FK targets of the dropped scope and collectors are retained (vendor-a, ctrl-a, req-a), but
+    // conn-drop is ec-conn-drop's FK target and is deliberately dropped with it - the case that pins the
+    // collector-before-connection prune order.
     private const string DroppedConfig = """
         apiVersion: freeboard.dev/v1alpha1
         kind: Standard
@@ -408,6 +611,7 @@ public sealed class SyncMySqlIntegrationTests : IDisposable
         provider: fleet
         base_url: https://fleet.example.com
         discovery_cadence: daily
+        vendor: vendor-a
         ---
         apiVersion: freeboard.dev/v1alpha1
         kind: Scope
