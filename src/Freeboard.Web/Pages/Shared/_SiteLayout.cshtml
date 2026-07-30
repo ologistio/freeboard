@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <partial name="_Head" />
+</head>
+<body class="min-h-screen bg-field text-ink">
+<a href="#top" class="sr-only focus:not-sr-only">Skip to content</a>
+
+<header class="sticky top-0 z-20 border-b border-line bg-field">
+    <div class="mx-auto flex h-14 max-w-[1160px] items-center gap-4 px-7 sm:gap-7">
+        <a href="/" class="flex shrink-0 items-baseline gap-2 no-underline hover:no-underline">
+            <span class="fb-mark">F</span>
+            <span class="fb-name">Freeboard</span>
+        </a>
+        <nav aria-label="Main" class="hidden items-center gap-1 md:flex">
+            <a href="/#product" class="fb-navlink">Product</a>
+            <a href="/#frameworks" class="fb-navlink">Frameworks</a>
+            <a href="/#pricing" class="fb-navlink">Pricing</a>
+            <a href="/docs" class="fb-navlink">Docs</a>
+        </nav>
+        <div class="flex-1"></div>
+        <div class="flex items-center gap-2">
+            <partial name="_ThemeToggle" />
+            <a href="#top" class="fb-btn fb-btn--quiet hidden sm:inline-flex">Sign in</a>
+            <a href="#top" class="fb-btn fb-btn--brand">Start free</a>
+        </div>
+    </div>
+</header>
+
+<main id="top">
+    @RenderBody()
+</main>
+
+<footer class="border-t border-line bg-field">
+    <div class="mx-auto grid max-w-[1160px] grid-cols-2 gap-8 px-7 pt-11 pb-7 md:grid-cols-4">
+        <div class="col-span-2 md:col-span-1">
+            <div class="flex items-baseline gap-2">
+                <span class="fb-mark">F</span>
+                <span class="fb-name">Freeboard</span>
+            </div>
+            <p class="mt-2.5 max-w-[30ch] text-xs text-muted">One-line description of the company for the footer.</p>
+        </div>
+        <div>
+            <h2 class="fb-eyebrow">Product</h2>
+            <ul class="grid list-none gap-2 p-0">
+                <li><a href="/#product" class="fb-footlink">Overview</a></li>
+                <li><a href="/#frameworks" class="fb-footlink">Frameworks</a></li>
+                <li><a href="/#pricing" class="fb-footlink">Pricing</a></li>
+            </ul>
+        </div>
+        <div>
+            <h2 class="fb-eyebrow">Resources</h2>
+            <ul class="grid list-none gap-2 p-0">
+                <li><a href="/docs" class="fb-footlink">Documentation</a></li>
+                <li><a href="/docs/quickstart" class="fb-footlink">Quickstart</a></li>
+            </ul>
+        </div>
+        <div>
+            <h2 class="fb-eyebrow">Legal</h2>
+            <ul class="grid list-none gap-2 p-0">
+                <li><a href="/docs/legal/terms" class="fb-footlink">Terms</a></li>
+                <li><a href="/docs/legal/privacy" class="fb-footlink">Privacy</a></li>
+                <li><a href="/docs/legal/subprocessors" class="fb-footlink">Subprocessors</a></li>
+                <li><a href="/docs/legal/dpa" class="fb-footlink">DPA</a></li>
+            </ul>
+        </div>
+    </div>
+    <div class="mx-auto flex max-w-[1160px] flex-wrap items-center justify-between gap-4 px-7 pb-7">
+        <span class="font-mono text-[10.5px] font-medium tracking-[0.06em] text-faint uppercase">
+            &copy; 2026 Ologist Ltd &middot; freeboardhq.com
+        </span>
+        <span class="fb-rev">Rev 2026.07</span>
+    </div>
+</footer>
+</body>
+</html>

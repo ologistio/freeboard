@@ -1,0 +1,65 @@
+[
+  {
+    "label": "Getting started",
+    "template": "guide",
+    "items": [
+      {
+        "slug": "index",
+        "label": "Introduction",
+        "lede": "What Freeboard is, and what this documentation covers."
+      },
+      {
+        "slug": "quickstart",
+        "label": "Quickstart",
+        "lede": "One-sentence summary of what the reader will have working by the end of this page."
+      },
+      {
+        "slug": "connect-a-system",
+        "label": "Connect a system",
+        "lede": "How evidence gets into Freeboard from the systems you already run."
+      }
+    ]
+  },
+  {
+    "label": "API reference",
+    "template": "api",
+    "items": [
+      {
+        "slug": "api/evidence",
+        "label": "Evidence",
+        "apiTag": "Evidence"
+      },
+      {
+        "slug": "api/compliance",
+        "label": "Compliance",
+        "apiTag": "Compliance"
+      }
+    ]
+  },
+  {
+    "label": "Legal",
+    "template": "legal",
+    "items": [
+      {
+        "slug": "legal/terms",
+        "label": "Terms of service",
+        "legal": { "effective": "Draft", "version": "Draft", "appliesTo": "All customers" }
+      },
+      {
+        "slug": "legal/privacy",
+        "label": "Privacy policy",
+        "legal": { "effective": "Draft", "version": "Draft", "appliesTo": "All customers" }
+      },
+      {
+        "slug": "legal/subprocessors",
+        "label": "Subprocessors",
+        "legal": { "effective": "Draft", "version": "Draft", "appliesTo": "All customers" }
+      },
+      {
+        "slug": "legal/dpa",
+        "label": "Data processing addendum",
+        "legal": { "effective": "Draft", "version": "Draft", "appliesTo": "All customers" }
+      }
+    ]
+  }
+]

@@ -62,6 +62,9 @@ nunit-*.xml
 # AspNetStatic generated output
 src/Freeboard.Web/_site/
 
+# Vercel CLI: local project link and the assembled build output
+.vercel/
+
 # Front-end toolchain (bun)
 node_modules/
 
@@ -74,3 +77,8 @@ src/Freeboard/wwwroot/css/app.css
 src/Freeboard/wwwroot/js/app.js
 src/Freeboard.Web/wwwroot/css/app.css
 src/Freeboard.Web/wwwroot/js/app.js
+
+# Web fonts copied from src/Freeboard/wwwroot/fonts by the build
+src/Freeboard.Web/wwwroot/fonts/
+.vercel
+.env*

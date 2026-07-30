@@ -1,0 +1,273 @@
+@page "/"
+@{
+    ViewData["Title"] = "Compliance automation";
+    ViewData["Description"] = "Two supporting sentences. Say what the product collects, what it scores it against, and what the customer walks away with.";
+}
+
+<section class="mx-auto grid max-w-[1160px] items-center gap-14 px-7 pt-16 pb-6 lg:grid-cols-[minmax(0,1fr)_460px]">
+    <div>
+        <p class="fb-eyebrow">Compliance automation</p>
+        <h1 class="max-w-[15ch] text-[36px]/[1.08] font-bold tracking-[-0.02em] text-pretty text-ink sm:text-[46px]">
+            Headline goes here, stated as a fact.
+        </h1>
+        <p class="mt-4 max-w-[54ch] text-base/[1.55] text-pretty text-muted">
+            Two supporting sentences. Say what the product collects, what it scores it against, and what
+            the customer walks away with. Keep numbers in, keep adjectives out.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-2.5">
+            <a href="#top" class="fb-btn fb-btn--brand fb-btn--lg">Start free</a>
+            <a href="/docs" class="fb-btn fb-btn--lg">Read the docs</a>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-2.5">
+            <span class="fb-stamp">Auto / 22m</span>
+            <span class="text-xs text-faint">Evidence refreshes on its own. No card required.</span>
+        </div>
+    </div>
+
+    @* Product view placeholder: illustrative rows, not live data. *@
+    <div class="fb-panel overflow-hidden">
+        <div class="fb-panel__head">
+            <h2>Controls</h2>
+            <span class="fb-panel__meta">Placeholder view</span>
+        </div>
+        <table class="fb-tbl">
+            <tbody>
+            <tr class="fb-grp hot"><td colspan="3">Needs action &middot; 3</td></tr>
+            <tr>
+                <td class="w-[54%]">
+                    <div class="fb-tdname">Control name placeholder</div>
+                    <div class="fb-tdsub">CC6.1 &middot; Access</div>
+                </td>
+                <td><span class="fb-status fail"><span class="fb-seal fail"></span>Failing</span></td>
+                <td class="text-right"><span class="fb-stamp">Auto / 22m</span></td>
+            </tr>
+            <tr>
+                <td>
+                    <div class="fb-tdname">Control name placeholder</div>
+                    <div class="fb-tdsub">CC7.2 &middot; Monitoring</div>
+                </td>
+                <td><span class="fb-status warn"><span class="fb-seal warn"></span>At risk</span></td>
+                <td class="text-right"><span class="fb-stamp manual">Manual / 4d</span></td>
+            </tr>
+            <tr class="fb-grp"><td colspan="3">Healthy &middot; 118</td></tr>
+            <tr>
+                <td>
+                    <div class="fb-tdname">Control name placeholder</div>
+                    <div class="fb-tdsub">CC1.4 &middot; People</div>
+                </td>
+                <td><span class="fb-status ok"><span class="fb-seal ok"></span>Passing</span></td>
+                <td class="text-right"><span class="fb-stamp">Auto / 1h</span></td>
+            </tr>
+            <tr>
+                <td>
+                    <div class="fb-tdname">Control name placeholder</div>
+                    <div class="fb-tdsub">CC8.1 &middot; Change</div>
+                </td>
+                <td><span class="fb-status ok"><span class="fb-seal ok"></span>Passing</span></td>
+                <td class="text-right"><span class="fb-stamp">Auto / 1h</span></td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="fb-tfoot">Showing 4 of 121</div>
+    </div>
+</section>
+
+<section class="mx-auto max-w-[1160px] px-7 pt-5 pb-2">
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-3 border-y border-line py-4">
+        <span class="fb-eyebrow m-0">Trusted by</span>
+        <span class="text-[15px] font-bold text-line-strong">Customer one</span>
+        <span class="text-[15px] font-bold text-line-strong">Customer two</span>
+        <span class="text-[15px] font-bold text-line-strong">Customer three</span>
+        <span class="text-[15px] font-bold text-line-strong">Customer four</span>
+        <span class="text-[15px] font-bold text-line-strong">Customer five</span>
+    </div>
+</section>
+
+<section id="product" class="mx-auto max-w-[1160px] px-7 py-16">
+    <p class="fb-eyebrow">What it does</p>
+    <h2 class="max-w-[24ch] text-[30px]/[1.15] font-bold tracking-[-0.015em] text-ink">Section headline placeholder.</h2>
+    <div class="mt-7 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        @for (var i = 1; i <= 4; i++)
+        {
+            <div class="fb-panel px-4.5 pt-4.5 pb-5">
+                <p class="fb-eyebrow">@i.ToString("00")</p>
+                <h3 class="mb-1.5 text-[15px] font-bold text-ink">Capability @i</h3>
+                <p class="text-[13px]/[1.5] text-muted">
+                    Two lines on what this does and the state it removes from a person's week.
+                </p>
+            </div>
+        }
+    </div>
+</section>
+
+<section class="border-y border-line bg-panel">
+    <div class="mx-auto max-w-[1160px] px-7 py-16">
+        <p class="fb-eyebrow">How it works</p>
+        <h2 class="text-[30px]/[1.15] font-bold tracking-[-0.015em] text-ink">Collect, score, prove.</h2>
+        <div class="mt-7 grid border-t border-line lg:grid-cols-3">
+            <div class="border-line pt-5.5 pr-6 pb-1 lg:border-r">
+                <p class="font-mono text-[11px] font-medium tracking-[0.1em] text-brand-ink">STEP 01</p>
+                <h3 class="mt-2 mb-1.5 text-lg font-bold text-ink">Collect</h3>
+                <p class="max-w-[34ch] text-[13.5px]/[1.55] text-muted">
+                    Connect the systems you already run. Evidence arrives with a source and a timestamp.
+                </p>
+            </div>
+            <div class="border-line pt-5.5 pr-6 pb-1 lg:border-r lg:pl-6">
+                <p class="font-mono text-[11px] font-medium tracking-[0.1em] text-brand-ink">STEP 02</p>
+                <h3 class="mt-2 mb-1.5 text-lg font-bold text-ink">Score</h3>
+                <p class="max-w-[34ch] text-[13.5px]/[1.55] text-muted">
+                    Every control gets a status, an owner and a due date. Exceptions surface first.
+                </p>
+            </div>
+            <div class="pt-5.5 pb-1 lg:pl-6">
+                <p class="font-mono text-[11px] font-medium tracking-[0.1em] text-brand-ink">STEP 03</p>
+                <h3 class="mt-2 mb-1.5 text-lg font-bold text-ink">Prove</h3>
+                <p class="max-w-[34ch] text-[13.5px]/[1.55] text-muted">
+                    Export an auditor-ready report, or point buyers at a public trust page.
+                </p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="frameworks" class="mx-auto max-w-[1160px] px-7 py-16">
+    <div class="flex flex-wrap items-end justify-between gap-5">
+        <div>
+            <p class="fb-eyebrow">Frameworks</p>
+            <h2 class="text-[30px]/[1.15] font-bold tracking-[-0.015em] text-ink">Mapped once, reused everywhere.</h2>
+        </div>
+        <p class="max-w-[44ch] text-[13.5px]/[1.55] text-muted">
+            One control satisfies many frameworks. Add a framework and the overlap is already covered.
+        </p>
+    </div>
+    <div class="mt-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div class="fb-panel p-4">
+            <div class="text-sm font-bold text-ink">SOC 2</div>
+            <div class="mt-1 text-xs text-muted">Type I &amp; II</div>
+            <div class="fb-bar"><i style="width: 91%;"></i></div>
+        </div>
+        <div class="fb-panel p-4">
+            <div class="text-sm font-bold text-ink">ISO 27001</div>
+            <div class="mt-1 text-xs text-muted">2022</div>
+            <div class="fb-bar"><i style="width: 84%;"></i></div>
+        </div>
+        <div class="fb-panel p-4">
+            <div class="text-sm font-bold text-ink">HIPAA</div>
+            <div class="mt-1 text-xs text-muted">Security rule</div>
+            <div class="fb-bar"><i class="warn" style="width: 62%;"></i></div>
+        </div>
+        <div class="fb-panel p-4">
+            <div class="text-sm font-bold text-ink">GDPR</div>
+            <div class="mt-1 text-xs text-muted">Art. 32</div>
+            <div class="fb-bar"><i style="width: 88%;"></i></div>
+        </div>
+        <div class="fb-panel p-4">
+            <div class="text-sm font-bold text-ink">PCI DSS</div>
+            <div class="mt-1 text-xs text-muted">v4.0</div>
+            <div class="fb-bar"><i class="warn" style="width: 55%;"></i></div>
+        </div>
+        <div class="fb-panel fb-linkcard--ghost p-4">Request a framework</div>
+    </div>
+</section>
+
+<section class="border-y border-line bg-panel">
+    <div class="mx-auto grid max-w-[1160px] items-center gap-12 px-7 py-14 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <blockquote class="m-0">
+            <p class="max-w-[46ch] text-[22px]/[1.45] tracking-[-0.01em] text-pretty text-ink">
+                "Customer quote placeholder. One or two sentences, with a number in it, about what
+                changed after they switched."
+            </p>
+            <footer class="mt-4 flex items-center gap-2.5">
+                <span class="fb-av">NN</span>
+                <span class="text-[13px] text-muted"><b class="font-semibold text-ink">Name placeholder</b> &middot; Role, Company</span>
+            </footer>
+        </blockquote>
+        <div class="grid gap-3">
+            <div class="fb-stat">
+                <div class="fb-stat__label">Time to first report</div>
+                <div class="fb-stat__main">00 <small>days</small></div>
+            </div>
+            <div class="fb-stat">
+                <div class="fb-stat__label">Evidence automated</div>
+                <div class="fb-stat__main">00%</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="pricing" class="mx-auto max-w-[1160px] px-7 py-16">
+    <p class="fb-eyebrow">Pricing</p>
+    <h2 class="text-[30px]/[1.15] font-bold tracking-[-0.015em] text-ink">Three plans, no surprises.</h2>
+    <div class="mt-7 grid items-start gap-3.5 lg:grid-cols-3">
+        <div class="fb-panel p-5.5">
+            <div class="text-[15px] font-bold text-ink">Starter</div>
+            <div class="mt-3 mb-0.5 text-[32px] font-bold tracking-[-0.02em] text-ink">
+                $0<span class="text-[13px] font-medium text-muted"> / month</span>
+            </div>
+            <p class="text-xs text-muted">One line on who this is for.</p>
+            <ul class="mt-4.5 grid list-none gap-2.5 p-0">
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+            </ul>
+            <a href="#top" class="fb-btn mt-5 w-full">Start free</a>
+        </div>
+        <div class="fb-panel border-brand p-5.5">
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-[15px] font-bold text-ink">Growth</span>
+                <span class="fb-tag fb-tag--brand">Most chosen</span>
+            </div>
+            <div class="mt-3 mb-0.5 text-[32px] font-bold tracking-[-0.02em] text-ink">
+                $000<span class="text-[13px] font-medium text-muted"> / month</span>
+            </div>
+            <p class="text-xs text-muted">One line on who this is for.</p>
+            <ul class="mt-4.5 grid list-none gap-2.5 p-0">
+                <li class="text-[13px] text-ink">Everything in Starter</li>
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+            </ul>
+            <a href="#top" class="fb-btn fb-btn--brand mt-5 w-full">Start free</a>
+        </div>
+        <div class="fb-panel p-5.5">
+            <div class="text-[15px] font-bold text-ink">Enterprise</div>
+            <div class="mt-3 mb-0.5 text-[32px] font-bold tracking-[-0.02em] text-ink">Talk to us</div>
+            <p class="text-xs text-muted">One line on who this is for.</p>
+            <ul class="mt-4.5 grid list-none gap-2.5 p-0">
+                <li class="text-[13px] text-ink">Everything in Growth</li>
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+                <li class="text-[13px] text-ink">Plan feature placeholder</li>
+            </ul>
+            <a href="#top" class="fb-btn mt-5 w-full">Contact sales</a>
+        </div>
+    </div>
+</section>
+
+<section class="mx-auto max-w-[1160px] px-7 pt-2 pb-18">
+    <p class="fb-eyebrow">Questions</p>
+    <h2 class="text-[30px]/[1.15] font-bold tracking-[-0.015em] text-ink">Frequently asked.</h2>
+    <div class="mt-6 grid gap-x-12 md:grid-cols-2">
+        @foreach (var question in new[] { "one", "two", "three", "four", "five", "six" })
+        {
+            <div class="border-t border-line py-4.5">
+                <h3 class="mb-1.5 text-[14.5px] font-bold text-ink">Question placeholder @question?</h3>
+                <p class="max-w-[48ch] text-[13.5px]/[1.55] text-muted">
+                    Two-sentence answer. State the fact first, then the exception.
+                </p>
+            </div>
+        }
+    </div>
+</section>
+
+<section class="bg-ink">
+    <div class="mx-auto flex max-w-[1160px] flex-wrap items-center justify-between gap-8 px-7 py-14">
+        <div>
+            <h2 class="text-[28px]/[1.2] font-bold tracking-[-0.015em] text-field">Closing line placeholder.</h2>
+            <p class="mt-2 text-sm text-line-strong">One sentence on how fast the first result arrives.</p>
+        </div>
+        <div class="flex flex-wrap gap-2.5">
+            <a href="#top" class="fb-btn fb-btn--brand fb-btn--lg">Start free</a>
+            <a href="#top" class="fb-btn fb-btn--invert fb-btn--lg">Contact sales</a>
+        </div>
+    </div>
+</section>

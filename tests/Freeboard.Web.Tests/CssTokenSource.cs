@@ -3,25 +3,34 @@ using System.Text.RegularExpressions;
 namespace Freeboard.Web.Tests;
 
 /// <summary>
-/// Reads and parses the SOURCE stylesheet (<c>src/Freeboard/assets/css/app.css</c>), not the
-/// gitignored minified build output, so the token and components-layer guards assert against the
-/// single source of truth.
+/// Reads and parses the SOURCE stylesheets, not the gitignored minified build output, so the token
+/// and components-layer guards assert against the single source of truth. That source is two files:
+/// <c>assets/css/tokens.css</c> holds the palette and theme overrides shared with the public
+/// website, and <c>src/Freeboard/assets/css/app.css</c> imports it and adds the app's components.
+/// They are read in import order and concatenated, which is what the built stylesheet is.
 /// </summary>
 internal static class CssTokenSource
 {
     // Path.Join (not Combine) so a segment is never treated as rooted and made to drop the base.
-    private static readonly string RelativeCssPath =
-        Path.Join("src", "Freeboard", "assets", "css", "app.css");
+    private static readonly string[] RelativeCssPaths =
+    [
+        Path.Join("assets", "css", "tokens.css"),
+        Path.Join("src", "Freeboard", "assets", "css", "app.css"),
+    ];
 
     internal static string Read()
     {
         var dir = AppContext.BaseDirectory;
         for (var d = new DirectoryInfo(dir); d is not null; d = d.Parent)
         {
-            var candidate = Path.Join(d.FullName, RelativeCssPath);
-            if (File.Exists(candidate)) return File.ReadAllText(candidate);
+            var candidates = RelativeCssPaths.Select(p => Path.Join(d.FullName, p)).ToArray();
+            if (candidates.All(File.Exists))
+            {
+                return string.Join("\n", candidates.Select(File.ReadAllText));
+            }
         }
-        throw new FileNotFoundException("Could not locate src/Freeboard/assets/css/app.css from " + dir);
+        throw new FileNotFoundException(
+            $"Could not locate {string.Join(" and ", RelativeCssPaths)} from " + dir);
     }
 
     /// <summary>Returns the body between the braces of the first <c>@block {...}</c> whose header matches.</summary>

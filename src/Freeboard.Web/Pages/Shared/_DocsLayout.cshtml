@@ -1,0 +1,88 @@
+@inject DocsCatalogue Docs
+@{
+    var current = (DocsEntry)ViewData["DocsEntry"]!;
+    var headings = (IReadOnlyList<DocsHeading>)ViewData["DocsHeadings"]!;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <partial name="_Head" />
+</head>
+<body class="min-h-screen bg-field text-ink">
+<a href="#doc" class="sr-only focus:not-sr-only">Skip to content</a>
+
+<header class="sticky top-0 z-20 border-b border-line bg-field">
+    <div class="flex h-14 items-center gap-4 px-6">
+        <a href="/" class="flex shrink-0 items-baseline gap-2 no-underline hover:no-underline">
+            <span class="fb-mark">F</span>
+            <span class="fb-name">Freeboard</span>
+        </a>
+        <span class="border-l border-line-strong pl-3.5 font-mono text-[11px] font-medium tracking-[0.1em] text-faint uppercase">
+            Docs
+        </span>
+        <div class="flex-1"></div>
+        <div class="flex items-center gap-2">
+            <partial name="_ThemeToggle" />
+            <a href="/" class="fb-btn fb-btn--quiet hidden sm:inline-flex">Website</a>
+            <a href="#top" class="fb-btn fb-btn--brand">Sign in</a>
+        </div>
+    </div>
+</header>
+
+<div class="grid items-start lg:grid-cols-[258px_minmax(0,1fr)]">
+    <aside class="border-b border-line px-3 pt-4 pb-6 lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-y-auto lg:border-r lg:border-b-0">
+        <nav aria-label="Documentation">
+            @foreach (var group in Docs.Groups)
+            {
+                <div class="mb-1.5">
+                    <div class="fb-navgroup">@group.Label</div>
+                    @foreach (var item in group.Items)
+                    {
+                        var isCurrent = item.Slug == current.Item.Slug;
+                        <a href="@DocsCatalogue.UrlFor(item.Slug)" class="fb-navitem"
+                           aria-current="@(isCurrent ? "page" : null)">
+                            <span>@item.Label</span>
+                            @if (item.Tag is { Length: > 0 })
+                            {
+                                <span class="fb-badge">@item.Tag</span>
+                            }
+                        </a>
+                    }
+                </div>
+            }
+        </nav>
+    </aside>
+
+    <main class="min-w-0">
+        <div class="border-b border-line bg-panel-dim px-6 py-2.5 lg:px-10">
+            <nav class="fb-crumb" aria-label="Breadcrumb">
+                <a href="/docs">Docs</a>
+                <span class="sep">/</span>
+                <span>@current.Group.Label</span>
+                <span class="sep">/</span>
+                <b>@current.Item.Label</b>
+            </nav>
+        </div>
+
+        <div class="grid max-w-[1180px] gap-10 px-6 pt-9 pb-20 lg:grid-cols-[minmax(0,1fr)_208px] lg:px-10">
+            <article id="doc">
+                @RenderBody()
+            </article>
+
+            <nav class="lg:sticky lg:top-24 lg:self-start" aria-label="On this page">
+                @if (headings.Count > 0)
+                {
+                    <h2 class="fb-eyebrow">On this page</h2>
+                    <ul class="fb-toc m-0 grid list-none gap-1.5 border-l border-line p-0 pl-3">
+                        @foreach (var heading in headings)
+                        {
+                            <li><a href="#@heading.Id">@heading.Text</a></li>
+                        }
+                    </ul>
+                }
+            </nav>
+        </div>
+    </main>
+</div>
+</body>
+</html>

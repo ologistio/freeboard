@@ -2,6 +2,9 @@
 
   <ItemGroup>
     <PackageReference Include="AspNetStatic" Version="0.27.8" />
+    <PackageReference Include="Markdig" Version="1.3.2" />
+    <PackageReference Include="Microsoft.OpenApi" Version="3.9.0" />
+    <PackageReference Include="Microsoft.OpenApi.YamlReader" Version="3.9.0" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -10,20 +13,36 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Documentation bodies are read at runtime from the content root. -->
+  <ItemGroup>
+    <Content Include="Content/**/*.md;Content/**/*.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="Content/**/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Front-end assets: Tailwind CSS + Alpine, built with bun into wwwroot. -->
   <ItemGroup>
     <AssetInputs Include="assets/**/*;package.json;bun.lock" />
     <AssetInputs Include="Pages/**/*.cshtml" />
+    <AssetInputs Include="$(MSBuildThisFileDirectory)../../assets/css/*.css" />
   </ItemGroup>
 
   <Target Name="InstallAssets" BeforeTargets="BuildAssets" Condition="!Exists('node_modules')">
     <Exec Command="bun install" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
-  <Target Name="BuildAssets" BeforeTargets="BeforeBuild"
-          Inputs="@(AssetInputs)"
-          Outputs="wwwroot/css/app.css;wwwroot/js/app.js">
+  <Target Name="BuildAssets" BeforeTargets="BeforeBuild" Inputs="@(AssetInputs)" Outputs="wwwroot/css/app.css;wwwroot/js/app.js">
     <Exec Command="bun run build" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <!-- The web fonts are the app's copy, served here from the same /fonts path the
+       shared token stylesheet asks for. Copied rather than committed twice; the
+       destination is gitignored like the other generated wwwroot output. -->
+  <ItemGroup>
+    <SharedFonts Include="$(MSBuildThisFileDirectory)../Freeboard/wwwroot/fonts/*" />
+  </ItemGroup>
+
+  <Target Name="CopyFonts" BeforeTargets="BeforeBuild" Inputs="@(SharedFonts)" Outputs="@(SharedFonts -> 'wwwroot/fonts/%(Filename)%(Extension)')">
+    <Copy SourceFiles="@(SharedFonts)" DestinationFolder="$(MSBuildProjectDirectory)/wwwroot/fonts" />
   </Target>
 
 </Project>

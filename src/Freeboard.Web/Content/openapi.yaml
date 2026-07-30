@@ -1,0 +1,318 @@
+# Hand-written for now, and deliberately partial: it covers three real endpoints so the
+# API reference pages have something true to render. It is not generated from the app,
+# so it can drift. Generating it from the app is tracked in
+# https://github.com/ologistio/freeboard/issues/146
+openapi: 3.1.0
+
+info:
+  title: Freeboard API
+  version: v1
+  description: >-
+    The HTTP API of a Freeboard installation. Every route is served under
+    /api/v1/freeboard on the host running the web app; Freeboard is self-hosted, so
+    there is no shared base URL.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: https://freeboard.example.com/api/v1/freeboard
+    description: Replace the host with your own installation.
+
+tags:
+  - name: Evidence
+    description: >-
+      Machine-to-machine ingest. Collectors post the checks they ran; Freeboard records
+      the run and counts the failures. Authenticated with a collector credential, not a
+      user session.
+  - name: Compliance
+    description: >-
+      Read the compliance model - the standards in play and how much of it is loaded.
+      Authenticated with a user session token. Rows the caller cannot see are omitted
+      rather than refused.
+
+security:
+  - sessionBearer: []
+
+paths:
+  /evidence:
+    post:
+      tags: [Evidence]
+      operationId: ingestEvidence
+      summary: Record the result of a collector run.
+      description: >-
+        Idempotent on the run: posting the same run again returns 200 with the original
+        counts instead of recording a second run. The body is capped at 1 MiB.
+      security:
+        - collectorBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvidenceRun'
+            example:
+              schema_version: freeboard.evidence.v1
+              collector_id: disk-encryption
+              organisation_id: acme
+              requirement_id: A.8.24
+              run_id: 2026-07-30T09-15-00Z
+              collected_at: '2026-07-30T09:15:00Z'
+              checks:
+                - name: filevault-enabled
+                  severity: hard
+                  result: pass
+                - name: recovery-key-escrowed
+                  severity: soft
+                  result: fail
+                  detail: No escrow record found.
+      responses:
+        '201':
+          description: Run recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceRunReceipt'
+              example:
+                collector_id: disk-encryption
+                run_id: 2026-07-30T09-15-00Z
+                hard_fail_count: 0
+                soft_fail_count: 1
+                total_count: 2
+        '200':
+          description: Replay of a run already recorded. The body repeats the original counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceRunReceipt'
+        '400':
+          description: The body is not valid JSON.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: The body exceeds 1 MiB.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: The body is valid JSON but fails validation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: The evidence store is unreachable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /standards:
+    get:
+      tags: [Compliance]
+      operationId: listStandards
+      summary: List the standards loaded into this installation.
+      responses:
+        '200':
+          description: Every standard the caller may see.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Standard'
+              example:
+                - id: iso-27001-2022
+                  title: ISO/IEC 27001:2022
+                  version: '2022'
+                  authority: ISO/IEC
+                  publisher: International Organization for Standardization
+                  source_url: https://www.iso.org/standard/27001
+        '401':
+          description: No usable bearer token.
+        '503':
+          description: The compliance store is unreachable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /compliance/status:
+    get:
+      tags: [Compliance]
+      operationId: getComplianceStatus
+      summary: Count what is loaded in each part of the compliance model.
+      description: >-
+        Degrades rather than fails: if the store cannot be read the response is still
+        200 and every count is null.
+      responses:
+        '200':
+          description: Counts per collection, or nulls where they could not be read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceStatus'
+              example:
+                persisted:
+                  standards: 3
+                  controls: 121
+                  requirements: 402
+                  organisations: 14
+                  scopes: 96
+                  vendors: 22
+                  collectors: 31
+        '401':
+          description: No usable bearer token.
+
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >-
+        A session token from POST /auth/login, sent as `Authorization: Bearer <token>`.
+        The browser session cookie is not accepted on API routes.
+    collectorBearer:
+      type: http
+      scheme: bearer
+      description: >-
+        A collector credential issued by POST /collectors/{id}/credentials, sent as
+        `Authorization: Bearer <token>`. A revoked or expired credential is 403, an
+        unknown one is 401.
+
+  schemas:
+    EvidenceRun:
+      type: object
+      required:
+        - schema_version
+        - collector_id
+        - organisation_id
+        - requirement_id
+        - run_id
+        - collected_at
+        - checks
+      properties:
+        schema_version:
+          type: string
+          const: freeboard.evidence.v1
+          description: Fixed value identifying the payload shape.
+        collector_id:
+          type: string
+          maxLength: 190
+          description: The collector that produced the run. Must not contain a colon.
+        organisation_id:
+          type: string
+          maxLength: 190
+          description: The organisation the run was collected for.
+        requirement_id:
+          type: string
+          maxLength: 190
+          description: The requirement the checks are evidence for.
+        run_id:
+          type: string
+          maxLength: 190
+          description: Caller-chosen id, unique per collector. Must not contain a colon.
+        collector_version:
+          type: string
+          description: Version of the collector, recorded with the run.
+        collected_at:
+          type: string
+          format: date-time
+          description: When the run happened. Must be UTC, ending Z or +00:00.
+        checks:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/EvidenceCheck'
+          description: The checks that ran. Names must be unique within the run.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Free-form context recorded alongside the run.
+
+    EvidenceCheck:
+      type: object
+      required: [name, severity, result]
+      properties:
+        name:
+          type: string
+          description: Check name, unique within the run.
+        severity:
+          type: string
+          enum: [hard, soft]
+          description: A hard failure fails the requirement; a soft one is advisory.
+        result:
+          type: string
+          enum: [pass, fail]
+        detail:
+          type: string
+          maxLength: 4096
+          description: Why the check landed where it did.
+
+    EvidenceRunReceipt:
+      type: object
+      properties:
+        collector_id:
+          type: string
+        run_id:
+          type: string
+        hard_fail_count:
+          type: integer
+        soft_fail_count:
+          type: integer
+        total_count:
+          type: integer
+
+    Standard:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        version:
+          type: string
+        authority:
+          type: string
+        publisher:
+          type: string
+        source_url:
+          type: string
+
+    ComplianceStatus:
+      type: object
+      properties:
+        persisted:
+          type: object
+          description: Row counts per collection. A null means the count could not be read.
+          properties:
+            standards:
+              type: [integer, 'null']
+            controls:
+              type: [integer, 'null']
+            requirements:
+              type: [integer, 'null']
+            organisations:
+              type: [integer, 'null']
+            scopes:
+              type: [integer, 'null']
+            vendors:
+              type: [integer, 'null']
+            collectors:
+              type: [integer, 'null']
+
+    Problem:
+      type: object
+      description: RFC 7807 problem detail.
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string

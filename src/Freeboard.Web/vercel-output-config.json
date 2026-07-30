@@ -1,0 +1,21 @@
+{
+  "version": 3,
+  "routes": [
+    {
+      "src": "/fonts/(.*)",
+      "headers": { "Cache-Control": "public, max-age=31536000, immutable" },
+      "continue": true
+    },
+    {
+      "src": "^/(.+)/$",
+      "status": 308,
+      "headers": { "Location": "/$1" }
+    },
+    { "handle": "error" },
+    {
+      "src": "/.*",
+      "status": 404,
+      "dest": "/404.html"
+    }
+  ]
+}
