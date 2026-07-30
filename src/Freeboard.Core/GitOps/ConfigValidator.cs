@@ -1166,23 +1166,6 @@ public static class ConfigValidator
         }
     }
 
-    /// <summary>Parses an organisation kind case-sensitively (identity is exact-byte).</summary>
-    public static bool TryParseKind(string value, out OrganisationKind kind)
-    {
-        switch (value)
-        {
-            case nameof(OrganisationKind.Company):
-                kind = OrganisationKind.Company;
-                return true;
-            case nameof(OrganisationKind.Department):
-                kind = OrganisationKind.Department;
-                return true;
-            default:
-                kind = default;
-                return false;
-        }
-    }
-
     /// <summary>Parses a scope disposition case-sensitively (identity is exact-byte).</summary>
     public static bool TryParseDisposition(string value, out ScopeDisposition disposition)
     {

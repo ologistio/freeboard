@@ -96,14 +96,6 @@ public sealed record Control
     public string Evaluation { get; init; } = string.Empty;
 }
 
-/// <summary>What an organisation node represents in the tree. Retained for the app-managed org
-/// write path, which only ever authors a Company or Department asset.</summary>
-public enum OrganisationKind
-{
-    Company,
-    Department,
-}
-
 /// <summary>
 /// A declared asset authored in gitops config - any type (Company, Department, Vendor, or Machine)
 /// with <c>source: declared</c>. Identity is <see cref="Id"/>. <see cref="Type"/> is the asset type
