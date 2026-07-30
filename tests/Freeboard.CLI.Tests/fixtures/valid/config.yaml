@@ -21,6 +21,7 @@ id: ctrl-a
 title: Control A
 maps_to:
   - req-a
+evaluation: all
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Asset
@@ -44,3 +45,26 @@ title: Scope A
 subject: org-a
 standard: std-a
 disposition: In
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Integration
+id: conn-a
+title: Connection A
+provider: fleet
+base_url: https://fleet.example.com
+discovery_cadence: daily
+---
+apiVersion: freeboard.dev/v1alpha1
+kind: Collector
+id: ec-a
+title: Collector A
+control: ctrl-a
+type: integration
+provider: fleet
+frequency: daily
+connection: conn-a
+config:
+  checks:
+    - source_key: "1"
+      name: check-a
+      severity: Hard

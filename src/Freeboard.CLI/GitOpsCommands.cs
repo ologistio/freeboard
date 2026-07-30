@@ -139,7 +139,8 @@ public sealed class GitOpsCommands
             $"Synced: {result.Config.Standards.Count} standard(s), {result.Config.Requirements.Count} requirement(s), "
             + $"{result.Config.Controls.Count} control(s), {AssetSummary(result.Config)}, "
             + $"{result.Config.Scopes.Count} scope(s), "
-            + $"{result.Config.Collectors.Count} collector(s).");
+            + $"{result.Config.Collectors.Count} collector(s), "
+            + $"{result.Config.IntegrationConnections.Count} integration(s).");
         return 0;
     }
 
@@ -180,7 +181,8 @@ public sealed class GitOpsCommands
             $"OK: {config.Standards.Count} standard(s), {config.Requirements.Count} requirement(s), "
             + $"{config.Controls.Count} control(s), {AssetSummary(config)}, "
             + $"{config.Scopes.Count} scope(s), "
-            + $"{config.Collectors.Count} collector(s).");
+            + $"{config.Collectors.Count} collector(s), "
+            + $"{config.IntegrationConnections.Count} integration(s).");
     }
 
     private static void PrintPlannedState(GitOpsConfig config)
@@ -235,6 +237,17 @@ public sealed class GitOpsCommands
             Console.WriteLine(
                 $"  - {collector.Id}: {collector.Title} -> control {collector.Control} / vendor {vendor} "
                 + $"[{collector.Type}, provider {provider}, {collector.Frequency}]");
+        }
+
+        // No token value and no token health: apply --dry-run makes no network call and reads no
+        // out-of-band token configuration, so it cannot know either.
+        Console.WriteLine($"Integrations ({config.IntegrationConnections.Count}):");
+        foreach (var connection in config.IntegrationConnections)
+        {
+            var vendor = string.IsNullOrEmpty(connection.Vendor) ? "-" : connection.Vendor;
+            Console.WriteLine(
+                $"  - {connection.Id}: {connection.Title} -> vendor {vendor} "
+                + $"[provider {connection.Provider}, {connection.BaseUrl}, {connection.DiscoveryCadence}]");
         }
     }
 }

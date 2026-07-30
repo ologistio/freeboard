@@ -62,12 +62,16 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         PersistenceFactory.CreateImporter = _ => importer;
         PersistenceFactory.CreateMigrationRunner = _ => new FakeMigrationRunner { Current = true };
 
-        var (exit, _, _) = Capture(() => new GitOpsCommands().Sync(FixtureDir("valid"), "Server=x;Database=y;"));
+        var (exit, output, _) = Capture(() => new GitOpsCommands().Sync(FixtureDir("valid"), "Server=x;Database=y;"));
 
         Assert.Equal(0, exit);
         Assert.Equal(1, importer.Calls);
         Assert.NotNull(importer.LastConfig);
         Assert.Single(importer.LastConfig!.Standards);
+        // The success line reports the same kind set the validate summary does, integrations included.
+        Assert.Contains("Synced:", output, StringComparison.Ordinal);
+        Assert.Contains("1 collector(s)", output, StringComparison.Ordinal);
+        Assert.Contains("1 integration(s)", output, StringComparison.Ordinal);
     }
 
     private static string WriteTempConfig(string content)
@@ -129,7 +133,19 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         source: declared
         """;
 
-    // (a) On the sync path the DB-less Core scope-subject-dangling Warning is suppressed in favour of the
+    // A declared Department whose parent names an id no document defines. A dangling edge is a separate
+    // predicate from a missing one, so it needs its own case.
+    private const string UnknownParentConfig = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: dept-orphan
+        title: Orphan Department
+        type: Department
+        source: declared
+        parent: ghost-parent
+        """;
+
+    // On the sync path the DB-less Core scope-subject-dangling Warning is suppressed in favour of the
     // importer's DB-accurate result; an EMPTY importer result means no scope-subject warning is printed.
     [Fact]
     public void SyncEmptyImportResultSuppressesCoreScopeSubjectWarning()
@@ -155,7 +171,7 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         }
     }
 
-    // (b) One unresolved importer subject prints EXACTLY one DB-accurate warning line.
+    // One unresolved importer subject prints EXACTLY one DB-accurate warning line.
     [Fact]
     public void SyncPrintsExactlyOneImporterUnresolvedSubjectWarning()
     {
@@ -170,7 +186,7 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
             1, Occurrences(err, "warning: scope subject 'ghost-1' resolves to no live asset."));
     }
 
-    // (c) A non-scope Core Warning (an ownerless declared Vendor) still prints on the sync path.
+    // A non-scope Core Warning (an ownerless declared Vendor) still prints on the sync path.
     [Fact]
     public void SyncPrintsNonScopeCoreWarning()
     {
@@ -194,7 +210,32 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         }
     }
 
-    // (d) The importer's configured unresolved subjects print on the sync path without double-printing the
+    // A dangling parent warns on the sync path too, naming the asset and the id nothing defines, and does
+    // not block the import.
+    [Fact]
+    public void SyncPrintsUnknownParentWarningAndStillImports()
+    {
+        var importer = new FakeImporter { Result = ImportResult.Empty };
+        PersistenceFactory.CreateImporter = _ => importer;
+        PersistenceFactory.CreateMigrationRunner = _ => new FakeMigrationRunner { Current = true };
+
+        var dir = WriteTempConfig(UnknownParentConfig);
+        try
+        {
+            var (exit, _, err) = Capture(() => new GitOpsCommands().Sync(dir, "Server=x;Database=y;"));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("dept-orphan", err, StringComparison.Ordinal);
+            Assert.Contains("unknown parent 'ghost-parent'", err, StringComparison.Ordinal);
+            Assert.Equal(1, importer.Calls);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // The importer's configured unresolved subjects print on the sync path without double-printing the
     // suppressed Core scope-subject Warning: the same subject id appears exactly once (the importer line).
     [Fact]
     public void SyncPrintsImporterUnresolvedSubjectsWithoutDoublePrintingCoreWarning()
@@ -254,7 +295,7 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Equal(1, importer.Calls);
     }
 
-    // IF-1: a read-only integrity violation makes sync exit 3 before importing, without --migrate.
+    // A read-only integrity violation makes sync exit 3 before importing, without --migrate.
     [Fact]
     public void SyncIntegrityViolationExitsThreeWithoutImportingNoMigrate()
     {
@@ -275,7 +316,7 @@ public sealed class SyncAndMigrateCommandTests : IDisposable
         Assert.Equal(0, importer.Calls);
     }
 
-    // IF-1: the integrity gate also blocks import when --migrate is passed (never apply over a corrupt schema).
+    // The integrity gate also blocks import when --migrate is passed (never apply over a corrupt schema).
     [Fact]
     public void SyncIntegrityViolationExitsThreeWithoutImportingWithMigrate()
     {
