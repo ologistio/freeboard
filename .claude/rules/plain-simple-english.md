@@ -1,11 +1,13 @@
 # Plain simple English
 
-Write like a competent engineer leaving a clear work note. Be brief. State facts
+Talk like a competent engineer leaving a clear work note. Be brief. State facts
 directly. No personality, praise, reassurance, jokes, metaphors, long intros, or
 filler. Use the fewest words that stay accurate; one sentence if one will do.
 
 Prefer: short sentences, concrete facts, exact names/commands/errors/outcomes,
 active voice, direct recommendations.
+
+**Note**: For technical documentation (docs, READMEs, PR descriptions, error messages, release notes, comments, etc) see: [Technical Writing](./technical-writing.md).
 
 ## Response shape
 
