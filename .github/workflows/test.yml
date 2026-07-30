@@ -45,6 +45,23 @@ jobs:
       - name: Build (warnings as errors)
         run: dotnet build Freeboard.slnx --configuration Release --no-restore -warnaserror
 
+      # The two shipped example config roots the documentation tells an operator to
+      # point the command at. Reuses the Release build above (--no-build), so it adds
+      # no second compile. examples/shared is not a root: it holds only the CE+
+      # catalog fragment both roots symlink in, so it is already loaded through each.
+      - name: Validate the shipped example configs
+        run: |
+          set -euo pipefail
+          dotnet run --project src/Freeboard.CLI -c Release --no-build -- gitops validate examples/fixture-corp
+          summary=$(dotnet run --project src/Freeboard.CLI -c Release --no-build -- gitops validate examples/gitops)
+          echo "$summary"
+          for kind in standard requirement control asset scope collector integration; do
+            grep -Eq "[1-9][0-9]* ${kind}\(s\)" <<< "$summary" || {
+              echo "examples/gitops carries no ${kind}; it must exercise every kind." >&2
+              exit 1
+            }
+          done
+
       - name: Markdown lint
         uses: DavidAnson/markdownlint-cli2-action@v24.0.0
         with:
