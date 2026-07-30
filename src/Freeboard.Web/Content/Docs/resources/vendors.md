@@ -18,6 +18,17 @@ The `owner` edge also decides who sees the vendor. A caller reads a vendor when 
 caller can read the vendor's owner. A vendor with no owner, or with an owner that names
 no asset, is visible to nobody. Freeboard fails closed here on purpose.
 
+A vendor also carries two optional risk-profile fields, and no other asset type may carry
+either. `tier` says how much damage the vendor can do: `Critical`, `High`, `Medium`, or
+`Low`. `data_classes` says which regulated data the vendor holds, as a set of tokens:
+`pii`, `phi`, `special-category`, `payment-card`, or `credentials`. The tokens name
+regulatory regimes and overlap on purpose. Health data is `phi` under HIPAA and
+`special-category` under UK/EU GDPR Article 9, so author both for it.
+
+Both fields are optional. A vendor with no `tier` produces a warning, not an error. An
+absent `data_classes` and an empty one mean the same thing, and neither produces a
+diagnostic: a vendor that holds none of your regulated data is a real state.
+
 Exclusions are separate documents. A `Scope` whose `subject` is the vendor records the
 disposition of that vendor against one requirement or one control. A vendor has no
 standard-level disposition, so a vendor subject cannot target a standard. A scope with
@@ -59,6 +70,8 @@ read hides the vendor from you, and an owner that names no asset hides it from e
    type: Vendor
    source: declared
    owner: fixture-corp
+   tier: High
+   data_classes: [pii]
    ```
 
 2. Validate the directory. Nothing is written and no network call is made.
@@ -93,13 +106,19 @@ Git, then read it back here.
 $ curl https://freeboard.example.com/api/v1/freeboard/vendors \
     -H "Authorization: Bearer $FREEBOARD_SESSION_TOKEN"
 [
-  { "id": "vendor-ledgerleaf", "title": "LedgerLeaf Accounting" }
+  {
+    "id": "vendor-ledgerleaf",
+    "title": "LedgerLeaf Accounting",
+    "tier": "High",
+    "data_classes": ["pii"]
+  }
 ]
 ```
 
-The response carries `id` and `title` and no other field. The rows are narrowed by the
-same owner rule the web app uses, so this list is what the caller may read, not what the
-store holds.
+The response carries `id`, `title`, `tier`, and `data_classes` and no other field. A
+vendor with no tier reads `null`, and one with no data classes reads `[]`. The rows are
+narrowed by the same owner rule the web app uses, so this list is what the caller may
+read, not what the store holds.
 
 :::
 
@@ -115,12 +134,13 @@ its place.
 
 :::tab UI
 
-The register renders each vendor with a row per exception: the target, the disposition,
-and the justification. An `Out` always shows its reason, so no exclusion is silent.
+The **Scope rules** tab renders one row per rule: the vendor, the target, the kind, the
+disposition, and the justification. An `Out` always shows its reason, so no exclusion is
+silent. The **Directory** tab counts each vendor's exceptions in its own column.
 
-| Target | Disposition | Justification |
-| --- | --- | --- |
-| `req-ce-plus-user-access-control-01` (requirement) | Out | LedgerLeaf supports MFA but not SSO, so Finance provisions and removes accounts by hand. A quarterly access review is the compensating control. |
+| Vendor | Target | Kind | Disposition | Justification |
+| --- | --- | --- | --- | --- |
+| LedgerLeaf Accounting | `req-ce-plus-user-access-control-01` | requirement | Out | LedgerLeaf supports MFA but not SSO, so Finance provisions and removes accounts by hand. A quarterly access review is the compensating control. |
 
 A vendor you cannot read has its exceptions hidden with it. The justification text never
 reaches a caller who is not entitled to the vendor row.
@@ -200,6 +220,15 @@ Open **Risk > Vendors**, or go to `/compliance/vendors` directly. The page needs
 in user. An anonymous request redirects to `/login`. If the store is unreachable the page
 says so in place, rather than failing the request.
 
+The register carries five tabs. **Directory** lists the vendors you may read. **Scope
+rules** lists their exceptions. **Discovery**, **Reviews**, and **Procurement** are stages
+Freeboard does not collect yet, so each one says what would appear there. Columns with no
+data behind them read "Not tracked" rather than a guessed value.
+
+The Directory shows each vendor's tier and data classes as plain tags. The tags carry no
+color rank: a tier is a static attribute, and a data class names a regime rather than a
+severity. The rows stay ordered by vendor id.
+
 :::
 
 :::tab GitOps
@@ -225,11 +254,14 @@ database connection.
 $ export FREEBOARD_API_URL=https://freeboard.example.com
 $ export FREEBOARD_ADMIN_TOKEN=...
 $ freeboard vendor list
-vendor-ledgerleaf  LedgerLeaf Accounting
+vendor-ledgerleaf  LedgerLeaf Accounting  High  pii
     Out  requirement req-ce-plus-user-access-control-01 - LedgerLeaf supports MFA but
     not SSO, so Finance provisions and removes accounts by hand. A quarterly access
     review is the compensating control.
 ```
+
+Each vendor line carries the id, the title, the tier, and the data classes. An absent
+tier or data class list prints `-`.
 
 The command exits `0` on success, `1` on a validation response, and `3` on an operational
 failure. An unauthorized, forbidden, unreachable, or failing API is an operational
@@ -252,6 +284,8 @@ An `Asset` of `type: Vendor`:
 | `type` | yes | `Vendor`. |
 | `source` | yes | `declared`. Config authors declared assets only. |
 | `owner` | no | A `Company` or `Department` id. Absent means visible to nobody. |
+| `tier` | no | `Critical`, `High`, `Medium`, or `Low`. Absent produces a warning. |
+| `data_classes` | no | A set of `pii`, `phi`, `special-category`, `payment-card`, `credentials`. Absent and empty are the same. |
 
 A `Scope` whose subject is a vendor:
 
@@ -275,6 +309,11 @@ A `Scope` whose subject is a vendor:
 - A non-vendor asset that sets `owner`. Only a vendor has an owner.
 - An asset that sets both `parent` and `owner`.
 - An `owner` that names an asset which is not a `Company` or `Department`.
+- A `tier` outside `Critical`, `High`, `Medium`, and `Low`.
+- A `data_classes` token outside the five the vocabulary defines.
+- A `tier` or a `data_classes` on an asset that is not a vendor.
+- The same `data_classes` token listed twice. A repeat is an authoring mistake, so
+  Freeboard reports it rather than removing it.
 - A vendor-subject scope that targets a standard.
 - A scope that names no target, or more than one.
 - A scope that names a requirement id or a control id the config does not define.
@@ -287,5 +326,6 @@ The following are warnings. They do not stop a sync, and the operator sees them 
 standard error:
 
 - A vendor with no `owner`. The vendor is visible to nobody.
+- A vendor with no `tier`. The register shows the vendor as untracked.
 - An `owner` that names an id no asset defines.
 - A scope `subject` that resolves to no live asset.

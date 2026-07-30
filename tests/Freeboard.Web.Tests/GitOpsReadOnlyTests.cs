@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Freeboard.Web.Tests;
 
@@ -34,11 +35,13 @@ public sealed class GitOpsReadOnlyTests
     public async Task ReadOnlyOnAllowsGet()
     {
         using var factory = new GitOpsWebFactory(readOnly: true);
-        using var client = factory.CreateClient();
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
+        // The real downstream response for GET "/" is the 302 signpost, not the 409 GitOps problem+json.
         var response = await client.GetAsync("/");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
     }
 
     [Fact]

@@ -125,6 +125,19 @@ public sealed record Asset
 
     /// <summary>Accountability edge (a Company/Department id); empty when absent.</summary>
     public string Owner { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Raw tier text authored under <c>tier</c>, Vendor-only; validation maps it to a
+    /// <see cref="Assets.VendorTier"/>. Empty when absent.
+    /// </summary>
+    public string Tier { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Data class tokens authored under <c>data_classes</c>, Vendor-only, validated against
+    /// <see cref="Assets.VendorDataClass.Tokens"/>. Order is not meaningful. An empty list and an absent
+    /// key mean the same thing: nothing distinguishes "not assessed" from "assessed as holding nothing".
+    /// </summary>
+    public List<string> DataClasses { get; init; } = [];
 }
 
 /// <summary>Whether a subject is in or out of scope for its target.</summary>

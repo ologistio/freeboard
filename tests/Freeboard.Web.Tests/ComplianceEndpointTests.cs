@@ -388,15 +388,18 @@ public sealed class ComplianceEndpointTests
     }
 
     [Fact]
-    public async Task VendorsEndpointKeepsItsIdAndTitleShape()
+    public async Task VendorsEndpointPublishesTheRegisterRowAndNoOwner()
     {
         using var factory = Factory(PopulatedStore());
         using var client = MemberClient(factory);
 
         var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
 
-        // The owner edge is the authorization anchor and is deliberately not published.
-        Assert.Equal(["id", "title"], json[0].EnumerateObject().Select(p => p.Name).ToArray());
+        // The row mirrors the register. The owner edge is the authorization anchor and is deliberately
+        // not published.
+        Assert.Equal(
+            ["id", "title", "tier", "data_classes"],
+            json[0].EnumerateObject().Select(p => p.Name).ToArray());
     }
 
     [Fact]

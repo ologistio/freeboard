@@ -190,7 +190,11 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
     }
 
     private static ApiVendor ReadVendor(JsonElement json) =>
-        new(json.GetProperty("id").GetString()!, json.GetProperty("title").GetString()!);
+        new(
+            json.GetProperty("id").GetString()!,
+            json.GetProperty("title").GetString()!,
+            OptionalString(json, "tier"),
+            ReadStringArray(json, "data_classes"));
 
     private static ApiScope ReadScope(JsonElement json) =>
         new(

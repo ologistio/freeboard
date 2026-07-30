@@ -98,7 +98,7 @@ public sealed class PageFunnelTests
         var token = factory.SeedSession(user, SessionAuthState.ForceResetLimited);
         using var client = NoRedirect(factory);
 
-        // `/` is the hello-world minimal endpoint, not a Razor Page: it must keep the JSON 403, not 302.
+        // `/` is a minimal endpoint, not a Razor Page: it must keep the JSON 403, not 302.
         using var request = Get("/", token);
         var response = await client.SendAsync(request);
 

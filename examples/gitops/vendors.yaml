@@ -10,7 +10,10 @@ title: CrowdStrike Falcon
 type: Vendor
 source: declared
 owner: ologist-products
+tier: High
+data_classes: [pii]
 ---
+# Fleet holds device state, not regulated data, so it carries no data_classes.
 apiVersion: freeboard.dev/v1alpha1
 kind: Asset
 id: vendor-fleetdm
@@ -18,6 +21,7 @@ title: Fleet
 type: Vendor
 source: declared
 owner: ologist-products
+tier: Medium
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Asset
@@ -26,6 +30,8 @@ title: Google Workspace
 type: Vendor
 source: declared
 owner: ologist-products
+tier: Critical
+data_classes: [pii, credentials]
 ---
 # Invented: a SaaS accounting package that supports MFA but not SSO.
 apiVersion: freeboard.dev/v1alpha1
@@ -35,6 +41,8 @@ title: LedgerLeaf Accounting (example)
 type: Vendor
 source: declared
 owner: ologist-products
+tier: High
+data_classes: [pii]
 ---
 # Invented: an external accountancy firm with no logins to our systems.
 apiVersion: freeboard.dev/v1alpha1
@@ -44,6 +52,8 @@ title: Quill Accountancy Ltd (example)
 type: Vendor
 source: declared
 owner: ologist-products
+tier: Medium
+data_classes: [pii]
 ---
 # Invented: a managed VPN appliance configured by the vendor under contract.
 apiVersion: freeboard.dev/v1alpha1
@@ -53,3 +63,5 @@ title: Sentinel VPN (example)
 type: Vendor
 source: declared
 owner: ologist-products
+tier: High
+data_classes: [credentials]

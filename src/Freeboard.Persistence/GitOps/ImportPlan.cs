@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Freeboard.Core.GitOps;
 
 namespace Freeboard.Persistence.GitOps;
@@ -68,9 +69,19 @@ public sealed record RequirementRowPlan(
 /// <summary>
 /// A declared asset row to upsert, with its <see cref="Type"/> (Company/Department/Vendor) and the two
 /// nullable, mutually-exclusive edges. No parent-before-child ordering is needed: assets.parent has no
-/// foreign key, so upsert and delete need no topological order.
+/// foreign key, so upsert and delete need no topological order. <see cref="Tier"/> and
+/// <see cref="DataClasses"/> are the Vendor-only risk profile; <see cref="DataClasses"/> is already the
+/// stored JSON array text, null when the vendor holds none.
 /// </summary>
-public sealed record AssetRowPlan(string Id, string ApiVersion, string Title, string Type, string? Parent, string? Owner);
+public sealed record AssetRowPlan(
+    string Id,
+    string ApiVersion,
+    string Title,
+    string Type,
+    string? Parent,
+    string? Owner,
+    string? Tier,
+    string? DataClasses);
 
 /// <summary>
 /// A scope row to insert: a scalar subject plus exactly one target (standard, requirement, or control,
@@ -128,9 +139,12 @@ public sealed class ImportPlan
             .Select(c => new ControlRowPlan(c.Id, c.ApiVersion, c.Title, NullIfBlank(c.Evaluation)))
             .ToList();
         // Declared assets: parent/owner normalize to null-if-blank (like Organisation.Parent did). No
-        // parent-before-child ordering because assets.parent has no foreign key.
+        // parent-before-child ordering because assets.parent has no foreign key. An empty data_classes
+        // stores as null, so an absent key and an authored empty list are one state in the column.
         Assets = config.Assets
-            .Select(a => new AssetRowPlan(a.Id, a.ApiVersion, a.Title, a.Type, NullIfBlank(a.Parent), NullIfBlank(a.Owner)))
+            .Select(a => new AssetRowPlan(
+                a.Id, a.ApiVersion, a.Title, a.Type, NullIfBlank(a.Parent), NullIfBlank(a.Owner),
+                NullIfBlank(a.Tier), WriteDataClasses(a.DataClasses)))
             .ToList();
         // Exactly one target is set (Core validation guarantees it); the empty target sides normalize to
         // null. A blank justification (permitted on an In scope) normalizes to null like other optional
@@ -171,6 +185,9 @@ public sealed class ImportPlan
     public static ImportPlan From(GitOpsConfig config) => new(config);
 
     private static string? NullIfBlank(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string? WriteDataClasses(IReadOnlyList<string> dataClasses) =>
+        dataClasses.Count == 0 ? null : JsonSerializer.Serialize(dataClasses);
 
     private static int? ParseThreshold(string value) =>
         int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;

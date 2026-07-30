@@ -8,7 +8,10 @@ namespace Freeboard.CLI;
 /// </summary>
 public sealed class VendorCommands
 {
-    /// <summary>List vendors with their per-requirement/control exceptions and justifications.</summary>
+    /// <summary>
+    /// List vendors with their tier, data classes, and per-requirement/control exceptions and
+    /// justifications. An absent tier or data class list prints <c>-</c>.
+    /// </summary>
     /// <param name="apiUrl">Base URL of the Freeboard API. Overrides FREEBOARD_API_URL.</param>
     /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
     public int List(string? apiUrl = null, string? token = null)
@@ -37,7 +40,9 @@ public sealed class VendorCommands
 
         foreach (var vendor in vendors)
         {
-            Console.WriteLine($"{vendor.Id}  {vendor.Title}");
+            var tier = vendor.Tier ?? "-";
+            var dataClasses = vendor.DataClasses.Count > 0 ? string.Join(",", vendor.DataClasses) : "-";
+            Console.WriteLine($"{vendor.Id}  {vendor.Title}  {tier}  {dataClasses}");
             if (!scopesByVendor.TryGetValue(vendor.Id, out var vendorScopes))
             {
                 continue;

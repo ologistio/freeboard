@@ -29,7 +29,10 @@ public static class ConfigLoader
                 "citation_label", "citation_url",
             },
             [GitOpsSchema.KindControl] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "maps_to", "evaluation" },
-            [GitOpsSchema.KindAsset] = new(StringComparer.Ordinal) { "apiVersion", "kind", "id", "title", "type", "source", "parent", "owner" },
+            [GitOpsSchema.KindAsset] = new(StringComparer.Ordinal)
+            {
+                "apiVersion", "kind", "id", "title", "type", "source", "parent", "owner", "tier", "data_classes",
+            },
             [GitOpsSchema.KindScope] = new(StringComparer.Ordinal)
             {
                 "apiVersion", "kind", "id", "title", "subject", "standard", "requirement", "control", "disposition", "justification",
@@ -197,7 +200,10 @@ public static class ConfigLoader
                     config.Controls.Add(control with { MapsTo = control.MapsTo ?? [] });
                     break;
                 case GitOpsSchema.KindAsset:
-                    config.Assets.Add(Deserialize<Asset>(mapping));
+                    var asset = Deserialize<Asset>(mapping);
+                    // Explicit-null list (`data_classes:`) deserializes to null; normalize to empty so the
+                    // validator and the import path read one shape. An absent key already binds to empty.
+                    config.Assets.Add(asset with { DataClasses = asset.DataClasses ?? [] });
                     break;
                 case GitOpsSchema.KindScope:
                     config.Scopes.Add(Deserialize<Scope>(mapping));

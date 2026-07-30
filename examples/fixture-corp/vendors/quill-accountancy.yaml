@@ -8,6 +8,8 @@ title: Quill Accountancy Ltd (example)
 type: Vendor
 source: declared
 owner: fixture-corp
+tier: Medium
+data_classes: [pii]
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Scope

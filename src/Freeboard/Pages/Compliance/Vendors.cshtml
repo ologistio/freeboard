@@ -1,92 +1,261 @@
 @page "/compliance/vendors"
 @model Freeboard.Pages.Compliance.VendorsModel
 @{
-    ViewData["Title"] = "Vendor Register";
+    ViewData["Title"] = "Vendors";
     ViewData["NavGroup"] = "Risk";
     ViewData["NavItem"] = "vendors";
 }
-<div class="mb-6">
-    <h1 class="text-2xl font-bold">Vendor Register</h1>
-    <p class="mt-1 text-sm text-muted">Vendors in use and their per-requirement or per-control exceptions.</p>
+@*
+    The vendor register: one directory, with the register's other stages (scope rules, discovery,
+    reviews, procurement) as tabs on this page rather than nav items of their own (N1). Only the
+    vendor asset, its owner, and its scope rules are collected today; every other facet renders as an
+    explicit empty (O2) rather than a fabricated value, and the stages with no data behind them say
+    what would appear there (L7).
+*@
+<div class="fb-pagehead">
+    <div>
+        <div class="fb-eyebrow">Risk</div>
+        <h1>Vendors</h1>
+        <div class="fb-sub">One directory. Discovery, reviews, and procurement are stages of the same record, not separate lists.</div>
+    </div>
+    @* No head actions: git is the only write path for a vendor, so there is nothing to add one with
+       here. An "Add vendor" action belongs on this page once the web app can create one. *@
 </div>
 
 @if (Model.StoreUnreachable)
 {
     <p class="notice-error max-w-2xl">The compliance store could not be reached. Check the database connection.</p>
 }
-else if (Model.Vendors.Count == 0)
-{
-    <p class="text-sm text-muted" data-empty>No vendors are registered.</p>
-}
 else
 {
-    <div class="space-y-6">
-        @foreach (var vendor in Model.Vendors)
-        {
-            var scopes = Model.ScopesFor(vendor.Id);
-            <section class="card p-0" data-vendor-id="@vendor.Id">
-                <div class="border-b border-neutral-200 px-4 py-3">
-                    <h2 class="font-semibold">@vendor.Title</h2>
-                    <p class="font-mono text-xs text-muted">@vendor.Id</p>
-                </div>
-                @if (scopes.Count == 0)
+    @* No-JS reveal: every pane is server-rendered, so without Alpine show them all rather than leave
+       the inactive ones behind a dead tab. Left unlayered on purpose - an unlayered rule outranks every
+       cascade layer, so it beats .fb-pane{display:none} in @@layer components without an !important, and
+       an author rule already beats the UA's [hidden]. Scoped to this page's panes. *@
+    <noscript><style>.fb-tabwrap .fb-pane { display: block }</style></noscript>
+    <div x-data="tabPanel('directory')">
+        <p class="notice mb-4">
+            @if (Model.GitOpsReadOnly)
+            {
+                <span>@Model.Vendors.Count vendors, @Model.ExceptionCount exceptions. Git owns this register: add or change a vendor in the repository.</span>
+            }
+            else
+            {
+                <span>@Model.Vendors.Count vendors, @Model.ExceptionCount exceptions.</span>
+            }
+            <button type="button" class="btn-secondary btn-sm ml-3" @@click="tab = 'scopes'">Show scope rules</button>
+        </p>
+
+        <div class="fb-tabwrap">
+            <div class="fb-tabs" role="tablist" aria-label="Vendor views" x-ref="tablist" @@keydown="keys($event)">
+                <button type="button" class="fb-tab on" role="tab" id="vt-directory" aria-controls="vp-directory"
+                        data-tab="directory" aria-selected="true" @@click="tab = 'directory'"
+                        :aria-selected="tab === 'directory' ? 'true' : 'false'"
+                        :tabindex="tab === 'directory' ? 0 : -1"
+                        :class="{ 'on': tab === 'directory' }">Directory<span class="n">@Model.Vendors.Count</span></button>
+                <button type="button" class="fb-tab" role="tab" id="vt-scopes" aria-controls="vp-scopes"
+                        data-tab="scopes" aria-selected="false" @@click="tab = 'scopes'"
+                        :aria-selected="tab === 'scopes' ? 'true' : 'false'"
+                        :tabindex="tab === 'scopes' ? 0 : -1"
+                        :class="{ 'on': tab === 'scopes' }">Scope rules<span class="n">@Model.ScopeCount</span></button>
+                <button type="button" class="fb-tab" role="tab" id="vt-discovery" aria-controls="vp-discovery"
+                        data-tab="discovery" aria-selected="false" @@click="tab = 'discovery'"
+                        :aria-selected="tab === 'discovery' ? 'true' : 'false'"
+                        :tabindex="tab === 'discovery' ? 0 : -1"
+                        :class="{ 'on': tab === 'discovery' }">Discovery<span class="n">0</span></button>
+                <button type="button" class="fb-tab" role="tab" id="vt-reviews" aria-controls="vp-reviews"
+                        data-tab="reviews" aria-selected="false" @@click="tab = 'reviews'"
+                        :aria-selected="tab === 'reviews' ? 'true' : 'false'"
+                        :tabindex="tab === 'reviews' ? 0 : -1"
+                        :class="{ 'on': tab === 'reviews' }">Reviews<span class="n">0</span></button>
+                <button type="button" class="fb-tab" role="tab" id="vt-procurement" aria-controls="vp-procurement"
+                        data-tab="procurement" aria-selected="false" @@click="tab = 'procurement'"
+                        :aria-selected="tab === 'procurement' ? 'true' : 'false'"
+                        :tabindex="tab === 'procurement' ? 0 : -1"
+                        :class="{ 'on': tab === 'procurement' }">Procurement<span class="n">0</span></button>
+            </div>
+
+            <div class="fb-pane on" role="tabpanel" id="vp-directory" aria-labelledby="vt-directory"
+                 :class="{ 'on': tab === 'directory' }" :hidden="tab !== 'directory'">
+                @if (Model.Vendors.Count == 0)
                 {
-                    <p class="px-4 py-3 text-sm text-neutral-500">No exceptions recorded.</p>
+                    <div class="fb-pane__pad" data-empty>
+                        No vendors are registered. A vendor appears here once it is declared in the
+                        compliance config and owned by an organisation you can read.
+                    </div>
                 }
                 else
                 {
-                    <table class="vendor-scopes w-full text-sm">
-                        <thead class="border-b border-neutral-200 text-left text-muted">
-                            <tr>
-                                <th class="px-4 py-3 font-medium">Target</th>
-                                <th class="px-4 py-3 font-medium">Disposition</th>
-                                <th class="px-4 py-3 font-medium">Justification</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-neutral-100">
-                            @foreach (var scope in scopes)
-                            {
-                                var target = Freeboard.Pages.Compliance.VendorsModel.TargetLabel(scope);
-                                var targetKind = Freeboard.Pages.Compliance.VendorsModel.TargetKind(scope);
-                                <tr data-scope-id="@scope.Id">
-                                    <td class="px-4 py-3">
-                                        <span class="font-mono text-xs" data-target="@target">@target</span>
-                                        <span class="text-xs text-neutral-500">(@targetKind)</span>
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        @if (scope.Disposition == "Out")
-                                        {
-                                            <span class="badge badge-danger">Out</span>
-                                        }
-                                        else if (scope.Disposition == "In")
-                                        {
-                                            <span class="badge badge-success">In</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge badge-warn">@scope.Disposition</span>
-                                        }
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        @if (scope.Disposition == "Out")
-                                        {
-                                            <span data-justification>@scope.Justification</span>
-                                        }
-                                        else if (!string.IsNullOrWhiteSpace(scope.Justification))
-                                        {
-                                            <span class="text-muted" data-justification>@scope.Justification</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-neutral-500">-</span>
-                                        }
-                                    </td>
+                    <div class="fb-scroll">
+                        <table class="fb-tbl">
+                            <thead>
+                                <tr>
+                                    <th>Vendor</th>
+                                    <th>Tier</th>
+                                    <th>Data</th>
+                                    <th>Status</th>
+                                    <th>Assurance</th>
+                                    <th>Next review</th>
+                                    <th>Owner</th>
+                                    <th>Exceptions</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in Model.Vendors)
+                                {
+                                    <tr class="fb-row" data-vendor-id="@row.Vendor.Id">
+                                        <td>
+                                            <div class="fb-tdname">@row.Vendor.Title</div>
+                                            <div class="fb-tdsub font-mono">@row.Vendor.Id</div>
+                                        </td>
+                                        <td>
+                                            @* Neutral, never amber or red: S3 reserves those for failing and overdue, and a
+                                               tier is a static attribute. S2 - the word carries the meaning. *@
+                                            @if (row.Vendor.Tier is not null)
+                                            {
+                                                <fb-tag>@row.Vendor.Tier</fb-tag>
+                                            }
+                                            else
+                                            {
+                                                <span class="fb-tdsub">Not tracked</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (row.Vendor.DataClasses.Count > 0)
+                                            {
+                                                @* All neutral: a data class names a regime, not a severity, so toning them
+                                                   would imply a ranking between them that does not exist. *@
+                                                foreach (var dataClass in row.Vendor.DataClasses)
+                                                {
+                                                    <fb-tag>@VendorsModel.DataClassLabel(dataClass)</fb-tag>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="fb-tdsub">Not tracked</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @* S6/O2: nothing evaluates a vendor yet, so an explicit empty - never a synthesised pass. *@
+                                            <span class="fb-status"><span class="fb-seal off" aria-hidden="true"></span><span class="fb-status__word">Not evaluated</span></span>
+                                        </td>
+                                        <td><span class="fb-tdsub">None on file</span></td>
+                                        <td><span class="fb-tdsub">Not scheduled</span></td>
+                                        <td>
+                                            @if (row.OwnerTitle is not null)
+                                            {
+                                                <fb-owner name="@row.OwnerTitle" />
+                                            }
+                                            else
+                                            {
+                                                <span class="fb-tdsub">Not recorded</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (row.ExceptionCount > 0)
+                                            {
+                                                <fb-tag tone="Warn">@row.ExceptionCount out</fb-tag>
+                                            }
+                                            else
+                                            {
+                                                <span class="fb-tdsub">None</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="fb-tfoot">Showing @Model.Vendors.Count of @Model.Vendors.Count.</div>
                 }
-            </section>
-        }
+            </div>
+
+            <div class="fb-pane" role="tabpanel" id="vp-scopes" aria-labelledby="vt-scopes"
+                 :class="{ 'on': tab === 'scopes' }" :hidden="tab !== 'scopes'" hidden>
+                @if (Model.ScopeCount == 0)
+                {
+                    <div class="fb-pane__pad">
+                        No scope rules are recorded. A rule appears here when a vendor is put in or out
+                        of scope for a requirement or a control, and every Out rule carries its justification.
+                    </div>
+                }
+                else
+                {
+                    <div class="fb-scroll">
+                        <table class="fb-tbl">
+                            <thead>
+                                <tr>
+                                    <th>Vendor</th>
+                                    <th>Target</th>
+                                    <th>Kind</th>
+                                    <th>Disposition</th>
+                                    <th>Justification</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in Model.Vendors)
+                                {
+                                    @foreach (var scope in row.Scopes)
+                                    {
+                                        var target = Freeboard.Pages.Compliance.VendorsModel.TargetLabel(scope);
+                                        <tr class="fb-row" data-scope-id="@scope.Id">
+                                            <td><div class="fb-tdname">@row.Vendor.Title</div></td>
+                                            <td><span class="font-mono" data-target="@target">@target</span></td>
+                                            <td>@Freeboard.Pages.Compliance.VendorsModel.TargetKind(scope)</td>
+                                            <td>
+                                                @if (scope.Disposition == "Out")
+                                                {
+                                                    <fb-tag tone="Warn">Out</fb-tag>
+                                                }
+                                                else if (scope.Disposition == "In")
+                                                {
+                                                    <fb-tag tone="Ok">In</fb-tag>
+                                                }
+                                                else
+                                                {
+                                                    <fb-tag>@scope.Disposition</fb-tag>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrWhiteSpace(scope.Justification))
+                                                {
+                                                    <span data-justification>@scope.Justification</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="fb-tdsub">Not recorded</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="fb-tfoot">Showing @Model.ScopeCount of @Model.ScopeCount. @Model.ExceptionCount are exceptions.</div>
+                }
+            </div>
+
+            <div class="fb-pane fb-pane__pad" role="tabpanel" id="vp-discovery" aria-labelledby="vt-discovery"
+                 :class="{ 'on': tab === 'discovery' }" :hidden="tab !== 'discovery'" hidden>
+                Nothing is waiting for triage. Apps found in single sign-on and expense data would land
+                here, so you can promote one into the directory or dismiss it with a reason. Vendor
+                discovery is not connected yet, so every vendor above was declared by hand.
+            </div>
+
+            <div class="fb-pane fb-pane__pad" role="tabpanel" id="vp-reviews" aria-labelledby="vt-reviews"
+                 :class="{ 'on': tab === 'reviews' }" :hidden="tab !== 'reviews'" hidden>
+                No security reviews are in flight. A review would show its findings, the report it read
+                them from, and the risk rating a person approved before it landed on the vendor record.
+                Reviews are not built yet, so the Status and Next review columns above stay empty.
+            </div>
+
+            <div class="fb-pane fb-pane__pad" role="tabpanel" id="vp-procurement" aria-labelledby="vt-procurement"
+                 :class="{ 'on': tab === 'procurement' }" :hidden="tab !== 'procurement'" hidden>
+                No intake requests are waiting. A request from the procurement form would create the
+                vendor record, its review, and its owner in one step. Intake is not built yet, so
+                vendors reach this register through the compliance config.
+            </div>
+        </div>
     </div>
 }

@@ -41,6 +41,8 @@ public sealed class AssetValidationTests
             type: Vendor
             source: declared
             owner: org-a
+            tier: Critical
+            data_classes: [pii, payment-card]
             ---
             apiVersion: freeboard.dev/v1alpha1
             kind: Asset
@@ -59,6 +61,8 @@ public sealed class AssetValidationTests
         var vendor = result.Config.Assets.Single(a => a.Id == "vendor-a");
         Assert.Equal("Vendor", vendor.Type);
         Assert.Equal("org-a", vendor.Owner);
+        Assert.Equal("Critical", vendor.Tier);
+        Assert.Equal(["pii", "payment-card"], vendor.DataClasses);
     }
 
     [Fact]
@@ -381,6 +385,7 @@ public sealed class AssetValidationTests
             source: declared
             parent: " "
             owner: org-a
+            tier: Low
             """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
@@ -445,6 +450,7 @@ public sealed class AssetValidationTests
             type: Vendor
             source: declared
             owner: org-a
+            tier: Medium
             """));
 
         var result = ConfigValidator.LoadAndValidate(dir.Path);
@@ -474,6 +480,149 @@ public sealed class AssetValidationTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("Field 'state' on Asset is discovered-only and cannot be authored"));
         Assert.DoesNotContain(result.Diagnostics, d => d.Message.Contains("Unknown field 'state'"));
+    }
+
+    [Fact]
+    public void UnknownTierFails()
+    {
+        using var dir = TempConfig.Create(("a.yaml", $"""
+            {Company}
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: vendor-a
+            title: Vendor A
+            type: Vendor
+            source: declared
+            owner: org-a
+            tier: Severe
+            """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("vendor-a") && d.Message.Contains("unknown tier 'Severe'"));
+    }
+
+    [Fact]
+    public void UnknownDataClassFails()
+    {
+        using var dir = TempConfig.Create(("a.yaml", $"""
+            {Company}
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: vendor-a
+            title: Vendor A
+            type: Vendor
+            source: declared
+            owner: org-a
+            tier: High
+            data_classes: [pii, biometric]
+            """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("vendor-a") && d.Message.Contains("unknown data class 'biometric'"));
+    }
+
+    [Fact]
+    public void DuplicateDataClassFails()
+    {
+        // Reported rather than silently deduped: a repeated token is an authoring mistake.
+        using var dir = TempConfig.Create(("a.yaml", $"""
+            {Company}
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: vendor-a
+            title: Vendor A
+            type: Vendor
+            source: declared
+            owner: org-a
+            tier: High
+            data_classes: [pii, pii]
+            """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("vendor-a") && d.Message.Contains("duplicate data class 'pii'"));
+    }
+
+    [Theory]
+    [InlineData("tier: High")]
+    [InlineData("data_classes: [pii]")]
+    public void RiskProfileOnNonVendorFails(string field)
+    {
+        using var dir = TempConfig.Create(("a.yaml", $"""
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: org-a
+            title: Org A
+            type: Company
+            source: declared
+            {field}
+            """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a") && d.Message.Contains("but is not a Vendor; only a vendor carries a risk profile"));
+    }
+
+    [Fact]
+    public void VendorWithNoTierIsWarningNotError()
+    {
+        // The tier only colors a tag, so it must not fail a sync when the owner edge - which decides
+        // whether the vendor is visible at all - only warns.
+        using var dir = TempConfig.Create(("a.yaml", $"""
+            {Company}
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: vendor-a
+            title: Vendor A
+            type: Vendor
+            source: declared
+            owner: org-a
+            """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("vendor-a", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("is a Vendor with no tier", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("data_classes: []")]
+    [InlineData("data_classes:")]
+    public void AbsentOrEmptyDataClassesIsSilent(string field)
+    {
+        // A vendor holding none of your regulated data is a real state, so it warrants no diagnostic.
+        using var dir = TempConfig.Create(("a.yaml", $"""
+            {Company}
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: vendor-a
+            title: Vendor A
+            type: Vendor
+            source: declared
+            owner: org-a
+            tier: Low
+            {field}
+            """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        Assert.Empty(result.Warnings);
+        Assert.Empty(result.Config.Assets.Single(a => a.Id == "vendor-a").DataClasses);
     }
 
     [Fact]

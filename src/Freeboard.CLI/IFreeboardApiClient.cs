@@ -72,8 +72,11 @@ internal sealed record ResetPassword(string TemporaryPassword);
 /// <summary>POST /setup response: the created admin and an admin bearer token.</summary>
 internal sealed record BootstrapResult(ApiUser User, string Token);
 
-/// <summary>A vendor as returned by the API (single-word fields).</summary>
-internal sealed record ApiVendor(string Id, string Title);
+/// <summary>
+/// A vendor as returned by the API. <see cref="Tier"/> is null when unset and
+/// <see cref="DataClasses"/> is empty when the vendor holds none of the organisation's regulated data.
+/// </summary>
+internal sealed record ApiVendor(string Id, string Title, string? Tier, IReadOnlyList<string> DataClasses);
 
 /// <summary>
 /// A scope as returned by the API. Exactly one of <see cref="Standard"/>, <see cref="Requirement"/>, or

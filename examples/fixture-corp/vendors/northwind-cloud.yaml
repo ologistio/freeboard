@@ -8,6 +8,8 @@ title: Northwind Cloud (example)
 type: Vendor
 source: declared
 owner: fixture-corp
+tier: Critical
+data_classes: [pii, credentials]
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Scope

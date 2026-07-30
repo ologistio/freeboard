@@ -8,6 +8,8 @@ title: LedgerLeaf Accounting (example)
 type: Vendor
 source: declared
 owner: fixture-corp
+tier: High
+data_classes: [pii]
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Scope

@@ -7,8 +7,9 @@ namespace Freeboard.Core.GitOps;
 /// Validates a loaded <see cref="GitOpsConfig"/>. Collects every error as a
 /// <see cref="Diagnostic"/>; never throws and never writes output. Owns: required
 /// fields, apiVersion value, unique id per kind, reference resolution, the asset set (type/source
-/// tokens, mutually-exclusive parent/owner edges with their target/carrier-type rules, and dangling
-/// edges, parent cycles, and missing read anchors as non-blocking warnings), the scope mapping
+/// tokens, mutually-exclusive parent/owner edges with their target/carrier-type rules, the Vendor-only
+/// tier and data_classes vocabularies, and dangling edges, parent cycles, missing read anchors, and a
+/// tierless vendor as non-blocking warnings), the scope mapping
 /// (exactly-one target of standard/requirement/control, resolvable target references, a scalar
 /// dangling-tolerant subject warned when it resolves to no asset, the Vendor-subject-no-standard rule,
 /// disposition enum, justification required when Out, and the three unique subject/target pairs), the
@@ -299,6 +300,8 @@ public static class ConfigValidator
                 });
             }
 
+            ValidateVendorRiskProfile(asset, typeParsed, type, diagnostics);
+
             if (!string.IsNullOrEmpty(asset.Id))
             {
                 if (!seen.Add(asset.Id))
@@ -324,6 +327,71 @@ public static class ConfigValidator
 
         ValidateAssetEdges(config, allIds, typeById, diagnostics);
         return new AssetIdSets(organisationIds, vendorIds, allIds);
+    }
+
+    // tier and data_classes are the vendor risk profile: both are Vendor-only, and both are validated
+    // against closed sets held in Freeboard.Core with no store read, so the check runs offline. A missing
+    // tier only warns, matching the missing-owner warning: if the edge that decides whether anyone can see
+    // the vendor does not fail a sync, the field that colors a tag must not either. A missing or empty
+    // data_classes is silent - a vendor holding none of your regulated data is a real state.
+    private static void ValidateVendorRiskProfile(
+        Asset asset, bool typeParsed, AssetKind type, List<Diagnostic> diagnostics)
+    {
+        var hasTier = !string.IsNullOrWhiteSpace(asset.Tier);
+        if (typeParsed && type != AssetKind.Vendor && (hasTier || asset.DataClasses.Count > 0))
+        {
+            var field = hasTier ? "tier" : "data_classes";
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' sets '{field}' but is not a Vendor; "
+                    + "only a vendor carries a risk profile.",
+            });
+        }
+
+        if (hasTier && !TryParseVendorTier(asset.Tier, out _))
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has unknown tier '{asset.Tier}'. "
+                    + $"Expected '{nameof(VendorTier.Critical)}', '{nameof(VendorTier.High)}', "
+                    + $"'{nameof(VendorTier.Medium)}', or '{nameof(VendorTier.Low)}'.",
+            });
+        }
+
+        var seenClasses = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var dataClass in asset.DataClasses)
+        {
+            if (!VendorDataClass.Tokens.Contains(dataClass))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has unknown data class "
+                        + $"'{dataClass}'. Expected one of: {string.Join(", ", VendorDataClass.Tokens)}.",
+                });
+                continue;
+            }
+
+            // Reported rather than silently deduped: a repeated token is an authoring mistake, and
+            // collapsing it hides one, matching duplicate check names and duplicate requirement ids.
+            if (!seenClasses.Add(dataClass))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has duplicate data class "
+                        + $"'{dataClass}'.",
+                });
+            }
+        }
+
+        if (typeParsed && type == AssetKind.Vendor && !hasTier)
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Severity = DiagnosticSeverity.Warning,
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' is a Vendor with no tier; the register "
+                    + "shows it as untracked until a tier is set.",
+            });
+        }
     }
 
     private static void ValidateAssetSource(Asset asset, List<Diagnostic> diagnostics)
@@ -1145,6 +1213,29 @@ public static class ConfigValidator
                 return true;
             default:
                 type = default;
+                return false;
+        }
+    }
+
+    /// <summary>Parses a vendor tier case-sensitively (identity is exact-byte).</summary>
+    public static bool TryParseVendorTier(string value, out VendorTier tier)
+    {
+        switch (value)
+        {
+            case nameof(VendorTier.Critical):
+                tier = VendorTier.Critical;
+                return true;
+            case nameof(VendorTier.High):
+                tier = VendorTier.High;
+                return true;
+            case nameof(VendorTier.Medium):
+                tier = VendorTier.Medium;
+                return true;
+            case nameof(VendorTier.Low):
+                tier = VendorTier.Low;
+                return true;
+            default:
+                tier = default;
                 return false;
         }
     }

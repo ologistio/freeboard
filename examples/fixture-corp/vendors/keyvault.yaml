@@ -7,6 +7,8 @@ title: KeyVault Password Manager (example)
 type: Vendor
 source: declared
 owner: fixture-corp
+tier: Critical
+data_classes: [credentials]
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Scope

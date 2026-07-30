@@ -36,10 +36,21 @@ public sealed record ControlRow(string Id, string Title, IReadOnlyList<string> M
 /// <see cref="Owner"/> are the two scalar edges and are mutually exclusive: an organisation or a device
 /// carries <c>parent</c>, a vendor carries <c>owner</c>. <see cref="State"/> is a discovered-only column
 /// and reads null on a declared asset, which the live-subject predicate treats as live.
+/// <see cref="Tier"/> and <see cref="DataClasses"/> are the Vendor-only risk profile and read empty on
+/// every other type.
 /// </summary>
 public sealed record AssetNode(
     string Id, string Title, string Type, string Source, string? State, string? Parent, string? Owner)
 {
+    /// <summary>The vendor's tier (<c>Critical</c>/<c>High</c>/<c>Medium</c>/<c>Low</c>), null when unset.</summary>
+    public string? Tier { get; init; }
+
+    /// <summary>
+    /// The regulated data the vendor holds. Empty means the vendor holds none: nothing distinguishes
+    /// "not assessed" from "assessed as holding nothing", so a null column reads as empty.
+    /// </summary>
+    public IReadOnlyList<string> DataClasses { get; init; } = [];
+
     /// <summary>
     /// True when this asset is an organisation node. The ONE expression of that rule on
     /// <see cref="AssetNode"/>: the resolver's node set, the read surfaces that present organisations,

@@ -337,6 +337,35 @@ Alpine.data("objectDrawer", () => ({
     },
 }));
 
+// A tab bar (N1/A2): sub-views of one page switch here rather than becoming nav items. The tablist is a
+// single tab stop with a roving tabindex - only the active tab is tabbable - and Arrow/Home/End move
+// between tabs, wrapping at the ends. Activation follows focus, which is safe because every pane is
+// already server-rendered, so switching costs nothing. Each tab names its pane through data-tab.
+Alpine.data("tabPanel", (initial) => ({
+    tab: initial,
+    keys(event) {
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+        const tabs = [...this.$refs.tablist.querySelectorAll("[role='tab']")];
+        const from = tabs.indexOf(document.activeElement);
+        let next = null;
+        if (step !== undefined && from !== -1) {
+            next = tabs[(from + step + tabs.length) % tabs.length];
+        } else if (event.key === "Home") {
+            next = tabs[0];
+        } else if (event.key === "End") {
+            next = tabs[tabs.length - 1];
+        }
+
+        if (!next) {
+            return;
+        }
+
+        event.preventDefault();
+        this.tab = next.dataset.tab;
+        next.focus();
+    },
+}));
+
 // Input types that take typed text, where a bare "/" is a character the user means literally.
 // Checkboxes, radios, buttons, and selects are not text entry, so the shortcut still opens there.
 const TEXT_INPUT_TYPES = new Set([
