@@ -122,9 +122,11 @@ which is the only GitOps-surface blind spot that exists.
 ### Decision 3: Integration is its own count and its own planned-state section
 
 An `Integration` is a distinct kind with a distinct prune step and a distinct blast
-radius: its removal cascades into the collectors that name it (which is why the
-importer prunes collectors first), and its id is the key that resolves the
-out-of-band API token. Folding it into the collector count would hide exactly the
+radius: `collectors.connection_id` is `ON DELETE RESTRICT`, so a collector that names a
+connection must go first - which is why the importer prunes collectors before
+connections, and why a config that drops a connection while keeping a collector that
+references it fails validation rather than removing either. Its id is also the key that
+resolves the out-of-band API token. Folding it into the collector count would hide exactly the
 row an operator most needs to see before a narrowing sync deletes it.
 
 The planned-state section keeps the same discipline as the collector section: print

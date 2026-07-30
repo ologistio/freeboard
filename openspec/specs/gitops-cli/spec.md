@@ -18,7 +18,9 @@ standards, requirements, controls, assets, scopes, collectors, and integrations 
 kind a config authors is silently absent from the operator's confirmation. The asset
 count SHALL keep its per-type breakdown. Integrations SHALL be counted as their own kind
 rather than folded into the collector count, because an integration is pruned as its own
-set and its removal cascades into the collectors that name it.
+set and a collector that names it must be removed first: `collectors.connection_id` is
+`ON DELETE RESTRICT`, so a config that omits a connection while keeping a collector that
+references it fails validation rather than removing either.
 
 #### Scenario: Valid config passes
 
