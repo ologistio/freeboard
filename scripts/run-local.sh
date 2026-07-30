@@ -129,8 +129,8 @@ fi
 # HTTPS listener never binds, breaking the Secure session cookie.
 
 # Under --watch, run via `dotnet watch` for hot reload. --non-interactive makes it
-# auto-apply/restart without prompting (there is no TTY on stdin here). Otherwise
-# use the already-built output with --no-build.
+# auto-apply/restart without prompting. Otherwise use the already-built output
+# with --no-build.
 if [ "$hot_reload" = true ]; then
   dotnet_cmd=(watch --non-interactive --project src/Freeboard run --no-launch-profile)
   echo "==> Starting the web app (hot reload via dotnet watch)"
@@ -143,6 +143,12 @@ web_log="$(mktemp -t freeboard-web.XXXXXX.log)"
 # Start the app in its own process group (set -m) so cleanup can signal the whole
 # tree. dotnet watch spawns a child `dotnet run` that spawns the app; signalling only
 # $web_pid would orphan the app and leave it holding the HTTP ports.
+#
+# stdin must be /dev/null, not the inherited terminal: a background process group
+# that reads from or reconfigures the controlling terminal is stopped by SIGTTIN/
+# SIGTTOU. dotnet watch touches the console at startup, so with a terminal on stdin
+# it stops before it binds a port and the readiness loop below waits on a process
+# that will never listen.
 set -m
 ASPNETCORE_ENVIRONMENT=Development \
 ASPNETCORE_URLS="$https_url;$http_url" \
@@ -156,7 +162,7 @@ Auth__TokenKeys__1="$key_token" \
 Auth__CurrentTokenKeyVersion=1 \
 Auth__SecretProtectionKeys__1="$key_protect" \
 Auth__CurrentSecretProtectionKeyVersion=1 \
-  dotnet "${dotnet_cmd[@]}" >"$web_log" 2>&1 &
+  dotnet "${dotnet_cmd[@]}" </dev/null >"$web_log" 2>&1 &
 web_pid=$!
 set +m
 
