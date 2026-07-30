@@ -1,20 +1,23 @@
 # Example GitOps config
 
-A small, generic sample config that exercises every kind. The ids here are
-placeholders for illustration and are not a claim of conformance to any real
-standard. For a worked, company-shaped example see
-[`../fixture-corp`](../fixture-corp/README.md).
+A small, generic sample config carrying at least one document of every kind the
+loader supports: `Standard`, `Requirement`, `Control`, `Asset`, `Scope`,
+`Collector`, and `Integration`. The ids here are placeholders for illustration and
+are not a claim of conformance to any real standard. For a worked, company-shaped
+example see [`../fixture-corp`](../fixture-corp/README.md).
 
 ## Layout
 
-| File                         | Kind                       | Purpose                                                        |
-| ---------------------------- | -------------------------- | -------------------------------------------------------------- |
-| `cyber-essentials-plus.yaml` | `Standard` + `Requirement` | Symlink to the shared CE+ catalog (standard + 35 requirements) |
-| `standards.yaml`             | `Standard`                 | The other standards declared locally (CE, SOC 2)               |
-| `controls.yaml`              | `Control`                  | Implemented controls, each `maps_to` requirement(s)            |
-| `organisations.yaml`         | `Asset`                    | The organisation tree, each with a `type` and parent           |
-| `scopes.yaml`                | `Scope`                    | Maps a subject asset to a standard, requirement, or control    |
-| `vendors.yaml`               | `Asset` (Vendor)           | Software, platforms, and external parties in use               |
+| File                         | Kind                       | Purpose                                                               |
+| ---------------------------- | -------------------------- | --------------------------------------------------------------------- |
+| `cyber-essentials-plus.yaml` | `Standard` + `Requirement` | Symlink to the shared CE+ catalog (standard + 35 requirements)        |
+| `standards.yaml`             | `Standard`                 | The other standards declared locally (CE, SOC 2)                      |
+| `controls.yaml`              | `Control`                  | Implemented controls, each `maps_to` requirement(s)                   |
+| `organisations.yaml`         | `Asset`                    | The organisation tree, each with a `type` and parent                  |
+| `scopes.yaml`                | `Scope`                    | Maps a subject asset to a standard, requirement, or control           |
+| `vendors.yaml`               | `Asset` (Vendor)           | Software, platforms, and external parties in use                      |
+| `integrations.yaml`          | `Integration`              | The Fleet provider connection backing the integration collector       |
+| `collectors.yaml`            | `Collector`                | Proving mechanisms attached to controls (integration/manual/training) |
 
 `cyber-essentials-plus.yaml` is a symlink to
 [`../shared/cyber-essentials-plus.yaml`](../shared/cyber-essentials-plus.yaml),
@@ -43,6 +46,19 @@ disposition. It shows all three layers together:
 `vendors.yaml` declares each vendor as an `Asset` with `type: Vendor` (a plain id +
 title for a tool or party in use). CrowdStrike, Fleet, and Google Workspace are real
 named integrations; the rest are invented for illustration.
+
+`integrations.yaml` declares the one provider connection: a base URL and a discovery
+cadence for a Fleet instance, plus the optional `vendor` pointing at the Fleet vendor
+asset. It carries no token field - the API token is resolved out-of-band by connection
+id, so it is never authored in git.
+
+`collectors.yaml` attaches the proving mechanisms to the controls. It shows three of
+the collector types so the typed `config` contract is visible: an `integration`
+collector naming the connection above (its `config.checks` map Fleet policy ids to
+Freeboard check names), a `manual` attestation with a body and form fields, and a
+`training` quiz with its required `config.pass_mark` and `config.quiz`. Every control
+with an attached collector declares an `evaluation` rule, which is what turns the
+attached collectors into one control status.
 
 Kinds may be mixed in any file; the split above is a convention, not a rule.
 Every document declares `apiVersion: freeboard.dev/v1alpha1`. Every resource has a

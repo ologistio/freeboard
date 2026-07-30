@@ -1,0 +1,75 @@
+# Sample collectors. A Collector attaches one proving mechanism to one Control. Its
+# top-level fields are identity, the attach point, cross-document references, and the
+# collection cadence; everything type-specific lives under `config`, whose legal keys
+# are fixed by the collector's (type, provider) pair. Three types are shown below to
+# make that contract visible.
+
+# type: integration - a provider pulls the evidence. It names the connection from
+# integrations.yaml and must repeat that connection's provider. Each tracked check
+# maps a provider-native id (`source_key`, here a Fleet policy id) to a Freeboard
+# check name and a severity: Hard fails the requirement, Soft warns.
+apiVersion: freeboard.dev/v1alpha1
+kind: Collector
+id: col-fleet-patching
+title: Fleet device patch status
+control: ctrl-patching
+vendor: vendor-fleetdm
+type: integration
+provider: fleet
+frequency: daily
+connection: conn-fleetdm
+config:
+  checks:
+    - source_key: "101"
+      name: os-updates-within-14-days
+      severity: Hard
+    - source_key: "102"
+      name: automatic-updates-enabled
+      severity: Soft
+---
+# type: manual - a person attests, with an optional markdown body and form fields.
+apiVersion: freeboard.dev/v1alpha1
+kind: Collector
+id: col-mfa-attestation
+title: MFA enforcement attestation
+control: ctrl-mfa
+vendor: vendor-google-workspace
+type: manual
+frequency: quarterly
+config:
+  body: |
+    Confirm that multi-factor authentication is enforced for every Google Workspace
+    account, including administrators and service accounts that support it.
+  fields:
+    - id: enforced
+      label: Is MFA enforced for all accounts?
+      type: boolean
+    - id: exceptions
+      label: List any accounts exempted and why
+      type: short-text
+---
+# type: training - a quiz. `pass_mark` (an integer percent) and `quiz` are both
+# required. Each item needs at least two options and an answer that is one of them.
+apiVersion: freeboard.dev/v1alpha1
+kind: Collector
+id: col-mfa-training
+title: Account security awareness
+control: ctrl-mfa
+type: training
+frequency: annual
+config:
+  pass_mark: 80
+  quiz:
+    - id: q-second-factor
+      prompt: Which of these counts as a second factor?
+      options:
+        - A one-time code from your authenticator app
+        - A longer password
+        - Your email address
+      answer: A one-time code from your authenticator app
+    - id: q-code-request
+      prompt: Someone calls claiming to be IT and asks for your MFA code. What do you do?
+      options:
+        - Refuse and report it to the security team
+        - Read out the code
+      answer: Refuse and report it to the security team

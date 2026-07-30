@@ -1,10 +1,13 @@
-# Sample controls. Each maps_to one or more Requirement ids.
+# Sample controls. Each maps_to one or more Requirement ids. `evaluation` is the
+# roll-up rule saying how a control's attached collectors combine into a status; it is
+# required once a control has at least one attached collector, of any type.
 apiVersion: freeboard.dev/v1alpha1
 kind: Control
 id: ctrl-mfa
 title: Multi-factor authentication enforced
 maps_to:
   - req-ce-plus-user-access-control-04
+evaluation: all
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Control
@@ -13,3 +16,4 @@ title: Security patches applied within 14 days
 maps_to:
   - req-ce-plus-security-update-management-04
   - req-ce-plus-security-update-management-05
+evaluation: all

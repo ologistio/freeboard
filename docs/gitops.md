@@ -513,6 +513,12 @@ freeboard gitops apply <dir> --dry-run
 `validate` and `apply --dry-run` make no network calls and write no state. `sync`
 (below) is the explicit write path that loads config into the store.
 
+`validate` prints a success summary carrying one count per declared kind (the asset
+count keeps its per-type breakdown). `apply --dry-run` prints one planned-state
+section per declared kind, one line per resource. A kind missing from either output
+is a defect, not a sign the config declares none of it - a kind that declares nothing
+prints a zero count and an empty section.
+
 ## Persistence
 
 The compliance domain (standards, requirements, controls, assets, scopes) is
@@ -595,7 +601,12 @@ Exit codes for the persistence-backed commands: `0` success; `1` validation or
 input error (`gitops sync`, writes nothing); `3` operational failure (missing
 connection string, database unreachable, schema not current without `--migrate`,
 migration checksum mismatch, an applied migration missing from the embedded
-migrations, or a migration that fails during execution).
+migrations, a declared asset id colliding with an existing discovered asset id, or a
+migration that fails during execution).
+
+On success `sync` prints a `Synced:` line carrying one count per declared kind, the
+same kind set the `validate` summary reports. The counts come from the config, so
+they say what was authored rather than what changed.
 
 ### sync vs apply --dry-run
 
@@ -607,9 +618,12 @@ subsumed by real reconciling `apply` later.
 ### Hard removal warning
 
 `gitops sync` replaces the persisted set: it upserts every resource in the config
-by `id` and HARD-REMOVES any persisted resource whose `id` is absent from the
-config. Narrowing the config deletes rows. There is no soft-delete yet. Review the
-config before syncing.
+by `id` and HARD-REMOVES any persisted *declared* resource whose `id` is absent from
+the config. Narrowing the config deletes rows. There is no soft-delete yet. Review
+the config before syncing.
+
+A discovered asset is never removed by a sync, so a config that declares no `Machine`
+documents - or no assets at all - leaves the discovered inventory intact.
 
 ### Web read endpoints
 
