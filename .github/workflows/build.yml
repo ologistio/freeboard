@@ -63,10 +63,10 @@ jobs:
     permissions:
       contents: read
       pull-requests: write   # to comment the preview URL on the PR
-    # Read once here so the deploy steps can test for them. On a fork's pull request,
-    # and before the secrets are configured at all, these are empty and the deploy
-    # steps skip instead of failing: generating the site is the part that must always
-    # run. The Vercel CLI reads ORG_ID and PROJECT_ID from the environment.
+    # Read once here so the credentials check below can test for them. On a fork's
+    # pull request, and before the secrets are configured, they are empty and the
+    # deploy steps skip instead of failing: generating the site is the part that must
+    # always run. The Vercel CLI reads ORG_ID and PROJECT_ID from the environment.
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -101,6 +101,19 @@ jobs:
           name: freeboard-web-${{ steps.version.outputs.version }}
           path: src/Freeboard.Web/_site
 
+      # Deploying needs all three. A partially configured or mid-rotation secret set
+      # takes the generate-only path rather than failing part-way through a deploy.
+      - name: Check for the Vercel credentials
+        id: vercel
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Vercel credentials are incomplete; the site was generated but not deployed." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # The site is already built, so Vercel is given finished files rather than a
       # build to run: no .NET or bun toolchain is needed on their side. This is the
       # Build Output API layout (v3) that `deploy --prebuilt` expects. `vercel pull`
@@ -108,19 +121,19 @@ jobs:
       # variables to fetch, so routing stays in the committed config instead of in
       # dashboard settings.
       - name: Assemble the Vercel build output
-        if: env.VERCEL_TOKEN != ''
+        if: steps.vercel.outputs.ready == 'true'
         run: |
           mkdir -p .vercel/output/static
           cp -r src/Freeboard.Web/_site/. .vercel/output/static/
           cp src/Freeboard.Web/vercel-output-config.json .vercel/output/config.json
 
       - name: Install the Vercel CLI
-        if: env.VERCEL_TOKEN != ''
+        if: steps.vercel.outputs.ready == 'true'
         run: npm install -g vercel@58.4.0
 
       - name: Deploy to Vercel
         id: deploy
-        if: env.VERCEL_TOKEN != ''
+        if: steps.vercel.outputs.ready == 'true'
         run: |
           set -euo pipefail
           # main and published releases go to production; a pull request gets a
@@ -134,7 +147,7 @@ jobs:
           echo "Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment the preview URL on the pull request
-        if: github.event_name == 'pull_request' && env.VERCEL_TOKEN != ''
+        if: github.event_name == 'pull_request' && steps.vercel.outputs.ready == 'true'
         uses: actions/github-script@v9
         with:
           script: |

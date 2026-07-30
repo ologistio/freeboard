@@ -55,7 +55,7 @@ public sealed class ApiReference
 
     public static async Task<ApiReference> LoadAsync(string contentRootPath)
     {
-        var path = Path.Combine(contentRootPath, "Content", "openapi.yaml");
+        var path = Path.Join(contentRootPath, "Content", "openapi.yaml");
 
         var settings = new OpenApiReaderSettings();
         settings.AddYamlReader();

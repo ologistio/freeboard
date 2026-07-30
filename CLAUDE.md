@@ -99,11 +99,13 @@ That config only understands `routes` - `trailingSlash`, `headers`, `cleanUrls` 
 friends are `vercel.json` properties and are **silently ignored** in Build Output
 API config, so everything is expressed as routes. The `handle: error` route is what
 serves `404.html`: a prebuilt deployment does not pick that file up by convention,
-and without the route Vercel serves its own default 404.
+and without the route Vercel serves its own default 404. The `/legal/terms` route is
+a permanent redirect to `/docs/legal/terms`, kept because `src/Freeboard.Enterprise/LICENSE`
+incorporates the subscription terms by reference at that URL - it must keep resolving.
 
-Needs three repo secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`. When
-they are absent - not yet configured, or a pull request from a fork - the deploy
-steps skip and the site is still generated.
+Needs three repo secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`. If
+**any** is missing (not yet configured, mid-rotation, or a pull request from a fork)
+the deploy steps skip and the site is still generated.
 
 **Pre-launch:** the site is deliberately kept out of search results while the copy is
 placeholder, by `wwwroot/robots.txt` and a `robots` meta tag in

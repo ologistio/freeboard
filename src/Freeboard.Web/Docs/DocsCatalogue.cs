@@ -82,8 +82,8 @@ public sealed class DocsCatalogue
 
     public static DocsCatalogue Load(string contentRootPath)
     {
-        var dir = Path.Combine(contentRootPath, "Content", "Docs");
-        var manifest = Path.Combine(dir, "docs.json");
+        var dir = Path.Join(contentRootPath, "Content", "Docs");
+        var manifest = Path.Join(dir, "docs.json");
         var groups = JsonSerializer.Deserialize<List<DocsGroup>>(File.ReadAllText(manifest), JsonOptions)
             ?? throw new InvalidOperationException($"{manifest} holds no documentation groups.");
 
@@ -142,7 +142,7 @@ public sealed class DocsCatalogue
     }
 
     private string BodyPath(string slug) =>
-        Path.Combine(contentDir, slug.Replace('/', Path.DirectorySeparatorChar) + ".md");
+        Path.Join(contentDir, slug.Replace('/', Path.DirectorySeparatorChar) + ".md");
 
     private static string HeadingText(HeadingBlock heading) =>
         heading.Inline is null
