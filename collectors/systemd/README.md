@@ -44,8 +44,10 @@ FREEBOARD_REQUIREMENT_ID=req-mfa
 FREEBOARD_COLLECTOR_SCRIPT=/usr/local/lib/freeboard/collect.sh
 ```
 
-Do not set `FREEBOARD_COLLECTOR_ID` here: the unit derives it from the instance
-name so the two cannot drift. A collector id containing `/` or other characters
+Do not set `FREEBOARD_COLLECTOR_ID` here. The unit assigns it from the instance
+name at exec time, so a value in this file is ignored and the two cannot drift -
+which is what stops a file copied from another host posting this host's evidence
+under that host's collector id. A collector id containing `/` or other characters
 systemd escapes must be passed through `systemd-escape` to form the instance
 name.
 

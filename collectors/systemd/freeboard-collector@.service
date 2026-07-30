@@ -12,10 +12,12 @@ Type=oneshot
 # Mode 0600, root-owned: it carries the collector's bearer token. systemd reads it as root before
 # dropping privileges, so the service user never needs access to the file itself.
 EnvironmentFile=/etc/freeboard/collectors/%i.env
-# The unit name is the single source of truth for the collector id; assigned after the environment
-# file so it cannot be overridden there.
-Environment=FREEBOARD_COLLECTOR_ID=%i
-ExecStart=/usr/local/lib/freeboard/entrypoint.sh
+# The unit name is the single source of truth for the collector id, so it is assigned at exec time
+# rather than with Environment=. EnvironmentFile= overrides Environment= regardless of the order the
+# directives appear in, so a copied env file that still names another collector's id would otherwise
+# win - and because the collector script reads the same variable, the wrapper's collector_id
+# assertion would agree with it and post this host's evidence under that other collector.
+ExecStart=/usr/bin/env FREEBOARD_COLLECTOR_ID=%i /usr/local/lib/freeboard/entrypoint.sh
 # Must exceed FREEBOARD_MAX_ATTEMPTS * (curl timeout + FREEBOARD_RETRY_SLEEP).
 TimeoutStartSec=300
 
