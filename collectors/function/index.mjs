@@ -18,6 +18,21 @@ const FINAL_STATUSES = new Set([400, 401, 403, 409, 413, 422]);
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
+// Number("bad") is NaN and Number("Infinity") is infinite; both make `attempt >= maxAttempts` never
+// true, so a transport error or 5xx would retry forever - in HTTP-server mode until the process is
+// killed. Reject anything that is not a finite positive integer rather than silently ignoring the
+// documented budget.
+function positiveInt(name, value, fallback) {
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer, got '${value}'`);
+  }
+  return parsed;
+}
+
 async function loadCollector() {
   const configured = process.env.FREEBOARD_COLLECTOR_MODULE;
   const specifier = configured
@@ -56,10 +71,11 @@ export async function runOnce() {
 
   const body = JSON.stringify(payload);
   const url = `${process.env.FREEBOARD_BASE_URL.replace(/\/+$/, "")}/api/v1/freeboard/evidence`;
-  const maxAttempts = Number(process.env.FREEBOARD_MAX_ATTEMPTS ?? 3);
-  const retrySeconds = Number(process.env.FREEBOARD_RETRY_SLEEP ?? 2);
+  const maxAttempts = positiveInt("FREEBOARD_MAX_ATTEMPTS", process.env.FREEBOARD_MAX_ATTEMPTS, 3);
+  const retrySeconds = positiveInt("FREEBOARD_RETRY_SLEEP", process.env.FREEBOARD_RETRY_SLEEP, 2);
   // Bound each POST: a hung connection would otherwise burn the whole invocation budget.
-  const timeoutMs = Number(process.env.FREEBOARD_TIMEOUT_SECONDS ?? 30) * 1000;
+  const timeoutMs =
+    positiveInt("FREEBOARD_TIMEOUT_SECONDS", process.env.FREEBOARD_TIMEOUT_SECONDS, 30) * 1000;
 
   for (let attempt = 1; ; attempt++) {
     let status = 0;
