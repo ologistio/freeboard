@@ -1,8 +1,5 @@
-# gitops-cli Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-gitops-config-management. Update Purpose after archive.
-## Requirements
 ### Requirement: gitops validate command
 
 The CLI SHALL provide `freeboard gitops validate <path>` that loads the YAML
@@ -100,166 +97,6 @@ out-of-band token configuration.
   config
 - **THEN** the command prints the validation errors to stderr and exits `1`
   without printing planned state
-
-### Requirement: CLI stays community and cross-platform
-
-The `gitops` command group SHALL live in `Freeboard.CLI` and reference only
-`Freeboard.Core` and the MIT persistence project (`Freeboard.Persistence`),
-and SHALL contain no reference to `Freeboard.Enterprise`. The MySQL client pulled
-in by the persistence project SHALL be a fully managed, cross-platform client, so
-the CLI continues to run on Windows, Linux, and macOS without platform-specific
-code.
-
-#### Scenario: No enterprise reference
-
-- **WHEN** the solution is built
-- **THEN** `Freeboard.CLI` resolves without any dependency on
-  `Freeboard.Enterprise`
-
-#### Scenario: Cross-platform with the persistence dependency
-
-- **WHEN** the CLI is built and run on Windows, Linux, or macOS
-- **THEN** it runs without platform-specific code, the MySQL client being a fully
-  managed cross-platform client
-
-### Requirement: EE one-way rule pinned by architecture test
-
-An architecture test SHALL assert that `Freeboard.Core`, `Freeboard.CLI`, and
-`Freeboard.Agent` carry no project or assembly reference to
-`Freeboard.Enterprise`, so an accidental reference fails the build.
-
-#### Scenario: Community components free of enterprise
-
-- **WHEN** the architecture test runs
-- **THEN** it passes only if none of `Freeboard.Core`, `Freeboard.CLI`, or
-  `Freeboard.Agent` references `Freeboard.Enterprise`
-
-### Requirement: Command-group documentation reflects the write path
-
-The `gitops` command-group documentation SHALL NOT claim that the group makes no
-network calls or writes no state, because `sync` now connects to MySQL and writes.
-Only `validate` and `apply --dry-run` SHALL be described as non-writing,
-non-connecting commands.
-
-The command-group documentation SHALL also state the shape of what the commands print:
-that the `validate` success summary carries one count per declared kind, that the
-`apply --dry-run` planned state carries one section per declared kind, and that the `sync`
-success line carries one count per declared kind. Stating the shape rather than only the
-exit codes is what makes a kind missing from the output a documented defect instead of an
-unwritten expectation.
-
-The hard-removal documentation SHALL carry the discovered-asset carve-out: a `sync`
-hard-removes only resources it declares, and a discovered asset is never removed by a sync
-because ingest is its only writer. Without the carve-out the documentation reads as though
-a config with no `Machine` documents deletes the operator's discovered inventory, which is
-not what the importer does.
-
-#### Scenario: Group doc no longer claims no writes or no network
-
-- **WHEN** the `gitops` command-group documentation is read
-- **THEN** it does not claim the group writes no state or makes no network calls,
-  and it scopes the non-writing description to `validate` and `apply --dry-run`
-
-#### Scenario: Command doc states the printed output shape
-
-- **WHEN** a reader consults the `gitops` command documentation
-- **THEN** it states that `validate` prints one count per declared kind, that
-  `apply --dry-run` prints one planned-state section per declared kind, and that the `sync`
-  success line prints one count per declared kind
-
-#### Scenario: Hard-removal doc carves out discovered assets
-
-- **WHEN** a reader consults the hard-removal warning in the `gitops` documentation
-- **THEN** it states that the hard removal applies to declared resources and that a
-  discovered asset is not removed by a sync, so a config declaring no `Machine` assets
-  does not delete discovered inventory
-
-### Requirement: gitops commands enforce referential integrity for every config kind
-
-The `gitops validate` and `gitops sync` commands SHALL apply the loader and
-validator's referential-integrity checks to every config kind, including the unified
-Scope, Integration, and Collector. A config in which a
-kind's target reference names an id that no document defines SHALL be rejected: `gitops
-validate` SHALL print a diagnostic that names the offending kind, resource, and missing
-id, and SHALL exit non-zero, and `gitops sync` SHALL NOT import such a config. A `Scope`
-target (`standard`, `requirement`, or `control`) is a hard reference and a dangling target
-fails the command; a `Scope.subject` is a scalar asset reference and a dangling subject is
-a NON-BLOCKING warning that does NOT fail the command (see the warnings-on-success
-behaviour), because a subject may be a retired or not-yet-discovered asset.
-
-The commands SHALL likewise reject a Collector whose `provider` disagrees with the
-`provider` of the Integration its `connection` names, and a Collector whose `config`
-carries a key that the schema registered for its `(type, provider)` pair does not name or
-omits a key that schema requires.
-
-At the command surface the coverage is a representative dangling reference for
-EACH kind: a Scope naming an unknown target (a standard, requirement, or control that no
-document defines), a Collector naming an unknown control, a Collector of
-`type: integration` naming an unknown connection, a Collector of `type: integration` whose
-`provider` disagrees with its connection's, and a Collector carrying an unknown `config`
-key. The exhaustive per-edge matrix (for example a Scope naming an unknown
-requirement or control, a dangling Scope subject warning, an Integration naming an
-unknown vendor, or the full per-`(type, provider)` config-schema matrix) is owned by the
-`Freeboard.Core` ConfigValidator unit tests, so the CLI layer proves command wiring only
-rather than re-running every edge.
-
-#### Scenario: Validate rejects a dangling scope target reference
-
-- **WHEN** the user runs `gitops validate` on a directory whose Scope names a `standard`,
-  `requirement`, or `control` id that no document defines
-- **THEN** the command prints a diagnostic naming the Scope and the unknown target id and
-  exits non-zero
-
-#### Scenario: Validate warns but does not fail on a dangling scope subject
-
-- **WHEN** the user runs `gitops validate` on a directory whose Scope names a `subject` id
-  that no asset defines, with every other reference resolving
-- **THEN** the command prints a non-blocking warning naming the Scope and the unresolved
-  subject and exits `0`
-
-#### Scenario: Validate rejects a dangling collector control reference
-
-- **WHEN** the user runs `gitops validate` on a directory whose Collector
-  names a `control` id that no Control document defines
-- **THEN** the command prints a diagnostic naming the Collector and the
-  unknown control id and exits non-zero
-
-#### Scenario: Validate rejects a dangling collector connection reference
-
-- **WHEN** the user runs `gitops validate` on a directory whose Collector
-  of `type: integration` names a `connection` id that no Integration
-  document defines
-- **THEN** the command prints a diagnostic naming the Collector and the
-  unknown connection id and exits non-zero
-
-#### Scenario: Validate rejects a collector provider that disagrees with its connection
-
-- **WHEN** the user runs `gitops validate` on a directory whose Collector of
-  `type: integration` names a `provider` other than the `provider` of the Integration its
-  `connection` names
-- **THEN** the command prints a diagnostic naming the Collector and both providers and
-  exits non-zero
-
-#### Scenario: Validate rejects an unknown collector config key
-
-- **WHEN** the user runs `gitops validate` on a directory whose Collector authors a
-  `config` key that its `(type, provider)` schema does not name
-- **THEN** the command prints a diagnostic naming the Collector and the unknown config key
-  and exits non-zero
-
-#### Scenario: Validate rejects a retired collector kind
-
-- **WHEN** the user runs `gitops validate` on a directory containing a
-  `kind: EvidenceCollector` or `kind: AttestationTemplate` document
-- **THEN** the command prints an unknown-kind diagnostic naming the document and exits
-  non-zero, rather than silently ignoring the document
-
-#### Scenario: Sync does not import a config with a dangling target reference
-
-- **WHEN** the user runs `gitops sync` on a directory that fails referential
-  integrity for any target reference
-- **THEN** the command reports the validation error, exits non-zero, and writes
-  no rows for that config
 
 ### Requirement: gitops sync round-trips and hard-removes the new config kinds
 
@@ -371,6 +208,48 @@ warning remains the surface for `validate` and `apply --dry-run`, which have no 
 - **THEN** the success line reports an integration count alongside the standard,
   requirement, control, asset, scope, and collector counts
 
+### Requirement: Command-group documentation reflects the write path
+
+The `gitops` command-group documentation SHALL NOT claim that the group makes no
+network calls or writes no state, because `sync` now connects to MySQL and writes.
+Only `validate` and `apply --dry-run` SHALL be described as non-writing,
+non-connecting commands.
+
+The command-group documentation SHALL also state the shape of what the commands print:
+that the `validate` success summary carries one count per declared kind, that the
+`apply --dry-run` planned state carries one section per declared kind, and that the `sync`
+success line carries one count per declared kind. Stating the shape rather than only the
+exit codes is what makes a kind missing from the output a documented defect instead of an
+unwritten expectation.
+
+The hard-removal documentation SHALL carry the discovered-asset carve-out: a `sync`
+hard-removes only resources it declares, and a discovered asset is never removed by a sync
+because ingest is its only writer. Without the carve-out the documentation reads as though
+a config with no `Machine` documents deletes the operator's discovered inventory, which is
+not what the importer does.
+
+#### Scenario: Group doc no longer claims no writes or no network
+
+- **WHEN** the `gitops` command-group documentation is read
+- **THEN** it does not claim the group writes no state or makes no network calls,
+  and it scopes the non-writing description to `validate` and `apply --dry-run`
+
+#### Scenario: Command doc states the printed output shape
+
+- **WHEN** a reader consults the `gitops` command documentation
+- **THEN** it states that `validate` prints one count per declared kind, that
+  `apply --dry-run` prints one planned-state section per declared kind, and that the `sync`
+  success line prints one count per declared kind
+
+#### Scenario: Hard-removal doc carves out discovered assets
+
+- **WHEN** a reader consults the hard-removal warning in the `gitops` documentation
+- **THEN** it states that the hard removal applies to declared resources and that a
+  discovered asset is not removed by a sync, so a config declaring no `Machine` assets
+  does not delete discovered inventory
+
+## ADDED Requirements
+
 ### Requirement: gitops sync maps the declared-only asset guarantee onto its exit codes
 
 `gitops sync` SHALL exit `0` on a config that declares no `Machine` assets, and on a config
@@ -446,4 +325,3 @@ read model.
   document defines
 - **THEN** the command prints a warning to stderr naming the asset and the unknown parent,
   imports the config, and exits `0`
-
