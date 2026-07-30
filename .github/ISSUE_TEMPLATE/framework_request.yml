@@ -1,0 +1,31 @@
+name: Request a framework
+description: Ask for a compliance framework or standard to be supported.
+labels: [feature, compliance]
+title: "Framework request: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us which framework you need. The name alone is enough to start -
+        everything else is optional.
+  - type: input
+    id: framework
+    attributes:
+      label: Framework
+      description: The name and version, as the publisher writes it.
+      placeholder: ISO/IEC 27001:2022
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Where the requirements are published
+      description: A link to the standard, or to the control catalogue you work from.
+      placeholder: https://www.iso.org/standard/27001
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >-
+        Who needs it and why, whether you are audited against it today, or which
+        parts matter most to you. Skip this if the name says it all.
