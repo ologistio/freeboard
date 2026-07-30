@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Dapper;
+using Freeboard.Core.Assets;
 using Freeboard.Core.GitOps;
 using MySqlConnector;
 
@@ -42,9 +43,10 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
             return WriteResult.Fail("Organisation title is required.");
         }
 
-        if (!ConfigValidator.TryParseKind(kind, out _))
+        if (!ConfigValidator.TryParseAssetType(kind, out var assetType)
+            || assetType is not (AssetKind.Company or AssetKind.Department))
         {
-            return WriteResult.Fail($"Organisation kind must be '{nameof(OrganisationKind.Company)}' or '{nameof(OrganisationKind.Department)}'.");
+            return WriteResult.Fail($"Organisation kind must be '{nameof(AssetKind.Company)}' or '{nameof(AssetKind.Department)}'.");
         }
 
         var parentId = string.IsNullOrEmpty(parent) ? null : parent;

@@ -53,6 +53,18 @@ public sealed class ComplianceWriteStoreValidationTests
         Assert.False((await Store().UpsertRequirementScopeDispositionAsync("sc-a", "T", "org-a", "req-a", "Sideways", "r")).Ok);
     }
 
+    // The org route parses its kind with the four-value asset-type parser, so narrowing the result to the
+    // organisation subset is what stops the route authoring a Machine or Vendor row. Nothing downstream
+    // catches it: assets.type has no CHECK constraint.
+    [Fact]
+    public async Task OrganisationRouteRejectsANonOrganisationAssetType()
+    {
+        Assert.False((await Store().UpsertOrganisationAsync("org-a", "T", "Machine", null)).Ok);
+        Assert.False((await Store().UpsertOrganisationAsync("org-a", "T", "Vendor", null)).Ok);
+        Assert.False((await Store().UpsertOrganisationAsync("org-a", "T", "company", null)).Ok);
+        Assert.False((await Store().UpsertOrganisationAsync("org-a", "T", "Sideways", null)).Ok);
+    }
+
     [Fact]
     public async Task BothRoutesRejectMissingIdOrTitle()
     {
