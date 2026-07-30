@@ -33,7 +33,7 @@ retry with the identical body up to `FREEBOARD_MAX_ATTEMPTS`.
 ## Build and run the reference example
 
 ```sh
-docker build -t freeboard-collector-example collectors/
+docker build -t freeboard-collector-example collectors/docker/
 
 # Issue a credential (admin), then run the collector against a live instance:
 docker run --rm \
