@@ -4,6 +4,7 @@ using Freeboard.Persistence;
 using Freeboard.Persistence.Auth;
 using Freeboard.Web;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Options;
 
 namespace Freeboard.Web.Tests;
 
@@ -96,6 +97,48 @@ public sealed class VendorsPageTests
     }
 
     [Fact]
+    public async Task RendersTierAndDataClassesAsNeutralTags()
+    {
+        var store = new FakeComplianceStore
+        {
+            Assets =
+            [
+                TestAssets.Org("org-a", title: "Org A"),
+                TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A", tier: "Critical", dataClasses: ["pii", "payment-card"]),
+            ],
+        };
+        using var factory = Factory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var row = DirectoryRow(await response.Content.ReadAsStringAsync(), "vendor-a");
+
+        // Neutral tone only: S3 keeps red for failing and overdue, and the same rule rules out amber.
+        Assert.Contains("<span class=\"fb-tag\">Critical</span>", row, StringComparison.Ordinal);
+        Assert.Contains("<span class=\"fb-tag\">PII</span>", row, StringComparison.Ordinal);
+        Assert.Contains("<span class=\"fb-tag\">Payment card</span>", row, StringComparison.Ordinal);
+        Assert.DoesNotContain("fb-tag--", row, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UntrackedTierAndDataClassesRenderAsExplicitEmpties()
+    {
+        // O2/S6: an absent facet says so rather than defaulting to a plausible value.
+        var store = new FakeComplianceStore
+        {
+            Assets = [TestAssets.Org("org-a", title: "Org A"), TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A")],
+        };
+        using var factory = Factory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var row = DirectoryRow(await response.Content.ReadAsStringAsync(), "vendor-a");
+
+        Assert.Equal(2, CountOccurrences(row, "<span class=\"fb-tdsub\">Not tracked</span>"));
+        Assert.DoesNotContain("fb-tag", row, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ServedInReadOnlyModeToAuthenticatedUser()
     {
         using var factory = Factory(PopulatedStore(), readOnly: true);
@@ -175,6 +218,86 @@ public sealed class VendorsPageTests
         var ctor = Assert.Single(typeof(VendorsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
-        Assert.Equal(new HashSet<Type> { typeof(IComplianceStore), typeof(IAssetAccess) }, paramTypes);
+        Assert.Equal(
+            new HashSet<Type>
+            {
+                typeof(IComplianceStore),
+                typeof(IAssetAccess),
+                typeof(IOptions<Freeboard.GitOps.GitOpsOptions>),
+            },
+            paramTypes);
+    }
+
+    [Fact]
+    public async Task DirectoryAndScopeTabsCarryTheirCounts()
+    {
+        using var factory = Factory(PopulatedStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Two vendors in the directory tab, two scope rules in the scope-rules tab.
+        Assert.Contains("id=\"vt-directory\"", html, StringComparison.Ordinal);
+        Assert.Contains("Directory<span class=\"n\">2</span>", html, StringComparison.Ordinal);
+        Assert.Contains("Scope rules<span class=\"n\">2</span>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GitOpsModeSaysGitOwnsTheRegister()
+    {
+        using var factory = Factory(PopulatedStore(), readOnly: true);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("Git owns this register", html, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NoAddVendorAffordanceWhileGitIsTheOnlyWritePath(bool readOnly)
+    {
+        using var factory = Factory(PopulatedStore(), readOnly);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("Add vendor", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EmptyRegisterExplainsWhatWouldAppear()
+    {
+        using var factory = Factory(new FakeComplianceStore());
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-empty", html, StringComparison.Ordinal);
+        Assert.Contains("No vendors are registered.", html, StringComparison.Ordinal);
+    }
+
+    /// <summary>One vendor's Directory row, so a per-row assertion cannot pass on another row's markup.</summary>
+    private static string DirectoryRow(string html, string vendorId)
+    {
+        var row = html[html.IndexOf($"data-vendor-id=\"{vendorId}\"", StringComparison.Ordinal)..];
+        return row[..row.IndexOf("</tr>", StringComparison.Ordinal)];
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
     }
 }

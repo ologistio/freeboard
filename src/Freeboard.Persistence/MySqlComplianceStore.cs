@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using System.Text.Json;
 using Dapper;
 
 namespace Freeboard.Persistence;
@@ -71,14 +72,53 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
     // serves all three, and a second query is exactly what this read exists to avoid.
     private const string AssetSelect =
         "SELECT id AS Id, title AS Title, type AS Type, source AS Source, state AS State, "
-        + "parent AS Parent, owner AS Owner FROM assets ORDER BY id;";
+        + "parent AS Parent, owner AS Owner, tier AS Tier, data_classes AS DataClasses FROM assets ORDER BY id;";
+
+    // data_classes is a JSON array column, so the row binds to raw text and is projected below; the rest
+    // of the columns map straight onto AssetNode.
+    private sealed record AssetColumns(
+        string Id, string Title, string Type, string Source, string? State, string? Parent, string? Owner,
+        string? Tier, string? DataClasses);
 
     public async Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var rows = await connection.QueryAsync<AssetNode>(new CommandDefinition(
-            AssetSelect, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        return rows.ToList();
+        return await ReadAssetsAsync(connection, transaction: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The one asset read. Every caller goes through it, including the snapshot readers, so the JSON
+    /// projection cannot be applied on one path and skipped on another.
+    /// </summary>
+    private static async Task<List<AssetNode>> ReadAssetsAsync(
+        DbConnection connection, DbTransaction? transaction, CancellationToken cancellationToken)
+    {
+        var rows = await connection.QueryAsync<AssetColumns>(new CommandDefinition(
+            AssetSelect, transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.Select(r => new AssetNode(r.Id, r.Title, r.Type, r.Source, r.State, r.Parent, r.Owner)
+        {
+            Tier = r.Tier,
+            DataClasses = ReadDataClasses(r.DataClasses),
+        }).ToList();
+    }
+
+    // A null or unreadable column reads as empty rather than throwing: the register renders "Not tracked"
+    // either way, and a malformed row must not take down every asset read.
+    private static IReadOnlyList<string> ReadDataClasses(string? json)
+    {
+        if (string.IsNullOrEmpty(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     private const string ScopeSelect =
@@ -150,10 +190,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         await using var transaction = await connection
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
-        var assets = (await connection.QueryAsync<AssetNode>(new CommandDefinition(
-            AssetSelect,
-            transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+        var assets = await ReadAssetsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
 
         var scopes = (await connection.QueryAsync<ScopeRow>(new CommandDefinition(
             ScopeSelect,
@@ -180,10 +217,7 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         await using var transaction = await connection
             .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
 
-        var assets = (await connection.QueryAsync<AssetNode>(new CommandDefinition(
-            AssetSelect,
-            transaction: transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+        var assets = await ReadAssetsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
 
         var scopes = (await connection.QueryAsync<ScopeRow>(new CommandDefinition(
             ScopeSelect,

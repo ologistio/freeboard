@@ -378,7 +378,11 @@ app.UseAuthorization();
 // Enforce the force-reset (limited) session allowlist after auth.
 app.UseMiddleware<LimitedSessionGuardMiddleware>();
 
-app.MapGet("/", () => "Hello World!");
+// The base route is a signpost, not a page: a signed-in browser goes to the dashboard, everyone else
+// to sign-in. It stays anonymous rather than carrying the page policy, whose challenge would send an
+// unauthenticated request to /login?returnUrl=%2F and loop it back through here.
+app.MapGet("/", (HttpContext http) =>
+    Results.Redirect(http.User.Identity?.IsAuthenticated == true ? "/home" : "/login"));
 
 app.MapComplianceEndpoints();
 app.MapComplianceWriteEndpoints();

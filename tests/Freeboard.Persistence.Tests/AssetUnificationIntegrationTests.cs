@@ -178,6 +178,84 @@ public sealed class AssetUnificationIntegrationTests
         Assert.NotNull(await reads.GetByIdAsync("org-a", machine.AssetId!));
     }
 
+    // A sync writes the vendor risk profile, and a later sync with the keys removed CLEARS both columns.
+    // The clear is the half that fails silently: a stale tier survives an edit with no diagnostic anywhere,
+    // so it is pinned here rather than left to the write path alone.
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task VendorRiskProfileIsWrittenThenClearedWhenTheKeysAreRemoved()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+        var store = new MySqlComplianceStore(db.ConnectionFactory);
+
+        var profiled = DeclaredVendor("vendor-a", owner: "org-a") with
+        {
+            Tier = "Critical",
+            DataClasses = ["pii", "payment-card"],
+        };
+        await importer.ImportAsync(new GitOpsConfig { Assets = [DeclaredOrg("org-a"), profiled] });
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        Assert.Equal("Critical", await conn.ExecuteScalarAsync<string>(
+            "SELECT tier FROM assets WHERE id = 'vendor-a';"));
+
+        var written = (await store.GetAssetsAsync()).Single(a => a.Id == "vendor-a");
+        Assert.Equal("Critical", written.Tier);
+        Assert.Equal(["pii", "payment-card"], written.DataClasses);
+
+        // Same vendor, both keys gone: the columns must go back to NULL, not keep the previous values.
+        await importer.ImportAsync(new GitOpsConfig
+        {
+            Assets = [DeclaredOrg("org-a"), DeclaredVendor("vendor-a", owner: "org-a")],
+        });
+
+        Assert.Null(await conn.ExecuteScalarAsync<string>("SELECT tier FROM assets WHERE id = 'vendor-a';"));
+        Assert.Null(await conn.ExecuteScalarAsync<string>("SELECT data_classes FROM assets WHERE id = 'vendor-a';"));
+
+        var cleared = (await store.GetAssetsAsync()).Single(a => a.Id == "vendor-a");
+        Assert.Null(cleared.Tier);
+        Assert.Empty(cleared.DataClasses);
+    }
+
+    // An authored empty list stores exactly as an absent key does: the column is NULL either way, so no
+    // reader can tell "assessed as holding nothing" from "not assessed".
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task EmptyDataClassesStoresAsAbsent()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+
+        var empty = DeclaredVendor("vendor-a", owner: "org-a") with { Tier = "Low", DataClasses = [] };
+        await importer.ImportAsync(new GitOpsConfig { Assets = [DeclaredOrg("org-a"), empty] });
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        Assert.Null(await conn.ExecuteScalarAsync<string>("SELECT data_classes FROM assets WHERE id = 'vendor-a';"));
+    }
+
+    // Neither column applies off a Vendor: the Core validator rejects authoring them, so a synced
+    // Company/Department/Machine row leaves both NULL.
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task NonVendorRowsCarryNoRiskProfile()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+        var importer = new MySqlGitOpsImporter(db.ConnectionFactory);
+
+        await importer.ImportAsync(new GitOpsConfig
+        {
+            Assets = [DeclaredOrg("org-a"), DeclaredOrg("dept-a", "Department", parent: "org-a")],
+        });
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        Assert.Equal(0, await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM assets WHERE tier IS NOT NULL OR data_classes IS NOT NULL;"));
+    }
+
     // A declared id colliding with an existing discovered ULID fails the sync before any write.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task DeclaredIdCollidingWithDiscoveredFailsSyncWithNoMutation()

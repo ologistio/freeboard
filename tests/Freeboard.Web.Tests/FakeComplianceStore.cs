@@ -105,8 +105,9 @@ internal static class TestAssets
     public static AssetNode Org(string id, string? parent = null, string kind = "Company", string? title = null)
         => new(id, title ?? id, kind, "declared", null, parent, null);
 
-    public static AssetNode Vendor(string id, string? owner, string? title = null)
-        => new(id, title ?? id, "Vendor", "declared", null, null, owner);
+    public static AssetNode Vendor(
+        string id, string? owner, string? title = null, string? tier = null, IReadOnlyList<string>? dataClasses = null)
+        => new(id, title ?? id, "Vendor", "declared", null, null, owner) { Tier = tier, DataClasses = dataClasses ?? [] };
 
     public static AssetNode Machine(
         string id, string? parent, string source = "declared", string? state = null, string? title = null)

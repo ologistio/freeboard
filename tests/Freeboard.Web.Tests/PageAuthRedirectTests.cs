@@ -5,9 +5,10 @@ namespace Freeboard.Web.Tests;
 
 /// <summary>
 /// The page-route auth funnel: a protected page redirects an unauthenticated browser to /login,
-/// while the JSON API keeps its bare 401/403 and the non-page routes (/, gitops/status) are
-/// unchanged. Also asserts page-POST antiforgery and that an anonymous page renders without a
-/// redirect. The page policy is folder-scoped to /account, never a process-wide default/fallback.
+/// the base route signposts to /home or /login by auth state, while the JSON API keeps its bare
+/// 401/403 and gitops/status is unchanged. Also asserts page-POST antiforgery and that an anonymous
+/// page renders without a redirect. The page policy is folder-scoped to /account, never a
+/// process-wide default/fallback.
 /// </summary>
 public sealed class PageAuthRedirectTests
 {
@@ -110,16 +111,31 @@ public sealed class PageAuthRedirectTests
     }
 
     [Fact]
-    public async Task RootIsUnchangedForUnauthenticatedRequest()
+    public async Task RootRedirectsUnauthenticatedRequestToLogin()
     {
         using var factory = new AuthWebFactory();
         using var client = NoRedirectClient(factory);
 
         var response = await client.GetAsync("/");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Null(response.Headers.Location);
-        Assert.Equal("Hello World!", await response.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/login", response.Headers.Location!.OriginalString);
+    }
+
+    [Fact]
+    public async Task RootRedirectsAuthenticatedRequestToHome()
+    {
+        using var factory = new AuthWebFactory();
+        var user = AuthWebFactory.MakeUser("root1");
+        var token = factory.SeedSession(user);
+        using var client = NoRedirectClient(factory);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/home", response.Headers.Location!.OriginalString);
     }
 
     [Fact]

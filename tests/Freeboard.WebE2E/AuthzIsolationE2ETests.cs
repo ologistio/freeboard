@@ -91,10 +91,16 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
         Assert.Equal(1, await page.Locator("[data-vendor-id='vendor-a']").CountAsync());
         Assert.Equal(0, await page.Locator("[data-vendor-id='vendor-b']").CountAsync());
 
+        // The scope rules are a tab on the register, so open it before reading the visible text.
+        await page.GetByRole(AriaRole.Tab, new() { Name = "Scope rules" }).ClickAsync();
         var body = await page.Locator("body").InnerTextAsync();
         Assert.Contains("Visible justification.", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("Hidden justification.", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("Vendor B", body, StringComparison.Ordinal);
+
+        // The negative reads the whole document, not just the visible text: a hidden vendor's id or
+        // rationale must not reach the browser at all, in a closed tab pane or anywhere else.
+        var html = await page.ContentAsync();
+        Assert.DoesNotContain("Hidden justification.", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Vendor B", html, StringComparison.Ordinal);
     }
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]

@@ -346,14 +346,22 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         // Declared rows always write source = 'declared' and leave the discovered-only columns null. No
         // parent-before-child order (assets.parent has no FK), so a single batched upsert is safe. The
         // collision guard above already ensured no id here matches a discovered row.
+        //
+        // Every mutable column is assigned from VALUES on duplicate key, so removing a key from config
+        // clears the column rather than leaving the previous value behind. Miss one here and a stale tier
+        // or data class list survives an edit with no diagnostic anywhere.
         const string sql =
-            "INSERT INTO assets (id, type, source, api_version, title, parent, owner, created_at, updated_at) "
-            + "VALUES (@Id, @Type, 'declared', @ApiVersion, @Title, @Parent, @Owner, @Now, @Now) "
+            "INSERT INTO assets (id, type, source, api_version, title, parent, owner, tier, data_classes, created_at, updated_at) "
+            + "VALUES (@Id, @Type, 'declared', @ApiVersion, @Title, @Parent, @Owner, @Tier, @DataClasses, @Now, @Now) "
             + "ON DUPLICATE KEY UPDATE "
             + "type = VALUES(type), api_version = VALUES(api_version), title = VALUES(title), "
-            + "parent = VALUES(parent), owner = VALUES(owner), updated_at = VALUES(updated_at);";
+            + "parent = VALUES(parent), owner = VALUES(owner), tier = VALUES(tier), "
+            + "data_classes = VALUES(data_classes), updated_at = VALUES(updated_at);";
 
-        var parameters = rows.Select(r => new { r.Id, r.Type, r.ApiVersion, r.Title, r.Parent, r.Owner, Now = now });
+        var parameters = rows.Select(r => new
+        {
+            r.Id, r.Type, r.ApiVersion, r.Title, r.Parent, r.Owner, r.Tier, r.DataClasses, Now = now,
+        });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);
     }

@@ -142,7 +142,7 @@ public static class ComplianceEndpoints
                 var assets = await store.GetAssetsAsync(ct);
                 var accessible = await access.AccessibleAssetIdsAsync(user, assets, ct);
                 return Results.Ok(assets.Where(a => a.Type is "Vendor" && accessible.Contains(a.Id))
-                    .Select(r => new { id = r.Id, title = r.Title }));
+                    .Select(r => new { id = r.Id, title = r.Title, tier = r.Tier, data_classes = r.DataClasses }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
             {

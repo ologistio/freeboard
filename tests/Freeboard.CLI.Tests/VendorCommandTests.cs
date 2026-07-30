@@ -52,7 +52,7 @@ public sealed class VendorCommandTests : IDisposable
         var fake = Install(new FakeApiClient
         {
             VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success(
-                [new ApiVendor("vendor-a", "Vendor A"), new ApiVendor("vendor-b", "Vendor B")]),
+                [new ApiVendor("vendor-a", "Vendor A", "Critical", ["pii"]), new ApiVendor("vendor-b", "Vendor B", null, [])]),
             ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success(
             [
                 new ApiScope("vs-a", "T", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO."),
@@ -71,6 +71,24 @@ public sealed class VendorCommandTests : IDisposable
         Assert.Contains("Supports MFA but not SSO.", output, StringComparison.Ordinal);
         Assert.Contains("req-a", output, StringComparison.Ordinal);
         Assert.Contains("ctrl-a", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ListPrintsTierAndDataClassesWithAPlaceholderWhenAbsent()
+    {
+        Install(new FakeApiClient
+        {
+            VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success(
+                [new ApiVendor("vendor-a", "Vendor A", "Critical", ["pii", "payment-card"]),
+                 new ApiVendor("vendor-b", "Vendor B", null, [])]),
+            ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success([]),
+        });
+
+        var (exit, output, _) = Capture(() => new VendorCommands().List());
+
+        Assert.Equal(0, exit);
+        Assert.Contains("vendor-a  Vendor A  Critical  pii,payment-card", output, StringComparison.Ordinal);
+        Assert.Contains("vendor-b  Vendor B  -  -", output, StringComparison.Ordinal);
     }
 
     [Fact]

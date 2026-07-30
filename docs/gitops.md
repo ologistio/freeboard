@@ -148,6 +148,52 @@ source: declared
 parent: ologist-products
 ```
 
+#### Vendor tier and data classes
+
+A `Vendor` asset carries two more optional fields. No other type may carry either
+one: authoring `tier` or `data_classes` on a `Company`, `Department`, or `Machine`
+is an error.
+
+- `tier` - how much damage the vendor can do. One of `Critical`, `High`, `Medium`,
+  or `Low`. A vendor with no `tier` is a non-blocking warning: the register shows
+  the vendor as untracked until you set one.
+- `data_classes` - which regulated data the vendor holds, as a set of tokens. The
+  order does not matter and the tokens carry no ranking. An absent `data_classes`
+  and `data_classes: []` mean the same thing, and neither produces a diagnostic. A
+  vendor that holds none of your regulated data is a real state.
+
+Each token names a regulatory regime, not a data type:
+
+| Token              | Meaning                                           |
+| ------------------ | ------------------------------------------------- |
+| `pii`              | Personal data under UK/EU GDPR.                   |
+| `phi`              | Protected health information under HIPAA.         |
+| `special-category` | Special category data under UK/EU GDPR Article 9. |
+| `payment-card`     | Cardholder data in scope for PCI DSS.             |
+| `credentials`      | Authentication secrets: passwords, keys, tokens.  |
+
+The regimes overlap, so one fact can need two tokens. Health data is protected
+health information under HIPAA AND special category data under Article 9. Author
+both tokens for it. That is correct, not a duplicate. Nothing validates this for
+you: a vendor classified under one regime when both apply still passes.
+
+Validation rejects an unknown `tier` token, an unknown `data_classes` token, either
+field on a non-Vendor asset, and the same token listed twice. A repeated token is an
+authoring mistake, so it is reported rather than removed.
+
+```yaml
+apiVersion: freeboard.dev/v1alpha1
+kind: Asset
+id: vendor-medirecord
+title: MediRecord (example)
+type: Vendor
+source: declared
+owner: ologist-products
+tier: Critical
+# Health data falls under both regimes, so it carries both tokens.
+data_classes: [pii, phi, special-category]
+```
+
 ### Scope
 
 A scope maps one `subject` (any asset id) to exactly one target - a `Standard`, a
@@ -233,7 +279,8 @@ and a standard/requirement/control cannot be deleted while a scope targets it.
 A vendor is an `Asset` with `type: Vendor`. It names a piece of software or
 platform in use. `owner` (a Company/Department asset) makes the vendor visible to
 that org's readers; a vendor with no owner is visible to no caller (a non-blocking
-warning). See [Asset](#asset) above.
+warning). A vendor also carries the optional `tier` and `data_classes` fields. See
+[Asset](#asset) above.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
@@ -243,6 +290,8 @@ title: Okta
 type: Vendor
 source: declared
 owner: ologist-products
+tier: High
+data_classes: [pii, credentials]
 ```
 
 ### Collector

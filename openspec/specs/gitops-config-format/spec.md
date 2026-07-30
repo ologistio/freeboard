@@ -463,6 +463,21 @@ authored fields only; the discovered-only fields (`identity_kind`,
 `identity_value`, `state`, `first_seen`, `last_seen`) are written by ingest, never
 authored in config.
 
+A `Vendor` asset MAY additionally carry two optional risk-profile fields, and no
+other asset type may carry either: a `tier`, which is exactly one of `Critical`,
+`High`, `Medium`, or `Low`, and a `data_classes`, which is a set of tokens drawn
+from the closed set `pii`, `phi`, `special-category`, `payment-card`, and
+`credentials`. `tier` states how much damage the vendor can do; `data_classes`
+states which regulated data it holds. The `data_classes` order is not meaningful
+and carries no ranking: the tokens are facts, not severities. The set is defined
+by regulatory regime rather than by data type, so `phi` means HIPAA-regulated and
+`special-category` means UK/EU GDPR Article 9. Health data falls under both, and
+authoring both tokens on one vendor is correct rather than a duplicate. An absent
+`data_classes` and an empty `data_classes` mean the same thing: the system SHALL
+NOT distinguish "not assessed" from "assessed as holding nothing". The field names
+are deliberately not vendor-prefixed so a later change MAY widen them to another
+asset type without renaming an authored key.
+
 A declared config MAY author `source: declared` only. `source: discovered` is
 reserved for ingest and SHALL be rejected when authored in config. A declared
 asset uses an authored slug id; a discovered asset uses a ULID id; both share one
@@ -489,6 +504,25 @@ integrity.
   naming a `Company` asset appears
 - **THEN** it loads as a declared vendor asset owned by that Company
 
+#### Scenario: Vendor asset with a tier and data classes loads
+
+- **WHEN** a `kind: Asset` of `type: Vendor` carries `tier: Critical` and
+  `data_classes: [pii, payment-card]`
+- **THEN** it loads with that tier and both data class tokens, in no meaningful
+  order
+
+#### Scenario: Vendor asset with neither risk-profile field loads
+
+- **WHEN** a `kind: Asset` of `type: Vendor` carries neither `tier` nor
+  `data_classes`
+- **THEN** it loads with no tier and no data classes, and validation still passes
+  (see the tierless-vendor warning in Asset validation)
+
+#### Scenario: Empty data classes matches an omitted key
+
+- **WHEN** one `Vendor` asset authors `data_classes: []` and another omits the key
+- **THEN** both load with no data classes, indistinguishable from each other
+
 #### Scenario: Declared source is the only authorable source
 
 - **WHEN** a `kind: Asset` document authors `source: declared`
@@ -513,9 +547,21 @@ an `Asset` carries both `parent` and `owner`; an `Asset.parent` names an asset t
 is not a `Company` or `Department`; an `Asset.owner` names an asset that is not a
 `Company` or `Department`; a `parent` is carried by an asset that is not a
 `Company`, `Department`, or `Machine`; an `owner` is carried by an asset that is not
-a `Vendor`; an unknown field is present; or an `Asset` id is duplicated. Authoring a
+a `Vendor`; an `Asset.tier` is present and is not one of `Critical`, `High`,
+`Medium`, or `Low`; an `Asset.data_classes` contains a token outside the closed set
+`pii`, `phi`, `special-category`, `payment-card`, `credentials`; a `tier` or a
+`data_classes` is carried by an asset that is not a `Vendor`; an
+`Asset.data_classes` lists the same token more than once; an unknown field is
+present; or an `Asset` id is duplicated. Authoring a
 discovered-only field is a distinct error from authoring `source: discovered`: the
 first names the offending field, the second names the source.
+
+A duplicate `data_classes` token is an `Error` rather than a silent de-duplication,
+matching duplicate check names and duplicate requirement ids elsewhere in this
+format: silently collapsing a duplicate hides an authoring mistake. The tier and
+data class vocabularies are validated against closed sets held in
+`Freeboard.Core`, with no database read, so the check runs offline in
+`freeboard gitops validate`.
 
 A `parent` or `owner` that names an id absent from the resolved asset set (a
 dangling reference) SHALL NOT be an error: it SHALL be reported as a NON-BLOCKING
@@ -526,6 +572,12 @@ because resolution walks are cycle-guarded. A missing required edge - a declared
 NON-BLOCKING `Warning`, not an error, because such an asset is invisible under the
 fail-closed read model; a `Company` or `Department` with no `parent` is a legitimate
 root and SHALL NOT warn.
+
+A declared `Vendor` with no `tier` SHALL likewise be a NON-BLOCKING `Warning`, not
+an error: `owner` is the edge that decides whether the vendor is visible at all and
+it only warns, so a field that colors a tag SHALL NOT fail a sync. An absent or
+empty `data_classes` SHALL produce NO diagnostic of any severity, because a vendor
+holding none of the organisation's regulated data is a real and common state.
 
 #### Scenario: Unknown type rejected
 
@@ -562,6 +614,42 @@ root and SHALL NOT warn.
 - **WHEN** a `Vendor` asset's `owner` names an asset that is not a `Company` or
   `Department`
 - **THEN** validation fails, naming the vendor and the invalid owner target
+
+#### Scenario: Unknown tier token rejected
+
+- **WHEN** an `Asset.tier` is present and is not one of `Critical`, `High`,
+  `Medium`, or `Low`
+- **THEN** validation fails, naming the asset and the bad tier token
+
+#### Scenario: Unknown data class token rejected
+
+- **WHEN** an `Asset.data_classes` contains a token outside `pii`, `phi`,
+  `special-category`, `payment-card`, and `credentials`
+- **THEN** validation fails, naming the asset and the bad token
+
+#### Scenario: Duplicate data class token rejected
+
+- **WHEN** an `Asset.data_classes` lists the same token twice
+- **THEN** validation fails, naming the asset and the duplicated token, rather than
+  silently de-duplicating it
+
+#### Scenario: Tier or data classes on a non-Vendor asset rejected
+
+- **WHEN** a `Company`, `Department`, or `Machine` asset carries a `tier` or a
+  `data_classes`
+- **THEN** validation fails, naming the asset and the field, because both fields are
+  valid on a `Vendor` only
+
+#### Scenario: Tierless vendor is a non-blocking warning
+
+- **WHEN** a declared `Vendor` carries no `tier`
+- **THEN** a non-blocking `Warning` diagnostic names the vendor and validation does
+  not fail on it
+
+#### Scenario: Absent or empty data classes produce no diagnostic
+
+- **WHEN** a declared `Vendor` omits `data_classes`, or authors `data_classes: []`
+- **THEN** no diagnostic of any severity is produced for that field
 
 #### Scenario: Dangling parent or owner is a non-blocking warning
 
@@ -1348,4 +1436,21 @@ own. It is already covered because each root that symlinks it loads it.
   (`examples/gitops` and `examples/fixture-corp`) and fails if any exits non-zero, while
   the shared catalog fragment under `examples/shared` is validated only through the roots
   that symlink it
+
+### Requirement: Documentation states what each data class token means
+
+The config-format documentation (`docs/gitops.md`) SHALL define each `data_classes`
+token by the regulatory regime it names, not by an informal data type, and SHALL
+state that the tokens overlap. It SHALL say that `phi` means HIPAA-regulated data
+and `special-category` means UK/EU GDPR Article 9 data, and SHALL show that health
+data is correctly authored as both rather than one. No validation rule can catch a
+vendor classified under one regime when both apply, so the documentation is the
+only control on this, and an unstated overlap leaves authors guessing.
+
+#### Scenario: Data class tokens are defined by regime
+
+- **WHEN** a reader consults the `Asset` section of `docs/gitops.md`
+- **THEN** each of `pii`, `phi`, `special-category`, `payment-card`, and
+  `credentials` is defined by the regime it names, and a worked example shows health
+  data authored as both `phi` and `special-category`
 
