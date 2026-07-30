@@ -1,0 +1,41 @@
+# Runs one Freeboard evidence collector. The instance name is the collector id, e.g.
+# freeboard-collector@google-workspace-mfa.service. Started by the matching timer, not enabled
+# directly. See collectors/systemd/README.md.
+[Unit]
+Description=Freeboard evidence collector (%i)
+Documentation=https://github.com/ologistio/freeboard/blob/main/collectors/systemd/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Mode 0600, root-owned: it carries the collector's bearer token. systemd reads it as root before
+# dropping privileges, so the service user never needs access to the file itself.
+EnvironmentFile=/etc/freeboard/collectors/%i.env
+# The unit name is the single source of truth for the collector id; assigned after the environment
+# file so it cannot be overridden there.
+Environment=FREEBOARD_COLLECTOR_ID=%i
+ExecStart=/usr/local/lib/freeboard/entrypoint.sh
+# Must exceed FREEBOARD_MAX_ATTEMPTS * (curl timeout + FREEBOARD_RETRY_SLEEP).
+TimeoutStartSec=300
+
+# The default collector reads no host state: it calls a vendor API and posts the result. A collector
+# that must inspect the host needs a drop-in to relax this; see the README.
+DynamicUser=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+CapabilityBoundingSet=

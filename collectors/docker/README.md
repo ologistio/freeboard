@@ -44,13 +44,3 @@ docker run --rm \
   -e FREEBOARD_INGEST_TOKEN="v1.<secret>" \
   freeboard-collector-example
 ```
-
-## Ologist-side dependency
-
-The real, vendor-specific CE+ collector scripts (google-workspace, fleet, github,
-vercel, endpoint-audit, ...) and their production image build inputs live
-Ologist-side, NOT in this repo. They depend on the frozen contract in
-`docs/evidence-ingest.md` and the JSON Schema. This wrapper base and the mock
-example prove the shape those scripts must emit; a real script replaces
-`example/collect.sh` (or sets `FREEBOARD_COLLECTOR_SCRIPT`) and reuses the
-unchanged `entrypoint.sh`.

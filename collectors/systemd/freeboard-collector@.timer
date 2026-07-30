@@ -1,0 +1,18 @@
+# Schedule for one Freeboard evidence collector. Enable per collector, e.g.
+# systemctl enable --now freeboard-collector@google-workspace-mfa.timer
+[Unit]
+Description=Schedule the Freeboard evidence collector (%i)
+Documentation=https://github.com/ologistio/freeboard/blob/main/collectors/systemd/README.md
+
+[Timer]
+# Override per collector with a drop-in; it must be at least as frequent as the collector's
+# staleness window.
+OnCalendar=hourly
+# Spread fleet-wide ticks so a large estate does not post in one burst.
+RandomizedDelaySec=300
+# A host that was off through a tick collects once on boot, so downtime does not read as staleness.
+Persistent=true
+AccuracySec=1m
+
+[Install]
+WantedBy=timers.target
