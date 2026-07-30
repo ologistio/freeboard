@@ -80,9 +80,15 @@ public sealed class ApiReference
                 var read = Read(method.Method, route, operation);
                 foreach (var tag in operation.Tags ?? Enumerable.Empty<OpenApiTagReference>())
                 {
-                    if (!byTag.TryGetValue(tag.Name, out var operations))
+                    // A tag with no name cannot be addressed from docs.json, so it groups nothing.
+                    if (tag.Name is not { Length: > 0 } name)
                     {
-                        byTag[tag.Name] = operations = [];
+                        continue;
+                    }
+
+                    if (!byTag.TryGetValue(name, out var operations))
+                    {
+                        byTag[name] = operations = [];
                     }
 
                     operations.Add(read);
