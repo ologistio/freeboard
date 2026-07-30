@@ -30,7 +30,8 @@ SENTENCES
 
 PUNCTUATION
 
-- No semicolons. Write two sentences. (Note: the em dash is not banned by STE, only the semicolon is - add "no em dash" yourself if you want it gone.)
+- No semicolons. Write two sentences.
+- No em or en dashes. STE itself bans only the semicolon, but `ascii-punctuation.md` bans em and en dashes across this repo, so write `-` here.
 
 STRUCTURE
 
@@ -45,7 +46,7 @@ Write only the requested text. No preamble, no summary, no closing remarks.
 
 ## Self-lint (run before returning text)
 
-1. Any sentence over 20 words? Split it.
+1. Any instruction over 20 words, or any descriptive sentence over 25? Split it.
 2. Any semicolon? Replace with a period.
 3. Any contraction? Expand it.
 4. Any passive voice with a known actor? Make it active.
