@@ -20,6 +20,13 @@ internal class FakeComplianceStore : IComplianceStore
     /// </summary>
     public bool AssetsUnreachable { get; init; }
 
+    /// <summary>
+    /// When true, only <see cref="GetVendorAssuranceInputsAsync"/> throws. Separate from
+    /// <see cref="AssetsUnreachable"/> so a test can fault the assurance table alone, which is the shape
+    /// of a schema that has not had the migration applied.
+    /// </summary>
+    public bool AssurancesUnreachable { get; init; }
+
     public IReadOnlyList<StandardRow> Standards { get; set; } = [];
 
     public IReadOnlyList<RequirementRow> Requirements { get; set; } = [];
@@ -45,14 +52,16 @@ internal class FakeComplianceStore : IComplianceStore
     public Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Controls);
 
-    public Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
+    public virtual Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
     {
         if (AssetsUnreachable)
         {
             throw new InvalidOperationException("assets unreachable");
         }
 
-        return Guard(() => Assets);
+        // A fresh instance per read: the accessible-set memo keys on the list, so a shared instance would
+        // collapse two reads into one key and let a memo test pass without the code doing anything.
+        return Guard(() => (IReadOnlyList<AssetNode>)[.. Assets]);
     }
 
     public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
@@ -71,7 +80,7 @@ internal class FakeComplianceStore : IComplianceStore
             throw new InvalidOperationException("assets unreachable");
         }
 
-        return Guard(() => new SoaInputs(Assets, Scopes, Requirements));
+        return Guard(() => new SoaInputs([.. Assets], Scopes, Requirements));
     }
 
     public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
@@ -81,17 +90,22 @@ internal class FakeComplianceStore : IComplianceStore
             throw new InvalidOperationException("assets unreachable");
         }
 
-        return Guard(() => new SoaDrilldownInputs(Assets, Scopes, Requirements, Controls, Collectors));
+        return Guard(() => new SoaDrilldownInputs([.. Assets], Scopes, Requirements, Controls, Collectors));
     }
 
     public virtual Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
     {
+        if (AssurancesUnreachable)
+        {
+            throw new InvalidOperationException("assurances unreachable");
+        }
+
         if (AssetsUnreachable)
         {
             throw new InvalidOperationException("assets unreachable");
         }
 
-        return Guard(() => new VendorAssuranceInputs(Assets, Assurances));
+        return Guard(() => new VendorAssuranceInputs([.. Assets], Assurances));
     }
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>

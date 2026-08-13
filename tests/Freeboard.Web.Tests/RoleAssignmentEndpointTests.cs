@@ -122,6 +122,27 @@ public sealed class RoleAssignmentEndpointTests
     }
 
     [Fact]
+    public async Task RoleAssignmentPageRendersWhenOnlyTheAssuranceReadFails()
+    {
+        // The page builds its organisation resource from the shared asset read before the guard runs, and
+        // that read is outside every store-failure catch. While it carried the assurance table, a schema
+        // missing vendor_assurances faulted this page with a 500. It reads the assets alone now.
+        using var factory = new AuthWebFactory
+        {
+            Authz = new FakeAuthzStore().GrantSuperAdmin("u1"),
+            Compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a")], AssurancesUnreachable = true },
+        };
+        var token = factory.SeedSession(AuthWebFactory.MakeUser("u1"));
+        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/settings/role-assignments?orgId=org-a");
+        request.Headers.Add("Cookie", $"{SessionCookie.Name}={token}");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task RoleAssignmentPageForbiddenForNonManager()
     {
         using var factory = new AuthWebFactory { Authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a") };

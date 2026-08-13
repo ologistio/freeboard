@@ -26,10 +26,10 @@ public sealed record ShellNavView(IReadOnlyList<ShellNavGroupView> Groups);
 ///
 /// The Vendors item is the one badged source: how many readable vendors hold an expiring or already
 /// expired certification. A vendor holding no certification is never counted, because a badge that is
-/// permanently non-zero stops being read (N6). The count reads the request's memoized snapshot on
-/// <see cref="AuthzRequestCache"/> rather than taking its own: the accessible set that narrows it is
-/// resolved once per request from whichever asset list reaches the seam first, so a second read would
-/// narrow these assurance rows with another surface's owner edges. The count is memoized on the instance
+/// permanently non-zero stops being read (N6). The count reads the assurance snapshot on
+/// <see cref="AuthzRequestCache"/> rather than taking its own, so a page that renders the register pays
+/// for one read rather than two; the accessible set that narrows it is resolved over that snapshot's own
+/// asset list, so sharing is a read-count matter and not what keeps the narrowing honest. It is memoized
 /// because the layout resolves the navigation up to three times per render, and it is computed inside the
 /// store-failure catch so an outage leaves the item unbadged rather than failing every page in the app.
 /// Request-scoped, mirroring the per-request authz/entitlement calls the layout already made.

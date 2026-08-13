@@ -266,11 +266,12 @@ public sealed class AuthorizerTests
     }
 
     [Fact]
-    public async Task AccessibleSetResolvesOncePerRequest()
+    public async Task AccessibleSetResolvesOncePerRequestPerAssetList()
     {
         // A page render asks the seam at least twice - the layout's organisation selector, then the page
-        // itself - and resolving it is a full pass over the asset tree. The Compat zero-grant fallback
-        // audits each time it runs, so the row count is the observable: one request, one row.
+        // itself - and resolving it is a full pass over the asset tree. Those share one list, so they
+        // resolve once. The Compat zero-grant fallback audits each time it runs, so the row count is the
+        // observable: one list, one row.
         var assets = ClosureTree();
         using var factory = Build(new FakeAuthzStore(), mode: "Compat", assets: assets);
 
@@ -291,6 +292,50 @@ public sealed class AuthorizerTests
                 .AccessibleAssetIdsAsync(Principal("u1"), assets);
         }
 
+        Assert.Equal(2, factory.AuthzAdmin.Events.Count(e => e.EventType == "authz.compat.read"));
+    }
+
+    [Fact]
+    public async Task TwoAssetListsResolveTwoSetsAndNeitherIsServedTheOthers()
+    {
+        // The memo keys on the list, not the principal alone. Two reads in one request see different owner
+        // edges when a sync commits between them, so a set resolved over one is not an answer about the
+        // other - serving the first list's answer for the second is the defect this keying removes.
+        var wide = ClosureTree();
+        var narrow = (IReadOnlyList<AssetNode>)[.. wide.Where(a => a.IsOrganisation)];
+        using var factory = Build(new FakeAuthzStore(), mode: "Compat", assets: wide);
+        using var scope = factory.Services.CreateScope();
+        var access = scope.ServiceProvider.GetRequiredService<IAssetAccess>();
+
+        var first = await access.AccessibleAssetIdsAsync(Principal("u1"), wide);
+        var second = await access.AccessibleAssetIdsAsync(Principal("u1"), narrow);
+
+        Assert.NotSame(first, second);
+        Assert.NotEqual(first.Count, second.Count);
+        Assert.Equal(2, factory.AuthzAdmin.Events.Count(e => e.EventType == "authz.compat.read"));
+    }
+
+    [Fact]
+    public async Task EqualButDistinctAssetListsResolveTwiceAndAMutatedListKeepsItsMemoizedSet()
+    {
+        // Two properties the key rests on. Lists compare by reference, so equal contents in two instances
+        // resolve twice rather than sharing an answer. And because the memo is taken at resolution time, a
+        // list mutated afterwards is still served the set it resolved - which is the observable behind the
+        // seam's requirement that a caller does not mutate a list it has handed over.
+        var assets = ClosureTree();
+        var mutable = new List<AssetNode>(assets);
+        using var factory = Build(new FakeAuthzStore(), mode: "Compat", assets: assets);
+        using var scope = factory.Services.CreateScope();
+        var access = scope.ServiceProvider.GetRequiredService<IAssetAccess>();
+
+        await access.AccessibleAssetIdsAsync(Principal("u1"), assets);
+        var fromCopy = await access.AccessibleAssetIdsAsync(Principal("u1"), mutable);
+        Assert.Equal(2, factory.AuthzAdmin.Events.Count(e => e.EventType == "authz.compat.read"));
+
+        mutable.Clear();
+        var afterMutation = await access.AccessibleAssetIdsAsync(Principal("u1"), mutable);
+
+        Assert.Same(fromCopy, afterMutation);
         Assert.Equal(2, factory.AuthzAdmin.Events.Count(e => e.EventType == "authz.compat.read"));
     }
 

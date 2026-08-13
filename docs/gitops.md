@@ -703,6 +703,14 @@ database's identity rules match Core's case-sensitive, exact-byte `id` semantics
 Migrations are forward-only and applied explicitly. The web app never
 auto-migrates and never auto-syncs.
 
+Deploy the migration before the app. A newer app against an older schema degrades the
+surfaces that read the missing tables, not the whole application. An absent
+`vendor_assurances` table leaves the Vendors rail item unbadged, answers `/vendors`
+with a store-unreachable response, and shows the same notice on the vendor register
+page. Authorization gates, compliance write selectors and the role-assignment guards
+keep working, because they read the `assets` table alone. A table one feature needs
+cannot close a decision that does not need it.
+
 ```sh
 # Apply pending schema migrations.
 freeboard system migrate --connection-string "<conn>"

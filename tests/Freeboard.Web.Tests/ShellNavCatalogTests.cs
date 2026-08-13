@@ -267,9 +267,10 @@ public sealed class ShellNavCatalogTests
     [Fact]
     public async Task TheRailAndAnEarlierReaderShareOneSnapshot()
     {
-        // The register reads the snapshot before the rail does. The rail must read the SAME one, and must
-        // narrow by an accessible set resolved from that snapshot's asset rows - which is what the memo on
-        // the access seam guarantees once both go through the cache.
+        // The register reads the snapshot before the rail does, and the rail reads the SAME one, so the
+        // page costs one read rather than two. Sharing is a read-count matter only: what stops either
+        // surface narrowing with the other's owner edges is the per-asset-list memo, asserted in
+        // AuthorizerTests.
         var store = new CountingComplianceStore
         {
             Assets = [TestAssets.Vendor("vendor-a", "org-a"), TestAssets.Vendor("vendor-b", "org-b")],

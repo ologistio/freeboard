@@ -96,7 +96,7 @@ public sealed class OrgSelectionTests
         var resolver = Resolver(store, new AllAssetAccess(), cookie: "org-a");
         await resolver.GetAsync();
         await resolver.GetAsync();
-        Assert.Equal(1, store.SnapshotReads);
+        Assert.Equal(1, store.AssetReads);
     }
 
     [Fact]
@@ -117,8 +117,8 @@ public sealed class OrgSelectionTests
             context.Request.Headers.Cookie = $"{OrgSelection.CookieName}={cookie}";
         }
 
-        // The resolver takes its assets from the request cache, which is where the request's one
-        // asset-and-assurance snapshot lives.
+        // The resolver takes its assets from the request cache's shared asset read, which carries the
+        // assets alone unless the request has already taken an assurance snapshot to serve it from.
         var cache = new AuthzRequestCache(new FakeAuthzStore(), store);
         return new OrgSelectionResolver(new HttpContextAccessor { HttpContext = context }, cache, access);
     }
@@ -132,19 +132,19 @@ public sealed class OrgSelectionTests
 
     private sealed class CountingComplianceStore : IComplianceStore
     {
-        /// <summary>Reads of the request's snapshot, which is what the resolver now takes its assets from.</summary>
-        public int SnapshotReads { get; private set; }
+        /// <summary>Reads of the shared asset list, which is what the resolver takes its assets from.</summary>
+        public int AssetReads { get; private set; }
 
         public IReadOnlyList<AssetNode> Assets { get; init; } = [];
 
-        public Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(Assets);
+        public Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
+        {
+            AssetReads++;
+            return Task.FromResult(Assets);
+        }
 
         public Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
-        {
-            SnapshotReads++;
-            return Task.FromResult(new VendorAssuranceInputs(Assets, []));
-        }
+            => Task.FromResult(new VendorAssuranceInputs(Assets, []));
 
         public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<StandardRow>)[]);

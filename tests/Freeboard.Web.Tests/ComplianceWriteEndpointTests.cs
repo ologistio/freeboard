@@ -303,12 +303,11 @@ public sealed class ComplianceWriteEndpointTests
     }
 
     [Fact]
-    public async Task GatedWriteAnswers403WhenTheAssetSnapshotReadFails()
+    public async Task GatedWriteAnswers403WhenTheAssetReadFails()
     {
-        // The organisation gate resolves its resource through the request's asset-and-assurance snapshot,
-        // so an absent or unreadable vendor_assurances table fails the selector. The permission filter
-        // catches a throwing selector as a deny, which is the recorded behaviour for an app deployed
-        // against an unmigrated schema: it refuses the write rather than performing it.
+        // The organisation gate resolves its resource from the shared asset read, so an unreadable assets
+        // table fails the selector. The permission filter catches a throwing selector as a deny: it refuses
+        // the write rather than performing it on an authorization decision it could not make.
         using var factory = new WriteFactory(new FakeComplianceWriteStore())
         {
             Compliance = new FakeComplianceStore { AssetsUnreachable = true },
@@ -320,6 +319,27 @@ public sealed class ComplianceWriteEndpointTests
             new { title = "Org A", kind = "Company", parent = (string?)null });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GatedWriteSucceedsWhenOnlyTheAssuranceReadFails()
+    {
+        // The gate reads the assets and no payload table, so a schema missing vendor_assurances degrades
+        // the vendor register rather than closing every gated compliance write. Before the shared read was
+        // narrowed this answered 403, which made an unapplied migration a total write outage.
+        var writes = new FakeComplianceWriteStore();
+        using var factory = new WriteFactory(writes)
+        {
+            Compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a")], AssurancesUnreachable = true },
+        };
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/organisations/org-a",
+            new { title = "Org A", kind = "Company", parent = (string?)null });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("org-a", writes.LastOrganisationId);
     }
 
     private sealed class WriteFactory(IComplianceWriteStore writes, bool readOnly = false) : AuthWebFactory

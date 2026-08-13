@@ -14,9 +14,9 @@ public interface IAssetAccess
 {
     /// <summary>
     /// The subset of the supplied assets the user may read. Pass the UNFILTERED list: the authz-backed
-    /// default resolves once per principal per request and serves later calls from that first result, so
-    /// a narrowed list would either be ignored or fix the set for the rest of the request. Async because
-    /// that default reads the principal's grants, memoized alongside the fact load.
+    /// default closes an organisation union over the <c>parent</c> and <c>owner</c> edges it walks, so a
+    /// narrowed list breaks the closure by hiding the very ancestors and owners that admit an asset. Async
+    /// because that default reads the principal's grants, memoized alongside the fact load.
     /// </summary>
     ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
         ClaimsPrincipal user,

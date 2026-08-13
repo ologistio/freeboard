@@ -275,14 +275,20 @@ is what the shell already requires of an item with no count source.
 
 Neither surface SHALL be derived from a stored status column, and neither SHALL be
 computed by a second narrowing rule of its own. The assets and the assurances SHALL be read
-as ONE snapshot of the store, and that snapshot SHALL be taken at most once per request and
-shared by every surface here - the cell, the notice, the badge, and the API row - rather
-than once per surface. A snapshot per surface would not be enough: the accessible asset set
-is resolved once per request, from whichever asset list reaches the authorization seam
-first, so one surface would end up narrowing its assurance rows with another surface's owner
-edges. The request's shared asset read SHALL be served from that snapshot, so a consumer of
-that read resolves the accessible set from the same asset rows the assurances were read
-with.
+as ONE snapshot of the store, and each surface here - the cell, the notice, the badge, and
+the API row - SHALL narrow the assurance rows with the asset list of THAT snapshot. The
+snapshot SHALL be taken at most once per request and shared by all four rather than once per
+surface. Sharing keeps the read count down; it is not what makes the narrowing honest. The
+accessible asset set is resolved per asset list (see the authz-enforcement capability), so a
+surface reading its own snapshot is narrowed by that snapshot's own owner edges whatever order
+the surfaces of a request run in.
+
+The shared asset read that every organisation gate, every compliance write selector, and every
+role-assignment guard draws on SHALL NOT be widened to carry these assurance rows. It names the
+assets alone, and reuse SHALL serve it only from a snapshot the request has already taken for a
+surface that needed one. A schema with no assurance table therefore leaves the badge unbadged and
+`/vendors` on its unreachable-store response, and SHALL NOT make a gated compliance write or the
+role-assignment page fail.
 
 #### Scenario: Notice turns to a warning and names the count
 
@@ -318,8 +324,8 @@ with.
 - **WHEN** a caller who may read one vendor but not another opens `/compliance/vendors`,
   and the vendor they may not read holds an expiring assurance
 - **THEN** neither that vendor's id nor its assurance text appears anywhere in the rendered
-  document, and the Vendors nav badge counts the readable vendor only, because every
-  surface is derived from the one accessible asset set
+  document, and the Vendors nav badge counts the readable vendor only, because each surface is
+  derived from an accessible asset set resolved from its own snapshot's asset rows
 
 #### Scenario: A vendor with no assurance is never counted
 
@@ -335,11 +341,16 @@ with.
 
 #### Scenario: The register and the rail narrow from one snapshot
 
-- **WHEN** the register page and the navigation rail both render in one request, and the
-  page reads the snapshot before the rail does
-- **THEN** the rail reads the same snapshot rather than taking its own, and the accessible
-  asset set narrowing both is resolved from that snapshot's asset rows, so the rail cannot
-  narrow assurance rows with owner edges from a different read
+- **WHEN** the register page and the navigation rail both render in one request
+- **THEN** both are served the request's one assurance snapshot, and the accessible asset set
+  narrowing both is resolved from that snapshot's asset rows, so neither narrows assurance rows
+  with owner edges from a different read
+
+#### Scenario: The gate path does not read the assurance table
+
+- **WHEN** an organisation gate resolves in a request that renders no vendor surface
+- **THEN** the gate takes its asset list from a read of the assets alone, no assurance row is
+  read, and the gate answers even when the assurance table is absent from the schema
 
 #### Scenario: An unreachable store leaves the item unbadged
 

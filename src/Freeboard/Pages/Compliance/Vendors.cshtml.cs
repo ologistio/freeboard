@@ -52,8 +52,9 @@ public sealed record VendorRow(
 /// Read-only server-rendered vendor register: each vendor the caller may see and, alongside it, its
 /// certifications and its vendor-subject scopes (target, disposition, and - for every Out - the
 /// justification, so an exception is never silent). GET-only, so the GitOps read-only middleware never
-/// blocks it. Takes the assets and the assurances from the request's one snapshot on
-/// <see cref="AuthzRequestCache"/> and reads the scopes and standards separately, all inside one try/catch
+/// blocks it. Takes the assets and the assurances from one assurance snapshot on
+/// <see cref="AuthzRequestCache"/> - the request may take a second read for its gates, so this is one
+/// snapshot of two - and reads the scopes and standards separately, all inside one try/catch
 /// that sets <see cref="StoreUnreachable"/>, so a store outage renders an in-page notice rather than a
 /// 500. A vendor is shown when it is in the caller's accessible asset set, which admits it exactly when
 /// its owner resolves into the caller's organisation union; a vendor with a null or dangling owner is

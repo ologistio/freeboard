@@ -57,8 +57,8 @@ public sealed record OrgSelectionState(
     string? SelectedId);
 
 /// <summary>
-/// Request-scoped resolver serving ONLY the layout selector. It takes the asset list from the request's
-/// one snapshot on <see cref="Authz.AuthzRequestCache"/> rather than reading the store itself, derives the
+/// Request-scoped resolver serving ONLY the layout selector. It takes the request's shared asset list from
+/// <see cref="Authz.AuthzRequestCache"/> rather than reading the store itself, derives the
 /// accessible ORGANISATION ids via <see cref="IAssetAccess"/>, reads the cookie candidate, and resolves it.
 /// A store-load failure degrades to "All Organisations" with an empty list rather than throwing, so a store
 /// outage never faults the layout. It exposes no store-failure flag: an empty store and an unreachable one

@@ -139,8 +139,8 @@ public static class ComplianceEndpoints
         // exactly when its owner resolves into the caller's organisation union; a vendor with a null or
         // dangling owner is visible to no one (fail-closed). The same set withholds a vendor id from
         // /collectors and /integration-connections, so no read surface discloses one.
-        // The assets and the assurances come from the request's ONE snapshot, so the owner edges that
-        // narrow the response and the rows being narrowed cannot straddle a concurrent sync commit. The
+        // The assets and the assurances come from one assurance snapshot, so the owner edges that narrow
+        // the response and the rows being narrowed cannot straddle a concurrent sync commit. The
         // status is derived here rather than left to the caller, so the warning window lives in one
         // process and this endpoint and the CLI cannot disagree about the state of one certification.
         reads.MapGet("/vendors", async (

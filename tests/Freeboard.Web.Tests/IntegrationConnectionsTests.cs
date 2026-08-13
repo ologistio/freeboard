@@ -266,8 +266,7 @@ public sealed class IntegrationConnectionsTests
         var ctor = Assert.Single(typeof(IntegrationConnectionsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToList();
 
-        // The assets come from the request's one snapshot on the cache; the store still serves this
-        // page's own rows.
+        // The assets come from the cache's shared asset read; the store still serves this page's own rows.
         Assert.Equal(
             [
                 typeof(IComplianceStore), typeof(Freeboard.Authz.AuthzRequestCache),
