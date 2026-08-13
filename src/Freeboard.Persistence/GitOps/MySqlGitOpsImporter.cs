@@ -370,7 +370,15 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         var parameters = rows.Select(r => new
         {
-            r.Id, r.Type, r.ApiVersion, r.Title, r.Parent, r.Owner, r.Tier, r.DataClasses, Now = now,
+            r.Id,
+            r.Type,
+            r.ApiVersion,
+            r.Title,
+            r.Parent,
+            r.Owner,
+            r.Tier,
+            r.DataClasses,
+            Now = now,
         });
         await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
             .ConfigureAwait(false);

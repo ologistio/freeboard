@@ -445,7 +445,10 @@ public sealed class VendorsPageTests
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
         using var factory = new AuthWebFactory
         {
-            Compliance = store, AuthzMode = "Enforce", Authz = authz, Clock = new FixedClock(Today),
+            Compliance = store,
+            AuthzMode = "Enforce",
+            Authz = authz,
+            Clock = new FixedClock(Today),
         };
         using var client = NoRedirectClient(factory);
 

@@ -450,7 +450,10 @@ public sealed class ComplianceEndpointTests
         var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
         using var factory = new AuthWebFactory
         {
-            Compliance = store, AuthzMode = "Enforce", Authz = authz, Clock = new FixedClock(AssuranceToday),
+            Compliance = store,
+            AuthzMode = "Enforce",
+            Authz = authz,
+            Clock = new FixedClock(AssuranceToday),
         };
         using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
 
