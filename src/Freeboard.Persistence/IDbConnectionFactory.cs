@@ -18,6 +18,10 @@ public interface IDbConnectionFactory
 /// </summary>
 public sealed class MySqlConnectionFactory(PersistenceOptions options) : IDbConnectionFactory
 {
+    // Every query in this assembly opens its connection here, so registering the Dapper handlers on
+    // first use of the factory guarantees they are in place before any command binds a parameter.
+    static MySqlConnectionFactory() => DateOnlyTypeHandler.Register();
+
     private readonly string connectionString = options.ConnectionString;
 
     public async Task<DbConnection> OpenAsync(CancellationToken cancellationToken = default)

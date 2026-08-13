@@ -22,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<GitOpsOptions>(builder.Configuration.GetSection(GitOpsOptions.SectionName));
 builder.Services.Configure<WebAuthOptions>(builder.Configuration.GetSection(WebAuthOptions.SectionName));
+builder.Services.Configure<AssuranceOptions>(builder.Configuration.GetSection(AssuranceOptions.SectionName));
 
 var freeboardConnectionString = builder.Configuration.GetConnectionString("Freeboard") ?? string.Empty;
 

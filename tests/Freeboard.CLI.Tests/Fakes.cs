@@ -158,7 +158,7 @@ internal sealed class FakeApiClient : IFreeboardApiClient
     public static ApiUser SampleUser { get; } =
         new("01HZZ0000000000000000000AA", "user@example.test", "User", "member", true);
 
-    public static ApiVendor SampleVendor { get; } = new("vendor-a", "Vendor A", "Critical", ["pii"]);
+    public static ApiVendor SampleVendor { get; } = new("vendor-a", "Vendor A", "Critical", ["pii"], []);
 
     public static ApiScope SampleScope { get; } =
         new("vs-a", "Except req-a", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO.");

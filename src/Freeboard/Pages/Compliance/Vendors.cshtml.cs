@@ -1,5 +1,10 @@
+using System.Globalization;
+using Freeboard.Authz;
+using Freeboard.Compliance;
+using Freeboard.Core.Assets;
 using Freeboard.GitOps;
 using Freeboard.Persistence;
+using Freeboard.TagHelpers;
 using Freeboard.Web;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
@@ -7,28 +12,60 @@ using Microsoft.Extensions.Options;
 namespace Freeboard.Pages.Compliance;
 
 /// <summary>
-/// One vendor as the register renders it: the asset, the title of the organisation that owns it (null
-/// when that owner is not itself readable), and its scopes ordered by id.
+/// One certification as the register renders it: the standard's title (its id when that standard is not
+/// resolvable), the derived status, and the expiry wording the cell shows.
 /// </summary>
-public sealed record VendorRow(AssetNode Vendor, string? OwnerTitle, IReadOnlyList<ScopeRow> Scopes)
+public sealed record VendorAssuranceView(string StandardTitle, AssuranceStatus Status, string Expiry)
+{
+    /// <summary>
+    /// The stamp tone. Valid takes the mark's untinted neutral rather than the pass green: a certification
+    /// is a fact on file rather than a Freeboard verdict, and the Status column still reads "Not
+    /// evaluated". Red is earned under S3 because a lapsed expiry is an overdue fact, not a judgement.
+    /// </summary>
+    public StampTone Tone => Status switch
+    {
+        AssuranceStatus.Expiring => StampTone.Warn,
+        AssuranceStatus.Expired => StampTone.Fail,
+        _ => StampTone.Neutral,
+    };
+}
+
+/// <summary>
+/// One vendor as the register renders it: the asset, the title of the organisation that owns it (null
+/// when that owner is not itself readable), its assurances ordered by standard, and its scopes ordered
+/// by id.
+/// </summary>
+public sealed record VendorRow(
+    AssetNode Vendor,
+    string? OwnerTitle,
+    IReadOnlyList<VendorAssuranceView> Assurances,
+    IReadOnlyList<ScopeRow> Scopes)
 {
     /// <summary>How many of this vendor's scopes exclude their target - the number the register exists to surface.</summary>
     public int ExceptionCount => Scopes.Count(s => s.Disposition == "Out");
+
+    /// <summary>True when any certification this vendor holds is expiring or already expired.</summary>
+    public bool HasLapsingAssurance => Assurances.Any(a => a.Status is not AssuranceStatus.Valid);
 }
 
 /// <summary>
 /// Read-only server-rendered vendor register: each vendor the caller may see and, alongside it, its
-/// vendor-subject scopes (target, disposition, and - for every Out - the justification, so an exception is
-/// never silent). GET-only, so the GitOps read-only middleware never blocks it. Reads vendors and the
-/// unified scopes through <see cref="IComplianceStore"/> in-process (like the Statement of
-/// Applicability page) inside one try/catch that sets <see cref="StoreUnreachable"/>, so a store
-/// outage renders an in-page notice rather than a 500. A vendor is shown when it is in the caller's
-/// accessible asset set, which admits it exactly when its owner resolves into the caller's organisation
-/// union; a vendor with a null or dangling owner is hidden (fail-closed), and its scope justifications
-/// are hidden with it.
+/// certifications and its vendor-subject scopes (target, disposition, and - for every Out - the
+/// justification, so an exception is never silent). GET-only, so the GitOps read-only middleware never
+/// blocks it. Takes the assets and the assurances from the request's one snapshot on
+/// <see cref="AuthzRequestCache"/> and reads the scopes and standards separately, all inside one try/catch
+/// that sets <see cref="StoreUnreachable"/>, so a store outage renders an in-page notice rather than a
+/// 500. A vendor is shown when it is in the caller's accessible asset set, which admits it exactly when
+/// its owner resolves into the caller's organisation union; a vendor with a null or dangling owner is
+/// hidden (fail-closed), and its assurances and scope justifications are hidden with it.
 /// </summary>
 public sealed class VendorsModel(
-    IComplianceStore store, IAssetAccess assetAccess, IOptions<GitOpsOptions> gitOps) : PageModel
+    IComplianceStore store,
+    AuthzRequestCache cache,
+    IAssetAccess assetAccess,
+    TimeProvider clock,
+    IOptions<AssuranceOptions> assurance,
+    IOptions<GitOpsOptions> gitOps) : PageModel
 {
     /// <summary>The vendors the caller may read, ordered by id.</summary>
     public IReadOnlyList<VendorRow> Vendors { get; private set; } = [];
@@ -45,11 +82,15 @@ public sealed class VendorsModel(
     /// <summary>Every readable vendor's Out scopes.</summary>
     public int ExceptionCount => Vendors.Sum(v => v.ExceptionCount);
 
+    /// <summary>Readable vendors holding at least one expiring or expired certification, counted once each.</summary>
+    public int LapsingVendorCount => Vendors.Count(v => v.HasLapsingAssurance);
+
     public async Task OnGetAsync(CancellationToken ct)
     {
         try
         {
-            var assets = await store.GetAssetsAsync(ct).ConfigureAwait(false);
+            var inputs = await cache.GetVendorAssuranceInputsAsync(ct).ConfigureAwait(false);
+            var assets = inputs.Assets;
             var accessible = await assetAccess.AccessibleAssetIdsAsync(User, assets, ct).ConfigureAwait(false);
 
             // Vendor exceptions are the unified scopes whose subject is a visible vendor.
@@ -58,6 +99,29 @@ public sealed class VendorsModel(
                 .ToDictionary(
                     g => g.Key,
                     g => (IReadOnlyList<ScopeRow>)g.OrderBy(s => s.Id, StringComparer.Ordinal).ToList(),
+                    StringComparer.Ordinal);
+
+            // An unresolvable standard renders as its id, so this title read costs a label rather than a
+            // narrowing decision and stays outside the snapshot.
+            var standardTitles = (await store.GetStandardsAsync(ct).ConfigureAwait(false))
+                .ToDictionary(s => s.Id, s => s.Title, StringComparer.Ordinal);
+
+            var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
+            var warnWindowDays = assurance.Value.WarnWindowDays;
+            var assurancesByVendor = inputs.Assurances
+                .GroupBy(a => a.VendorId, StringComparer.Ordinal)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyList<VendorAssuranceView>)g
+                        .Select(a =>
+                        {
+                            var status = VendorAssurance.Evaluate(a.Expires, a.WarnDays ?? warnWindowDays, today);
+                            return new VendorAssuranceView(
+                                standardTitles.TryGetValue(a.StandardId, out var title) ? title : a.StandardId,
+                                status,
+                                DescribeExpiry(a.Expires, status, today));
+                        })
+                        .ToList(),
                     StringComparer.Ordinal);
 
             // An owner title is a readable asset's title, never a raw id: the vendor is only visible
@@ -72,13 +136,39 @@ public sealed class VendorsModel(
                 .Select(v => new VendorRow(
                     v,
                     v.Owner is not null && titles.TryGetValue(v.Owner, out var owner) ? owner : null,
+                    assurancesByVendor.TryGetValue(v.Id, out var rows) ? rows : [],
                     scopesBySubject.TryGetValue(v.Id, out var scopes) ? scopes : []))
                 .ToList();
         }
-        catch (Exception ex) when (IsStoreFailure(ex))
+        catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
         {
             StoreUnreachable = true;
         }
+    }
+
+    // T6, with the certificate's own verb in place of "Overdue since": the two states that ask for action
+    // are relative when near and absolute when far. Valid is absolute at EVERY distance, because with a
+    // warn_days of 0 an assurance expiring tomorrow is Valid, and a relative form there would read
+    // word-for-word like an Expiring one, leaving colour as the only difference (S2).
+    private static string DescribeExpiry(DateOnly expires, AssuranceStatus status, DateOnly today)
+    {
+        var absolute = expires.ToString("MMM d", CultureInfo.InvariantCulture);
+        var days = expires.DayNumber - today.DayNumber;
+
+        return status switch
+        {
+            AssuranceStatus.Expired when -days <= 7 =>
+                -days == 1 ? "expired 1 day ago" : $"expired {-days} days ago",
+            AssuranceStatus.Expired => $"expired {absolute}",
+            AssuranceStatus.Expiring when days <= 7 => days switch
+            {
+                0 => "expires today",
+                1 => "expires tomorrow",
+                _ => $"expires in {days} days",
+            },
+            AssuranceStatus.Expiring => $"expires {absolute}",
+            _ => $"expires {absolute}",
+        };
     }
 
     /// <summary>
@@ -101,7 +191,4 @@ public sealed class VendorsModel(
 
     /// <summary>The target kind for a scope: "requirement" or "control".</summary>
     public static string TargetKind(ScopeRow scope) => scope.Requirement is not null ? "requirement" : "control";
-
-    private static bool IsStoreFailure(Exception ex) =>
-        ex is global::System.Data.Common.DbException or InvalidOperationException or TimeoutException;
 }

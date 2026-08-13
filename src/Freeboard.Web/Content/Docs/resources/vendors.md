@@ -72,7 +72,14 @@ read hides the vendor from you, and an owner that names no asset hides it from e
    owner: fixture-corp
    tier: High
    data_classes: [pii]
+   assurances:
+     - standard: std-soc2
+       expires: 2027-03-31
    ```
+
+   `assurances` is optional. Each entry names a `Standard` the config declares, so
+   recording a vendor's SOC 2 means declaring SOC 2 as a `Standard` even when you pursue
+   none of its requirements. A vendor with no certification simply omits the field.
 
 2. Validate the directory. Nothing is written and no network call is made.
 
@@ -110,15 +117,20 @@ $ curl https://freeboard.example.com/api/v1/freeboard/vendors \
     "id": "vendor-ledgerleaf",
     "title": "LedgerLeaf Accounting",
     "tier": "High",
-    "data_classes": ["pii"]
+    "data_classes": ["pii"],
+    "assurances": [
+      { "standard": "std-soc2", "expires": "2026-06-30", "status": "Expired" }
+    ]
   }
 ]
 ```
 
-The response carries `id`, `title`, `tier`, and `data_classes` and no other field. A
-vendor with no tier reads `null`, and one with no data classes reads `[]`. The rows are
-narrowed by the same owner rule the web app uses, so this list is what the caller may
-read, not what the store holds.
+The response carries `id`, `title`, `tier`, `data_classes`, and `assurances` and no other
+field. A vendor with no tier reads `null`, and one with no data classes or no assurances
+reads `[]`. Each assurance carries its `standard`, its `expires` date, and a `status` of
+`Valid`, `Expiring`, or `Expired` that the server derives from the current date and the
+window that applies to the entry. The rows are narrowed by the same owner rule the web app
+uses, so this list is what the caller may read, not what the store holds.
 
 :::
 
@@ -229,6 +241,16 @@ The Directory shows each vendor's tier and data classes as plain tags. The tags 
 color rank: a tier is a static attribute, and a data class names a regime rather than a
 severity. The rows stay ordered by vendor id.
 
+The Assurance column shows one stamp per certification on file, naming the standard and
+the expiry. A stamp turns amber as the expiry approaches and red once it has passed. It
+never turns green: a certificate is a fact the vendor supplied, not a Freeboard verdict,
+so the Status column still reads "Not evaluated". A vendor with no certification reads
+"None on file".
+
+When any vendor you can read holds a lapsing or lapsed certification, the notice above the
+tabs turns amber and names the count, and the Vendors item in the left rail carries the
+same count. Both count only the vendors you can read.
+
 :::
 
 :::tab GitOps
@@ -255,13 +277,20 @@ $ export FREEBOARD_API_URL=https://freeboard.example.com
 $ export FREEBOARD_ADMIN_TOKEN=...
 $ freeboard vendor list
 vendor-ledgerleaf  LedgerLeaf Accounting  High  pii
+    std-soc2  2026-06-30  Expired
     Out  requirement req-ce-plus-user-access-control-01 - LedgerLeaf supports MFA but
     not SSO, so Finance provisions and removes accounts by hand. A quarterly access
     review is the compensating control.
 ```
 
 Each vendor line carries the id, the title, the tier, and the data classes. An absent
-tier or data class list prints `-`.
+tier or data class list prints `-`. Each certification prints on its own indented line
+below the vendor, with the standard, the expiry, and the state. A vendor with none prints
+no such line.
+
+The API returns the state alongside the date, so the command does not need to know the
+warning window. The window lives in the web app, which is why the register and the command
+cannot disagree about one certification.
 
 The command exits `0` on success, `1` on a validation response, and `3` on an operational
 failure. An unauthorized, forbidden, unreachable, or failing API is an operational
@@ -286,6 +315,15 @@ An `Asset` of `type: Vendor`:
 | `owner` | no | A `Company` or `Department` id. Absent means visible to nobody. |
 | `tier` | no | `Critical`, `High`, `Medium`, or `Low`. Absent produces a warning. |
 | `data_classes` | no | A set of `pii`, `phi`, `special-category`, `payment-card`, `credentials`. Absent and empty are the same. |
+| `assurances` | no | The certifications the vendor holds. Absent means none, which is a normal state. |
+
+Each entry under `assurances`:
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `standard` | yes | The id of a `Standard` the config declares. A standard it does not declare is an error. |
+| `expires` | yes | The date the certification lapses, as `yyyy-MM-dd`. |
+| `warn_days` | no | Days of advance notice for this entry. Overrides the deployment default of 90. `0` warns only once expired. |
 
 A `Scope` whose subject is a vendor:
 
@@ -314,6 +352,14 @@ A `Scope` whose subject is a vendor:
 - A `tier` or a `data_classes` on an asset that is not a vendor.
 - The same `data_classes` token listed twice. A repeat is an authoring mistake, so
   Freeboard reports it rather than removing it.
+- An `assurances` list on an asset that is not a vendor.
+- An assurance `standard` that names a standard the config does not declare.
+- An assurance with no `expires`, or an `expires` that is not a `yyyy-MM-dd` date. An
+  expiry already in the past is not an error: `validate` does not read the clock, so its
+  result cannot depend on when it ran.
+- An assurance `warn_days` that is not a whole number of zero or more.
+- Two assurances on one vendor naming the same standard.
+- An unknown field on an assurance entry.
 - A vendor-subject scope that targets a standard.
 - A scope that names no target, or more than one.
 - A scope that names a requirement id or a control id the config does not define.

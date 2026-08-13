@@ -13,7 +13,9 @@ namespace Freeboard.Persistence.GitOps;
 /// vendor assets), collectors (reference controls, vendor assets, and integration-connections);
 /// replace the whole unified scope set (delete-all then insert,
 /// one table with a scalar subject and three nullable target FKs); replace all control->requirement join
-/// rows; then hard-remove absent rows: org role assignments, absent collectors,
+/// rows; replace the whole vendor assurance set, which must precede the declared-asset prune, and that
+/// prune itself precedes the standard delete, so one placement satisfies both of its RESTRICT FKs;
+/// then hard-remove absent rows: org role assignments, absent collectors,
 /// absent integration-connections, then ONE source = 'declared'-guarded
 /// declared-asset prune (which never touches a discovered row) after every asset-referencing row is gone,
 /// then controls, requirements before standards. Finally, before commit, compute the DB-accurate
@@ -72,6 +74,14 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
 
         // 3. Replace all control->requirement join rows for the imported set (whole-set delete+insert).
         await ReplaceControlRequirementsAsync(connection, transaction, plan, cancellationToken).ConfigureAwait(false);
+
+        // Replace the whole vendor assurance set (delete-all then insert). An upsert would leave behind
+        // the row of an entry the author removed, and a per-vendor replace would additionally miss the
+        // rows of a vendor that left the config entirely. Both of its FKs (vendor_id, standard_id) are
+        // RESTRICT, and one placement covers both: it must precede the declared-asset prune, which itself
+        // already precedes the absent-standard delete.
+        await ReplaceVendorAssurancesAsync(connection, transaction, plan.VendorAssurances, now, cancellationToken)
+            .ConfigureAwait(false);
 
         // 4. Prune org-scoped role assignments for absent organisations before the org delete: the
         //    organisation FK is ON DELETE RESTRICT, so a stale assignment would wedge the delete. The
@@ -425,6 +435,33 @@ public sealed class MySqlGitOpsImporter(IDbConnectionFactory connectionFactory) 
         await connection.ExecuteAsync(new CommandDefinition(
             "INSERT INTO control_requirements (control_id, requirement_id) VALUES (@ControlId, @RequirementId);",
             plan.ControlRequirements, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+    }
+
+    private static async Task ReplaceVendorAssurancesAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        IReadOnlyList<VendorAssuranceRowPlan> rows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM vendor_assurances;", transaction: transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        // Plain INSERT after the delete: config validation guarantees one entry per (vendor, standard),
+        // so no duplicate key can arise.
+        const string sql =
+            "INSERT INTO vendor_assurances (vendor_id, standard_id, expires, warn_days, created_at, updated_at) "
+            + "VALUES (@VendorId, @StandardId, @Expires, @WarnDays, @Now, @Now);";
+
+        var parameters = rows.Select(r => new { r.VendorId, r.StandardId, r.Expires, r.WarnDays, Now = now });
+        await connection.ExecuteAsync(new CommandDefinition(sql, parameters, transaction, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
     }
 
     private static async Task DeleteAbsentAsync(

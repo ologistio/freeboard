@@ -625,6 +625,270 @@ public sealed class AssetValidationTests
         Assert.Empty(result.Config.Assets.Single(a => a.Id == "vendor-a").DataClasses);
     }
 
+    private const string Soc2 = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Standard
+        id: std-soc2
+        title: SOC 2
+        version: "2017"
+        authority: AICPA
+        """;
+
+    private const string Iso27001 = """
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Standard
+        id: std-iso27001
+        title: ISO/IEC 27001
+        version: "2022"
+        authority: ISO
+        """;
+
+    // A vendor document carrying the standards the assurance cases reference, so each case authors only
+    // the assurances block under test.
+    private static string VendorWith(string assurances) => $"""
+        {Soc2}
+        ---
+        {Iso27001}
+        ---
+        {Company}
+        ---
+        apiVersion: freeboard.dev/v1alpha1
+        kind: Asset
+        id: vendor-a
+        title: Vendor A
+        type: Vendor
+        source: declared
+        owner: org-a
+        tier: High
+        {assurances}
+        """;
+
+    [Fact]
+    public void VendorWithAssurancesLoads()
+    {
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              - standard: std-soc2
+                expires: 2027-03-27
+              - standard: std-iso27001
+                expires: 2026-11-01
+                warn_days: 30
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        Assert.Empty(result.Warnings);
+        var assurances = result.Config.Assets.Single(a => a.Id == "vendor-a").Assurances;
+        Assert.Equal(2, assurances.Count);
+        Assert.Equal("std-soc2", assurances[0].Standard);
+        Assert.Equal("2027-03-27", assurances[0].Expires);
+        Assert.Equal(string.Empty, assurances[0].WarnDays);
+        Assert.Equal("30", assurances[1].WarnDays);
+    }
+
+    [Fact]
+    public void AssurancesOnNonVendorFails()
+    {
+        using var dir = TempConfig.Create(("a.yaml", $"""
+            {Soc2}
+            ---
+            apiVersion: freeboard.dev/v1alpha1
+            kind: Asset
+            id: org-a
+            title: Org A
+            type: Company
+            source: declared
+            assurances:
+              - standard: std-soc2
+                expires: 2027-03-27
+            """));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("org-a")
+            && d.Message.Contains("sets 'assurances' but is not a Vendor"));
+    }
+
+    [Fact]
+    public void DanglingAssuranceStandardFails()
+    {
+        // An Error, not the Warning a dangling parent or owner draws: a certification names a document in
+        // the same config, matching the Scope target references.
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              - standard: std-nope
+                expires: 2027-03-27
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("vendor-a")
+            && d.Message.Contains("unknown Standard id 'std-nope'"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("expires:")]
+    [InlineData("expires: soon")]
+    [InlineData("expires: 2027-13-01")]
+    public void MissingOrUnparseableExpiryFails(string expires)
+    {
+        using var dir = TempConfig.Create(("a.yaml", VendorWith($"""
+            assurances:
+              - standard: std-soc2
+                {expires}
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("vendor-a")
+            && d.Message.Contains("std-soc2")
+            && (d.Message.Contains("missing required field 'expires'") || d.Message.Contains("malformed expires")));
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("soon")]
+    [InlineData("1.5")]
+    public void InvalidWarnDaysFails(string warnDays)
+    {
+        using var dir = TempConfig.Create(("a.yaml", VendorWith($"""
+            assurances:
+              - standard: std-soc2
+                expires: 2027-03-27
+                warn_days: {warnDays}
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("vendor-a")
+            && d.Message.Contains($"invalid warn_days '{warnDays}'"));
+    }
+
+    [Fact]
+    public void ZeroWarnDaysIsAccepted()
+    {
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              - standard: std-soc2
+                expires: 2027-03-27
+                warn_days: 0
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+    }
+
+    [Fact]
+    public void DuplicateAssuranceStandardFails()
+    {
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              - standard: std-soc2
+                expires: 2027-03-27
+              - standard: std-soc2
+                expires: 2028-03-27
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("vendor-a")
+            && d.Message.Contains("duplicate assurance standard 'std-soc2'"));
+    }
+
+    [Fact]
+    public void DuplicateAssuranceStandardFailsEvenWhenTheStandardIsUnknown()
+    {
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              - standard: std-nowhere
+                expires: 2027-03-27
+              - standard: std-nowhere
+                expires: 2028-03-27
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.False(result.IsValid);
+        // Both are true and each is its own mistake: declaring the standard must not leave a duplicate
+        // that nothing reported.
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("unknown Standard id 'std-nowhere'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("duplicate assurance standard 'std-nowhere'"));
+    }
+
+    [Fact]
+    public void UnknownFieldOnAssuranceIsRejected()
+    {
+        // The document-level check reads top-level keys only, and the deserializer ignores unmatched
+        // properties, so without the nested check this key vanishes.
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              - standard: std-soc2
+                expires: 2027-03-27
+                auditor:
+            """)));
+
+        var result = ConfigLoader.Load(dir.Path);
+
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Unknown field 'auditor' on Asset assurance"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("assurances: []")]
+    [InlineData("assurances:")]
+    public void AbsentOrEmptyAssurancesIsSilent(string field)
+    {
+        // Holding no certification is a real and common state, so it warrants no diagnostic.
+        using var dir = TempConfig.Create(("a.yaml", VendorWith(field)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        Assert.Empty(result.Warnings);
+        Assert.Empty(result.Config.Assets.Single(a => a.Id == "vendor-a").Assurances);
+    }
+
+    [Fact]
+    public void PastExpiryProducesNoDiagnostic()
+    {
+        // Validation reads no clock, so an already-lapsed certificate is a state the read surfaces render
+        // rather than a diagnostic that would make two runs over one config disagree.
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              - standard: std-soc2
+                expires: 2001-01-01
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Diagnostics));
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void NullAssuranceEntryIsReportedNotDropped()
+    {
+        using var dir = TempConfig.Create(("a.yaml", VendorWith("""
+            assurances:
+              -
+            """)));
+
+        var result = ConfigValidator.LoadAndValidate(dir.Path);
+
+        Assert.Single(result.Config.Assets.Single(a => a.Id == "vendor-a").Assurances);
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("an assurance with no 'standard'"));
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("missing required field 'expires'"));
+    }
+
     [Fact]
     public void UnknownFieldOnAssetIsRejected()
     {

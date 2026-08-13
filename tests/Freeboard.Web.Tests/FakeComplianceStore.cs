@@ -4,17 +4,19 @@ namespace Freeboard.Web.Tests;
 
 /// <summary>
 /// In-memory <see cref="IComplianceStore"/> double for web tests so the suite is green
-/// without MySQL. When <see cref="Unreachable"/> is true, every read throws to
+/// without MySQL. Open for a test that needs to count or fail one read. When <see cref="Unreachable"/> is true, every read throws to
 /// simulate a down store. <see cref="Assets"/> is the one unfiltered asset set every read
 /// projects from, exactly as the real store serves it.
 /// </summary>
-internal sealed class FakeComplianceStore : IComplianceStore
+internal class FakeComplianceStore : IComplianceStore
 {
     public bool Unreachable { get; init; }
 
     /// <summary>
-    /// When true, the reads that surface the asset list - <see cref="GetAssetsAsync"/>
-    /// and <see cref="GetStatementOfApplicabilityInputsAsync"/> - throw; the other reads succeed.
+    /// When true, the reads that surface the asset list - <see cref="GetAssetsAsync"/>,
+    /// <see cref="GetStatementOfApplicabilityInputsAsync"/>,
+    /// <see cref="GetStatementOfApplicabilityDrilldownInputsAsync"/>, and
+    /// <see cref="GetVendorAssuranceInputsAsync"/> - throw; the other reads succeed.
     /// </summary>
     public bool AssetsUnreachable { get; init; }
 
@@ -31,6 +33,8 @@ internal sealed class FakeComplianceStore : IComplianceStore
     public IReadOnlyList<CollectorRow> Collectors { get; set; } = [];
 
     public IReadOnlyList<IntegrationConnectionRow> Connections { get; set; } = [];
+
+    public IReadOnlyList<VendorAssuranceRow> Assurances { get; set; } = [];
 
     public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => Standards);
@@ -78,6 +82,16 @@ internal sealed class FakeComplianceStore : IComplianceStore
         }
 
         return Guard(() => new SoaDrilldownInputs(Assets, Scopes, Requirements, Controls, Collectors));
+    }
+
+    public virtual Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
+    {
+        if (AssetsUnreachable)
+        {
+            throw new InvalidOperationException("assets unreachable");
+        }
+
+        return Guard(() => new VendorAssuranceInputs(Assets, Assurances));
     }
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>

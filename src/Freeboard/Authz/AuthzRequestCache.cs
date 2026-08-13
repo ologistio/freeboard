@@ -11,12 +11,21 @@ namespace Freeboard.Authz;
 /// Implements <see cref="IAuthzFactProvider"/> so it is the single fact loader. It also builds
 /// the organisation-anchored <see cref="AuthzResource"/> every organisation gate is constructed from,
 /// because the asset list that anchoring needs is already memoized here.
+///
+/// The request's asset read IS the vendor assurance snapshot: <see cref="GetAssetsAsync"/> serves its
+/// assets from <see cref="GetVendorAssuranceInputsAsync"/>. That is what makes the narrowing honest. The
+/// accessible set is memoized per principal per request and resolved from the FIRST asset list that
+/// reaches <c>IAssetAccess</c>, so unless every consumer reads ONE snapshot, a surface ends up narrowing
+/// its assurance rows with another surface's owner edges. The two Statement of Applicability pages are the
+/// exception: they keep their own snapshot read
+/// (<c>GetStatementOfApplicabilityDrilldownInputsAsync</c>), so on their own pages they still seed the
+/// accessible set from their own asset list.
 /// </summary>
 public sealed class AuthzRequestCache(IAuthzStore store, IComplianceStore compliance) : IAuthzFactProvider
 {
     private readonly Dictionary<string, AuthzPrincipalFacts> _facts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlySet<string>> _accessibleAssets = new(StringComparer.Ordinal);
-    private IReadOnlyList<AssetNode>? _assets;
+    private VendorAssuranceInputs? _assuranceInputs;
     private IReadOnlyDictionary<string, AssetNode>? _assetsById;
 
     public async ValueTask<AuthzPrincipalFacts> LoadFactsAsync(
@@ -32,9 +41,18 @@ public sealed class AuthzRequestCache(IAuthzStore store, IComplianceStore compli
         return facts;
     }
 
+    /// <summary>
+    /// The request's one asset-and-assurance snapshot, read at most once. Taken once per request rather
+    /// than once per component: two components each taking their own would narrow with each other's owner
+    /// edges, since the accessible set below serves every later caller the first one's answer.
+    /// </summary>
+    public async ValueTask<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(
+        CancellationToken cancellationToken = default)
+        => _assuranceInputs ??= await compliance.GetVendorAssuranceInputsAsync(cancellationToken).ConfigureAwait(false);
+
     public async ValueTask<IReadOnlyList<AssetNode>> GetAssetsAsync(
         CancellationToken cancellationToken = default)
-        => _assets ??= await compliance.GetAssetsAsync(cancellationToken).ConfigureAwait(false);
+        => (await GetVendorAssuranceInputsAsync(cancellationToken).ConfigureAwait(false)).Assets;
 
     /// <summary>
     /// The principal's accessible ASSET set for this request, resolved at most once per principal by

@@ -194,7 +194,16 @@ internal sealed class HttpFreeboardApiClient : IFreeboardApiClient, IDisposable
             json.GetProperty("id").GetString()!,
             json.GetProperty("title").GetString()!,
             OptionalString(json, "tier"),
-            ReadStringArray(json, "data_classes"));
+            ReadStringArray(json, "data_classes"),
+            json.TryGetProperty("assurances", out var assurances) && assurances.ValueKind == JsonValueKind.Array
+                ? assurances.EnumerateArray().Select(ReadAssurance).ToList()
+                : []);
+
+    private static ApiAssurance ReadAssurance(JsonElement json) =>
+        new(
+            json.GetProperty("standard").GetString()!,
+            json.GetProperty("expires").GetString()!,
+            json.GetProperty("status").GetString()!);
 
     private static ApiScope ReadScope(JsonElement json) =>
         new(

@@ -1,3 +1,5 @@
+using Freeboard.Authz;
+using Freeboard.Compliance;
 using Freeboard.Persistence;
 using Freeboard.Web;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -15,7 +17,8 @@ namespace Freeboard.Pages.Compliance;
 /// it names a vendor asset, which the owner edge governs - and a collector whose vendor is outside the
 /// caller's accessible asset set renders exactly as one with no vendor.
 /// </summary>
-public sealed class CollectorsModel(IComplianceStore store, IAssetAccess assetAccess) : PageModel
+public sealed class CollectorsModel(
+    IComplianceStore store, AuthzRequestCache cache, IAssetAccess assetAccess) : PageModel
 {
     /// <summary>All controls, ordered by id.</summary>
     public IReadOnlyList<ControlRow> Controls { get; private set; } = [];
@@ -33,7 +36,7 @@ public sealed class CollectorsModel(IComplianceStore store, IAssetAccess assetAc
             Controls = (await store.GetControlsAsync(ct).ConfigureAwait(false))
                 .OrderBy(c => c.Id, StringComparer.Ordinal).ToList();
 
-            var assets = await store.GetAssetsAsync(ct).ConfigureAwait(false);
+            var assets = await cache.GetAssetsAsync(ct).ConfigureAwait(false);
             var accessible = await assetAccess.AccessibleAssetIdsAsync(User, assets, ct).ConfigureAwait(false);
 
             collectorsByControl = (await store.GetCollectorsAsync(ct).ConfigureAwait(false))
@@ -41,7 +44,7 @@ public sealed class CollectorsModel(IComplianceStore store, IAssetAccess assetAc
                 .GroupBy(c => c.Control, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         }
-        catch (Exception ex) when (IsStoreFailure(ex))
+        catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
         {
             StoreUnreachable = true;
         }
@@ -54,7 +57,4 @@ public sealed class CollectorsModel(IComplianceStore store, IAssetAccess assetAc
     /// <summary>The evaluation rule to display for a control, defaulting to a dash when unset.</summary>
     public static string EvaluationLabel(ControlRow control) =>
         string.IsNullOrWhiteSpace(control.Evaluation) ? "-" : control.Evaluation;
-
-    private static bool IsStoreFailure(Exception ex) =>
-        ex is global::System.Data.Common.DbException or InvalidOperationException or TimeoutException;
 }

@@ -105,6 +105,25 @@ public sealed record SoaDrilldownInputs(
     IReadOnlyList<CollectorRow> Collectors);
 
 /// <summary>
+/// One persisted certification a vendor holds. Identity is the pair (<see cref="VendorId"/>,
+/// <see cref="StandardId"/>). <see cref="WarnDays"/> is the per-row warning-window override and is null
+/// when the row carries none, which means "use the deployment's configured window" rather than "no
+/// window". There is no status column: the state is derived from <see cref="Expires"/> and the clock.
+/// </summary>
+public sealed record VendorAssuranceRow(string VendorId, string StandardId, DateOnly Expires, int? WarnDays);
+
+/// <summary>
+/// The assets and the whole vendor assurance set, read together in one repeatable-read snapshot. The
+/// pairing is not an optimisation: every consumer narrows the assurances by the <c>owner</c> edges carried
+/// on the asset rows, so two separate reads could pair the pre-import owner edges with post-import
+/// assurance rows and produce a combination that never existed. <see cref="Assets"/> is the same unfiltered
+/// read every other consumer uses, so the narrowing decision resolves over the same tree everywhere.
+/// </summary>
+public sealed record VendorAssuranceInputs(
+    IReadOnlyList<AssetNode> Assets,
+    IReadOnlyList<VendorAssuranceRow> Assurances);
+
+/// <summary>
 /// A persisted collector attached to one control - a data source or an attestation form. Identity is
 /// <see cref="Id"/>. <see cref="Vendor"/>, <see cref="Provider"/>, and <see cref="Threshold"/> are null
 /// when unset; <see cref="Config"/> is the type-specific payload, empty when the column is NULL.

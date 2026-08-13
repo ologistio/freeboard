@@ -308,8 +308,14 @@ The web app SHALL expose a read-only HTTP endpoint that returns the persisted ve
 CALLER MAY READ from the store, under the single `/api/v1/freeboard/` API namespace,
 requiring an authenticated user (any logged-in user; no admin role). It SHALL provide
 `GET /api/v1/freeboard/vendors`. Vendors are `Asset` rows of `type: Vendor`, served from the
-one unified asset read rather than a separate vendor read, and SHALL include their `id` and
-`title` and no other field. A vendor's per-requirement and per-control exceptions are
+one unified asset read rather than a separate vendor read, and SHALL include their `id`,
+`title`, and the vendor-only facets the register renders: `tier`, `data_classes`, and
+`assurances` (each carrying its `standard`, its `expires`, and its derived `status`).
+The row SHALL carry no other asset column: the discovered-only machine fields and the
+`owner` edge are not part of this projection. The endpoint SHALL derive an assurance's
+status rather than returning the expiry alone, so the warning window that decides it
+lives in one process and the web page and the CLI cannot disagree about the state of the
+same certification. A vendor's per-requirement and per-control exceptions are
 served by the unified `GET /api/v1/freeboard/scopes` endpoint as scopes whose `subject` is
 that vendor (there is no separate `/vendor-scopes` endpoint); those scopes carry the
 target, `disposition`, and `justification` (always present for a readable `Out` scope, so
@@ -327,15 +333,24 @@ the same test on the scope's `subject`. Read-access is fail-closed: a vendor wit
 missing or dangling `owner`, or an `owner` outside the caller's accessible set, SHALL have
 BOTH its vendor row (on `/vendors`) AND its vendor-subject scopes (on `/scopes`) hidden
 from that caller, so neither the vendor id nor its exception rationale leaks even though
-the vendor row is suppressed.
+the vendor row is suppressed. Every facet on the row is hidden with it, because the row
+itself is absent rather than redacted.
 
 #### Scenario: Vendors endpoint returns the readable vendors
 
 - **WHEN** an authenticated client requests `GET /api/v1/freeboard/vendors` and some
   vendors have an `owner` that resolves into the caller's organisation union
-- **THEN** the response lists those vendors with their `id` and `title`, ordered by
-  `id`, and omits any vendor whose `owner` is missing, dangling, or outside the
-  accessible set
+- **THEN** the response lists those vendors with their `id`, `title`, `tier`,
+  `data_classes`, and `assurances`, ordered by `id`, and omits any vendor whose `owner`
+  is missing, dangling, or outside the accessible set
+
+#### Scenario: Each assurance carries its derived status
+
+- **WHEN** an authenticated client requests `GET /api/v1/freeboard/vendors` and a
+  readable vendor holds a certification
+- **THEN** that assurance carries its `standard`, its `expires`, and a `status` the
+  endpoint derived from the expiry and the configured warning window, rather than a
+  stored or authored one
 
 #### Scenario: Vendor exceptions are served by the unified scopes endpoint
 

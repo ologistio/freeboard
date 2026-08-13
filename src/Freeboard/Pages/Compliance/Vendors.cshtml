@@ -34,7 +34,9 @@ else
        an author rule already beats the UA's [hidden]. Scoped to this page's panes. *@
     <noscript><style>.fb-tabwrap .fb-pane { display: block }</style></noscript>
     <div x-data="tabPanel('directory')">
-        <p class="notice mb-4">
+        @* Amber only when a certification is actually lapsing, and it names the count so the number the
+           nav badge carries is explained on the page it points at. *@
+        <p class="@(Model.LapsingVendorCount > 0 ? "notice-warning" : "notice") mb-4">
             @if (Model.GitOpsReadOnly)
             {
                 <span>@Model.Vendors.Count vendors, @Model.ExceptionCount exceptions. Git owns this register: add or change a vendor in the repository.</span>
@@ -42,6 +44,10 @@ else
             else
             {
                 <span>@Model.Vendors.Count vendors, @Model.ExceptionCount exceptions.</span>
+            }
+            @if (Model.LapsingVendorCount > 0)
+            {
+                <span data-lapsing-count="@Model.LapsingVendorCount">@Model.LapsingVendorCount @(Model.LapsingVendorCount == 1 ? "vendor has" : "vendors have") a lapsing certification.</span>
             }
             <button type="button" class="btn-secondary btn-sm ml-3" @@click="tab = 'scopes'">Show scope rules</button>
         </p>
@@ -139,7 +145,25 @@ else
                                             @* S6/O2: nothing evaluates a vendor yet, so an explicit empty - never a synthesised pass. *@
                                             <span class="fb-status"><span class="fb-seal off" aria-hidden="true"></span><span class="fb-status__word">Not evaluated</span></span>
                                         </td>
-                                        <td><span class="fb-tdsub">None on file</span></td>
+                                        <td>
+                                            @* One stamp per certification rather than a roll-up: hiding
+                                               certifications behind a count fabricates completeness (O2).
+                                               The word differs per state, so the state survives with colour
+                                               removed (S2). A vendor with none gets no stamp - a stamp is a
+                                               provenance claim, and there is none for a value that does not
+                                               exist. *@
+                                            @if (row.Assurances.Count > 0)
+                                            {
+                                                foreach (var assurance in row.Assurances)
+                                                {
+                                                    <fb-stamp source="@assurance.StandardTitle" age="@assurance.Expiry" tone="@assurance.Tone" />
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="fb-tdsub">None on file</span>
+                                            }
+                                        </td>
                                         <td><span class="fb-tdsub">Not scheduled</span></td>
                                         <td>
                                             @if (row.OwnerTitle is not null)

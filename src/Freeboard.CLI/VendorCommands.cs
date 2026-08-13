@@ -9,8 +9,9 @@ namespace Freeboard.CLI;
 public sealed class VendorCommands
 {
     /// <summary>
-    /// List vendors with their tier, data classes, and per-requirement/control exceptions and
-    /// justifications. An absent tier or data class list prints <c>-</c>.
+    /// List vendors with their tier, data classes, certifications, and per-requirement/control exceptions
+    /// and justifications. An absent tier or data class list prints <c>-</c>; a vendor with no
+    /// certification prints no assurance line.
     /// </summary>
     /// <param name="apiUrl">Base URL of the Freeboard API. Overrides FREEBOARD_API_URL.</param>
     /// <param name="token">Admin bearer token. Overrides FREEBOARD_ADMIN_TOKEN.</param>
@@ -43,6 +44,14 @@ public sealed class VendorCommands
             var tier = vendor.Tier ?? "-";
             var dataClasses = vendor.DataClasses.Count > 0 ? string.Join(",", vendor.DataClasses) : "-";
             Console.WriteLine($"{vendor.Id}  {vendor.Title}  {tier}  {dataClasses}");
+
+            // Certifications print above the scope lines, as a per-vendor child list where absence is
+            // silence. The status is the endpoint's, so the window that decides it lives in one process.
+            foreach (var assurance in vendor.Assurances)
+            {
+                Console.WriteLine($"    {assurance.Standard}  {assurance.Expires}  {assurance.Status}");
+            }
+
             if (!scopesByVendor.TryGetValue(vendor.Id, out var vendorScopes))
             {
                 continue;

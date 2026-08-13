@@ -81,6 +81,20 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
             new ScopeRow("vs-a", "Except req-a", "vendor-a", null, "req-a", null, "Out", "Visible justification."),
             new ScopeRow("vs-b", "Except req-b", "vendor-b", null, "req-b", null, "Out", "Hidden justification."),
         ];
+        // Both vendors hold an expiring certification, so the count and the cell are exercised on both
+        // sides of the boundary. Ten days out reads as expiring under the default 90-day window whenever
+        // this runs, so nothing here is dated against the wall clock in a way that can flip.
+        var expiring = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(10);
+        App.Compliance.Standards =
+        [
+            new StandardRow("std-visible", "Visible Scheme", "1.0", "Example Authority", null, null),
+            new StandardRow("std-hidden", "Hidden Scheme", "1.0", "Example Authority", null, null),
+        ];
+        App.Compliance.Assurances =
+        [
+            new VendorAssuranceRow("vendor-a", "std-visible", expiring, null),
+            new VendorAssuranceRow("vendor-b", "std-hidden", expiring, null),
+        ];
 
         await using var context = await NewContextAsync();
         await SignInWithRecentSudoAsync(context, "vendor-reader-a");
@@ -101,6 +115,13 @@ public sealed class AuthzIsolationE2ETests : E2ETestBase
         var html = await page.ContentAsync();
         Assert.DoesNotContain("Hidden justification.", html, StringComparison.Ordinal);
         Assert.DoesNotContain("Vendor B", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("vendor-b", html, StringComparison.Ordinal);
+        // The hidden vendor's certification is absent with its row, and the rail badge counts the
+        // readable vendor only - every surface derives from the one accessible asset set.
+        Assert.DoesNotContain("std-hidden", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hidden Scheme", html, StringComparison.Ordinal);
+        Assert.Contains("Visible Scheme", html, StringComparison.Ordinal);
+        Assert.Equal("1", await page.Locator("a[href='/compliance/vendors'] .fb-navcount").First.InnerTextAsync());
     }
 
     [RequiresEnvVarFact(EnvVar = E2EGate.EnvVar)]

@@ -31,3 +31,21 @@ public enum MarkTone
     Warn,
     Fail,
 }
+
+/// <summary>
+/// The tone for the provenance stamp (<c>fb-stamp</c>), drawn from its own enum rather than
+/// <see cref="MarkTone"/>: a stamp has no pass tone and no brand tone, so a green or brand stamp stays
+/// unrepresentable. Green would claim a Freeboard verdict the mark does not hold, and the brand-inked
+/// <c>gen</c> variant names where a value came from rather than a tone.
+/// <para>
+/// Each member is named for the colour it emits. <see cref="Neutral"/> is the bare <c>.fb-stamp</c>, the
+/// mark's untinted muted ink, NOT the violet <c>gen</c> variant. <c>manual</c> and <c>gen</c> are
+/// provenance variants selected by the stamp's own provenance flag, not tones.
+/// </para>
+/// </summary>
+public enum StampTone
+{
+    Neutral,
+    Warn,
+    Fail,
+}

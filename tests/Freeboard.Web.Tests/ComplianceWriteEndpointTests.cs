@@ -302,6 +302,26 @@ public sealed class ComplianceWriteEndpointTests
         Assert.Null(writes.LastScopeId);
     }
 
+    [Fact]
+    public async Task GatedWriteAnswers403WhenTheAssetSnapshotReadFails()
+    {
+        // The organisation gate resolves its resource through the request's asset-and-assurance snapshot,
+        // so an absent or unreadable vendor_assurances table fails the selector. The permission filter
+        // catches a throwing selector as a deny, which is the recorded behaviour for an app deployed
+        // against an unmigrated schema: it refuses the write rather than performing it.
+        using var factory = new WriteFactory(new FakeComplianceWriteStore())
+        {
+            Compliance = new FakeComplianceStore { AssetsUnreachable = true },
+        };
+        using var client = AdminClient(factory);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/freeboard/organisations/org-a",
+            new { title = "Org A", kind = "Company", parent = (string?)null });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     private sealed class WriteFactory(IComplianceWriteStore writes, bool readOnly = false) : AuthWebFactory
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)

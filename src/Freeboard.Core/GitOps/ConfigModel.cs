@@ -138,6 +138,34 @@ public sealed record Asset
     /// key mean the same thing: nothing distinguishes "not assessed" from "assessed as holding nothing".
     /// </summary>
     public List<string> DataClasses { get; init; } = [];
+
+    /// <summary>
+    /// Certifications authored under <c>assurances</c>, Vendor-only. Empty when absent.
+    /// </summary>
+    public List<Assurance> Assurances { get; init; } = [];
+}
+
+/// <summary>
+/// One certification a vendor holds, authored as an entry of <see cref="Asset.Assurances"/>. The pair
+/// (asset, <see cref="Standard"/>) identifies it, so it carries no id. <see cref="Expires"/> and
+/// <see cref="WarnDays"/> stay raw authored text, like <see cref="Asset.Tier"/> and
+/// <see cref="Collector.Threshold"/>, so a malformed value surfaces as a validation diagnostic rather
+/// than a YAML binding error. There is no status field: the state is derived from the expiry and the
+/// clock.
+/// </summary>
+public sealed record Assurance
+{
+    /// <summary>Id of the <see cref="GitOps.Standard"/> the certificate is against (required).</summary>
+    public string Standard { get; init; } = string.Empty;
+
+    /// <summary>Raw expiry text authored under <c>expires</c>; validation parses it as <c>YYYY-MM-DD</c>.</summary>
+    public string Expires { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Raw warning-window override text authored under <c>warn_days</c>; blank means absent, in which case
+    /// the deployment's configured window applies. Zero means no advance notice at all.
+    /// </summary>
+    public string WarnDays { get; init; } = string.Empty;
 }
 
 /// <summary>Whether a subject is in or out of scope for its target.</summary>

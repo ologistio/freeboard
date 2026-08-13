@@ -283,12 +283,16 @@ public sealed class CollectorsPageTests
     }
 
     [Fact]
-    public void ConstructorTakesComplianceStoreAndAssetAccess()
+    public void ConstructorTakesComplianceStoreRequestCacheAndAssetAccess()
     {
         var ctor = Assert.Single(typeof(CollectorsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToList();
 
-        Assert.Equal([typeof(IComplianceStore), typeof(IAssetAccess)], paramTypes);
+        // The assets come from the request's one snapshot on the cache; the store still serves this
+        // page's own rows.
+        Assert.Equal(
+            [typeof(IComplianceStore), typeof(Freeboard.Authz.AuthzRequestCache), typeof(IAssetAccess)],
+            paramTypes);
     }
 
     [Fact]

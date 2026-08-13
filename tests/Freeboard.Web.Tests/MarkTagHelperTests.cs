@@ -286,4 +286,38 @@ public sealed class MarkTagHelperTests
         Assert.Contains("MANUAL", manual, StringComparison.Ordinal);
         Assert.Contains("Mar 3", manual, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData(StampTone.Neutral, "class=\"fb-stamp\"")]
+    [InlineData(StampTone.Warn, "class=\"fb-stamp warn\"")]
+    [InlineData(StampTone.Fail, "class=\"fb-stamp fail\"")]
+    public void EachStampToneMapsToExactlyOneClass(StampTone tone, string expected)
+    {
+        // The tone SELECTS the variant rather than adding to it, so no provenance colour survives under
+        // it - hence the negative assertions as well as the positive one.
+        var html = Render(new StampTagHelper { Source = "SOC 2", Age = "expires Mar 27", Tone = tone }, "fb-stamp");
+
+        Assert.Contains(expected, html, StringComparison.Ordinal);
+        Assert.DoesNotContain("gen", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("manual", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryStampVariantClassIsReachedByExactlyOneSelector()
+    {
+        // The four emitted variants split between two selectors: the provenance flag picks manual or gen,
+        // the tone picks the bare mark, warn, or fail. A class reached by neither would be dead CSS; one
+        // reached by both would let a tone silently share a provenance colour.
+        string Variant(bool manual, StampTone? tone) =>
+            Render(new StampTagHelper { Source = "S", Age = "a", Manual = manual, Tone = tone }, "fb-stamp");
+
+        Assert.Contains("class=\"fb-stamp gen\"", Variant(false, null), StringComparison.Ordinal);
+        Assert.Contains("class=\"fb-stamp manual\"", Variant(true, null), StringComparison.Ordinal);
+        Assert.Contains("class=\"fb-stamp warn\"", Variant(false, StampTone.Warn), StringComparison.Ordinal);
+        Assert.Contains("class=\"fb-stamp fail\"", Variant(false, StampTone.Fail), StringComparison.Ordinal);
+
+        // A tone wins over the provenance flag rather than combining with it.
+        Assert.Contains("class=\"fb-stamp warn\"", Variant(true, StampTone.Warn), StringComparison.Ordinal);
+        Assert.Contains("class=\"fb-stamp\"", Variant(true, StampTone.Neutral), StringComparison.Ordinal);
+    }
 }

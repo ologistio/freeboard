@@ -600,6 +600,66 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
+    public void VendorAssuranceRowsProjectFromEveryAssetsEntries()
+    {
+        var config = new GitOpsConfig
+        {
+            Assets =
+            [
+                new Asset
+                {
+                    Id = "vendor-a", ApiVersion = "v1", Title = "Vendor A", Type = "Vendor", Source = "declared",
+                    Owner = "org-a",
+                    Assurances =
+                    [
+                        new Assurance { Standard = "std-a", Expires = "2027-03-27" },
+                        new Assurance { Standard = "std-b", Expires = "2026-11-01", WarnDays = "30" },
+                    ],
+                },
+                new Asset { Id = "org-a", ApiVersion = "v1", Title = "Org A", Type = "Company", Source = "declared" },
+            ],
+        };
+
+        var rows = ImportPlan.From(config).VendorAssurances;
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("vendor-a", rows[0].VendorId);
+        Assert.Equal("std-a", rows[0].StandardId);
+        Assert.Equal(new DateOnly(2027, 3, 27), rows[0].Expires);
+        Assert.Null(rows[0].WarnDays);
+        Assert.Equal(30, rows[1].WarnDays);
+    }
+
+    [Fact]
+    public void AnAssetWithNoAssurancesContributesNoRows()
+    {
+        Assert.Empty(ImportPlan.From(SampleConfig()).VendorAssurances);
+    }
+
+    [Fact]
+    public void AnUnparseableExpiryThrowsRatherThanVanishing()
+    {
+        // Validation has already rejected this, so reaching it means the caller skipped validation. A
+        // dropped row would read as a vendor that quietly lost a certification.
+        var config = new GitOpsConfig
+        {
+            Assets =
+            [
+                new Asset
+                {
+                    Id = "vendor-a", ApiVersion = "v1", Title = "Vendor A", Type = "Vendor", Source = "declared",
+                    Assurances = [new Assurance { Standard = "std-a", Expires = "soon" }],
+                },
+            ],
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => ImportPlan.From(config));
+
+        Assert.Contains("vendor-a", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("soon", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void IdListsExposeKeepSetForDeletes()
     {
         var plan = ImportPlan.From(SampleConfig());
