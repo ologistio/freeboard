@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Freeboard.Authz;
 using Freeboard.Persistence;
 using Microsoft.AspNetCore.Http;
 
@@ -116,7 +117,10 @@ public sealed class OrgSelectionTests
             context.Request.Headers.Cookie = $"{OrgSelection.CookieName}={cookie}";
         }
 
-        return new OrgSelectionResolver(new HttpContextAccessor { HttpContext = context }, store, access);
+        // The resolver takes its assets from the request cache's shared asset read, which carries the
+        // assets alone unless the request has already taken an assurance snapshot to serve it from.
+        var cache = new AuthzRequestCache(new FakeAuthzStore(), store);
+        return new OrgSelectionResolver(new HttpContextAccessor { HttpContext = context }, cache, access);
     }
 
     private sealed class RestrictedAssetAccess(IReadOnlySet<string> accessible) : IAssetAccess
@@ -128,6 +132,7 @@ public sealed class OrgSelectionTests
 
     private sealed class CountingComplianceStore : IComplianceStore
     {
+        /// <summary>Reads of the shared asset list, which is what the resolver takes its assets from.</summary>
         public int AssetReads { get; private set; }
 
         public IReadOnlyList<AssetNode> Assets { get; init; } = [];
@@ -137,6 +142,9 @@ public sealed class OrgSelectionTests
             AssetReads++;
             return Task.FromResult(Assets);
         }
+
+        public Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new VendorAssuranceInputs(Assets, []));
 
         public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult((IReadOnlyList<StandardRow>)[]);

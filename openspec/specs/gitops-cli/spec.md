@@ -274,10 +274,14 @@ unified scope set SHALL be replaced as a whole set (delete-all then insert) each
 that replace SHALL precede the absent standard, requirement, and control deletes, so no
 target `RESTRICT` foreign key blocks a removal; a scope's `subject` has no foreign key, so
 removing a subject asset never blocks the sync (the scope persists with a dangling
-subject). The foreign-key-safe order SHALL prune an absent Collector before an
-absent Integration it referenced, and an absent Integration before an absent Vendor asset
-it referenced. Because collectors and attestations are now one kind, the sync SHALL prune
-one collector set rather than two, and the `validate` summary and the
+subject). The vendor assurance set SHALL likewise be replaced as a whole set each sync. Its
+`vendor_id` and `standard_id` foreign keys are both `ON DELETE RESTRICT`, so the replace
+SHALL precede the declared-asset prune, which itself already precedes the absent-standard
+delete: one placement before the prune block therefore covers both keys. The
+foreign-key-safe order SHALL prune an absent Collector
+before an absent Integration it referenced, and an absent Integration before an absent
+Vendor asset it referenced. Because collectors and attestations are now one kind, the sync
+SHALL prune one collector set rather than two, and the `validate` summary and the
 `apply --dry-run` planned-state output SHALL report one collector count and one collector
 section in place of the separate evidence-collector and attestation-template ones.
 
@@ -297,6 +301,27 @@ authoritative for the scope subject: `sync` SHALL NOT also emit the DB-less auth
 scope-subject warning for a subject that DOES resolve in the persisted asset set (which would be
 a false positive for a healthy discovered `Machine`). The DB-less authored-set scope-subject
 warning remains the surface for `validate` and `apply --dry-run`, which have no database.
+
+#### Scenario: Dropping a vendor assurance hard-removes its row on the next sync
+
+- **WHEN** a first `gitops sync` persists a `Vendor` asset carrying two assurances and a
+  second `gitops sync` runs on a config that keeps the vendor and drops one entry
+- **THEN** only the kept entry's row remains, the dropped entry's row is gone, and the
+  sync succeeds
+
+#### Scenario: Dropping a vendor that holds assurances does not violate a foreign key
+
+- **WHEN** a first `gitops sync` persists a `Vendor` asset carrying assurances and a second
+  `gitops sync` runs on a config that omits the vendor and its entries
+- **THEN** the assurance set is replaced before the declared-asset prune, the vendor row is
+  removed, and the import succeeds without a foreign-key violation
+
+#### Scenario: Dropping a standard an assurance named does not violate a foreign key
+
+- **WHEN** a second `gitops sync` runs on a config that drops both a `Standard` and the
+  assurance entry that named it
+- **THEN** the assurance set is replaced before the absent-standard delete, and the import
+  succeeds without a foreign-key violation
 
 #### Scenario: Retired or absent machine subject warns at sync against the persisted assets
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using Freeboard.Pages.Compliance;
 using Freeboard.Persistence;
@@ -213,7 +214,7 @@ public sealed class VendorsPageTests
     }
 
     [Fact]
-    public void ConstructorTakesComplianceStoreAndAssetAccess()
+    public void ConstructorTakesTheStoreTheRequestCacheTheClockAndBothOptions()
     {
         var ctor = Assert.Single(typeof(VendorsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
@@ -222,7 +223,10 @@ public sealed class VendorsPageTests
             new HashSet<Type>
             {
                 typeof(IComplianceStore),
+                typeof(Freeboard.Authz.AuthzRequestCache),
                 typeof(IAssetAccess),
+                typeof(TimeProvider),
+                typeof(IOptions<Freeboard.Compliance.AssuranceOptions>),
                 typeof(IOptions<Freeboard.GitOps.GitOpsOptions>),
             },
             paramTypes);
@@ -280,6 +284,209 @@ public sealed class VendorsPageTests
 
         Assert.Contains("data-empty", html, StringComparison.Ordinal);
         Assert.Contains("No vendors are registered.", html, StringComparison.Ordinal);
+    }
+
+    // Every assurance case runs against a fixed date and a fixed window: a fixture dated against the wall
+    // clock changes state as the wall clock moves.
+    private static readonly DateOnly Today = new(2026, 3, 1);
+
+    private static VendorAssuranceRow Assurance(string vendorId, string standardId, DateOnly expires, int? warnDays = null) =>
+        new(vendorId, standardId, expires, warnDays);
+
+    private static AuthWebFactory AssuranceFactory(FakeComplianceStore store, int warnWindowDays = 90) => new()
+    {
+        Compliance = store,
+        Clock = new FixedClock(Today),
+        Settings = new Dictionary<string, string?>
+        {
+            ["Freeboard:Assurance:WarnWindowDays"] = warnWindowDays.ToString(CultureInfo.InvariantCulture),
+        },
+    };
+
+    [Fact]
+    public async Task RendersOneTonedStampPerAssurance()
+    {
+        var store = new FakeComplianceStore
+        {
+            Assets = [TestAssets.Org("org-a"), TestAssets.Vendor("vendor-a", "org-a", title: "Vendor A")],
+            Standards =
+            [
+                new StandardRow("std-soc2", "SOC 2", null, null, null, null),
+                new StandardRow("std-iso", "ISO 27001", null, null, null, null),
+                new StandardRow("std-pci", "PCI DSS", null, null, null, null),
+            ],
+            Assurances =
+            [
+                Assurance("vendor-a", "std-soc2", Today.AddDays(365)),
+                Assurance("vendor-a", "std-iso", Today.AddDays(5)),
+                Assurance("vendor-a", "std-pci", Today.AddDays(-3)),
+            ],
+        };
+        using var factory = AssuranceFactory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var row = DirectoryRow(await response.Content.ReadAsStringAsync(), "vendor-a");
+
+        // Valid takes the untinted base, not the pass green: a certification is a fact on file, not a
+        // Freeboard verdict. The word differs per state, so the state survives with colour removed (S2).
+        Assert.Contains("<span class=\"fb-stamp\">SOC 2", row, StringComparison.Ordinal);
+        Assert.Contains("expires Mar 1", row, StringComparison.Ordinal);
+        Assert.Contains("<span class=\"fb-stamp warn\">ISO 27001", row, StringComparison.Ordinal);
+        Assert.Contains("expires in 5 days", row, StringComparison.Ordinal);
+        Assert.Contains("<span class=\"fb-stamp fail\">PCI DSS", row, StringComparison.Ordinal);
+        Assert.Contains("expired 3 days ago", row, StringComparison.Ordinal);
+        Assert.DoesNotContain("None on file", row, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AVendorWithNoAssuranceReadsAsAnExplicitEmptyWithNoStamp()
+    {
+        var store = new FakeComplianceStore
+        {
+            Assets = [TestAssets.Org("org-a"), TestAssets.Vendor("vendor-a", "org-a")],
+        };
+        using var factory = AssuranceFactory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var row = DirectoryRow(await response.Content.ReadAsStringAsync(), "vendor-a");
+
+        Assert.Contains("<span class=\"fb-tdsub\">None on file</span>", row, StringComparison.Ordinal);
+        Assert.DoesNotContain("fb-stamp", row, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LapsingAssurancesTurnTheNoticeAmberAndNameTheCount()
+    {
+        var store = new FakeComplianceStore
+        {
+            Assets =
+            [
+                TestAssets.Org("org-a"),
+                TestAssets.Vendor("vendor-a", "org-a"),
+                TestAssets.Vendor("vendor-b", "org-a"),
+                TestAssets.Vendor("vendor-c", "org-a"),
+            ],
+            Assurances =
+            [
+                // vendor-a counts once however many of its certifications lapse; vendor-c's is valid.
+                Assurance("vendor-a", "std-soc2", Today.AddDays(5)),
+                Assurance("vendor-a", "std-iso", Today.AddDays(-1)),
+                Assurance("vendor-b", "std-soc2", Today.AddDays(5)),
+                Assurance("vendor-c", "std-soc2", Today.AddDays(365)),
+            ],
+        };
+        using var factory = AssuranceFactory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("notice-warning", html, StringComparison.Ordinal);
+        Assert.Contains("data-lapsing-count=\"2\"", html, StringComparison.Ordinal);
+        Assert.Contains("2 vendors have a lapsing certification.", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExpiredOnlyVendorTurnsTheNoticeAmber()
+    {
+        // An expiring-only fixture cannot satisfy this case: an expired certificate must raise the notice
+        // exactly as an expiring one does.
+        var store = new FakeComplianceStore
+        {
+            Assets = [TestAssets.Org("org-a"), TestAssets.Vendor("vendor-a", "org-a")],
+            Assurances = [Assurance("vendor-a", "std-soc2", Today.AddDays(-10))],
+        };
+        using var factory = AssuranceFactory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("notice-warning", html, StringComparison.Ordinal);
+        Assert.Contains("data-lapsing-count=\"1\"", html, StringComparison.Ordinal);
+        Assert.Contains("1 vendor has a lapsing certification.", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NothingLapsingLeavesTheNoticeNeutral()
+    {
+        var store = new FakeComplianceStore
+        {
+            Assets = [TestAssets.Org("org-a"), TestAssets.Vendor("vendor-a", "org-a")],
+            Assurances = [Assurance("vendor-a", "std-soc2", Today.AddDays(365))],
+        };
+        using var factory = AssuranceFactory(store);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("notice-warning", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("lapsing certification", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task HiddenVendorsLapseIsNotCounted()
+    {
+        // A lapsing vendor outside the accessible set leaves the notice neutral and out of the count.
+        var store = new FakeComplianceStore
+        {
+            Assets =
+            [
+                TestAssets.Org("org-a"),
+                TestAssets.Org("org-b"),
+                TestAssets.Vendor("vendor-a", "org-a"),
+                TestAssets.Vendor("vendor-b", "org-b"),
+            ],
+            Assurances = [Assurance("vendor-b", "std-soc2", Today.AddDays(5))],
+        };
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory
+        {
+            Compliance = store,
+            AuthzMode = "Enforce",
+            Authz = authz,
+            Clock = new FixedClock(Today),
+        };
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path, AuthWebFactory.MakeUser("u1"));
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-vendor-id=\"vendor-a\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-vendor-id=\"vendor-b\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("notice-warning", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("lapsing certification", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnEnormousConfiguredWindowRendersRatherThanThrowing()
+    {
+        // The window arrives unvalidated, and a day-number difference cannot overflow where AddDays would.
+        var store = new FakeComplianceStore
+        {
+            Assets = [TestAssets.Org("org-a"), TestAssets.Vendor("vendor-a", "org-a")],
+            Assurances =
+            [
+                Assurance("vendor-a", "std-soc2", Today.AddDays(500)),
+                Assurance("vendor-a", "std-iso", Today.AddDays(500), warnDays: int.MaxValue),
+            ],
+        };
+        using var factory = AssuranceFactory(store, warnWindowDays: int.MaxValue);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, Path);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var row = DirectoryRow(await response.Content.ReadAsStringAsync(), "vendor-a");
+        Assert.Equal(2, CountOccurrences(row, "fb-stamp warn"));
+    }
+
+    private sealed class FixedClock(DateOnly today) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(today.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
     }
 
     /// <summary>One vendor's Directory row, so a per-row assertion cannot pass on another row's markup.</summary>

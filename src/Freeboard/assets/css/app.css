@@ -381,9 +381,16 @@
         padding: 1px 6px;
         white-space: nowrap;
     }
-    .fb-stamp.manual {
+    /* One rule for two classes, deliberately: the palette holds one amber, and a hand-entered value and
+       a lapsing certificate are both the thing that amber means here. */
+    .fb-stamp.manual,
+    .fb-stamp.warn {
         color: var(--color-warn-ink);
         border-color: color-mix(in srgb, var(--color-warn) 40%, transparent);
+    }
+    .fb-stamp.fail {
+        color: var(--color-fail-ink);
+        border-color: color-mix(in srgb, var(--color-fail) 40%, transparent);
     }
     .fb-stamp.gen {
         color: var(--color-brand-ink);

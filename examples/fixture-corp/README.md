@@ -12,6 +12,7 @@ claim.
 | Path                                   | Kind                       | Purpose                                                     |
 | -------------------------------------- | -------------------------- | ----------------------------------------------------------- |
 | `standards/cyber-essentials-plus.yaml` | `Standard` + `Requirement` | Symlink to the shared CE+ catalog                           |
+| `standards/soc2.yaml`                  | `Standard`                 | SOC 2, declared so vendor certifications can name it        |
 | `organisations.yaml`                   | `Asset`                    | The company tree: one Company, four departments, one nested |
 | `scopes.yaml`                          | `Scope`                    | Company-wide In scope for CE+ plus a nested exception       |
 | `controls.yaml`                        | `Control`                  | The controls Fixture Corp operates, each `maps_to` CE+ reqs |

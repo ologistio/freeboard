@@ -97,7 +97,11 @@ or task.
 - **P1.** Every automated value carries a source stamp: collector or integration
   name plus age.
 - **P2.** Manual values are stamped MANUAL and dated. Manual is a provenance, not
-  the absence of one.
+  the absence of one. A value that references a named record held outside the system,
+  shown with that record's own date, names that record instead of MANUAL and still
+  carries the date - a vendor's certification names the standard it is against and
+  the date it expires. Content a person supplies stays MANUAL, whatever external
+  thing it describes.
 - **P3.** Freshness thresholds are visible - fresh, aging, stale - with stale
   rendering as degraded per S6.
 - **P4.** Evidence shows how it was collected and when, and reads identically to the

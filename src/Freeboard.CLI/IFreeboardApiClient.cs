@@ -73,10 +73,18 @@ internal sealed record ResetPassword(string TemporaryPassword);
 internal sealed record BootstrapResult(ApiUser User, string Token);
 
 /// <summary>
-/// A vendor as returned by the API. <see cref="Tier"/> is null when unset and
-/// <see cref="DataClasses"/> is empty when the vendor holds none of the organisation's regulated data.
+/// A vendor as returned by the API. <see cref="Tier"/> is null when unset,
+/// <see cref="DataClasses"/> is empty when the vendor holds none of the organisation's regulated data,
+/// and <see cref="Assurances"/> is empty when it holds no certification.
 /// </summary>
-internal sealed record ApiVendor(string Id, string Title, string? Tier, IReadOnlyList<string> DataClasses);
+internal sealed record ApiVendor(
+    string Id, string Title, string? Tier, IReadOnlyList<string> DataClasses, IReadOnlyList<ApiAssurance> Assurances);
+
+/// <summary>
+/// One certification on a vendor row. <see cref="Status"/> is derived by the endpoint from the expiry and
+/// the configured warning window, so the CLI prints the state without knowing the window exists.
+/// </summary>
+internal sealed record ApiAssurance(string Standard, string Expires, string Status);
 
 /// <summary>
 /// A scope as returned by the API. Exactly one of <see cref="Standard"/>, <see cref="Requirement"/>, or

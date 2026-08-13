@@ -191,8 +191,12 @@ organisation in the union - a missing or dangling edge yields no hit - and a ret
 asset remain outside the accessible set; an organisation whose own id is in the union stays
 inside it whatever its `parent` says, because the chain starts at the asset itself. Because the seam
 is async (it loads the user's grants), it
-SHALL resolve the accessible set once per request, memoized alongside the
-authorization fact load.
+SHALL resolve the accessible set at most once per principal PER ASSET LIST within a request,
+memoized alongside the authorization fact load. A surface that takes its own store read SHALL be
+served a set resolved from THAT read's asset rows, never a set resolved from another surface's
+asset list, so two surfaces in one request cannot narrow each other's rows. Surfaces that share
+one asset list SHALL share one resolution, so the selector and the views it bounds walk the asset
+tree once between them rather than once each.
 
 The requirement's name is historical. The set it now governs is the accessible ASSET set; the
 organisation union survives inside it as the step the rules above are anchored on, and the
@@ -202,6 +206,12 @@ selector and the selection resolver still present organisations only.
 
 - **WHEN** the selector tree and an org-scoped view are rendered
 - **THEN** both include only organisations in the accessible set
+
+#### Scenario: The selector's bound comes from the asset list it read
+
+- **WHEN** the selector and another surface in the same request take different store reads
+- **THEN** each is bounded by an accessible set resolved from its own read's asset rows, and
+  neither is served the other's set
 
 #### Scenario: Non-organisation assets are not selectable
 

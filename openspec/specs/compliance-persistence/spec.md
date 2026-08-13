@@ -240,7 +240,28 @@ standards they reference). The whole-set scope
 replace precedes the absent standard, requirement, and control deletes, so a removed
 standard, requirement, or control no longer has a referencing scope row when it is
 deleted, and precedes the declared-asset prune, so a removed asset simply leaves a scope
-with a dangling `subject_id` (no foreign key blocks the delete). After all inserts,
+with a dangling `subject_id` (no foreign key blocks the delete).
+
+That sequence states the ordering constraints THIS requirement fixes, not every statement
+the importer runs. Constraints on the same transaction stated elsewhere bind it equally:
+the integration-connection upsert and prune placements by the integration-connection
+capability, the collector placements by this capability's collector storage requirement,
+and the prune of every row that references a removed asset through a `RESTRICT` foreign key
+- collectors, integration-connections, org-scoped role assignments, and vendor assurances -
+by the asset-model capability. The sequence above SHALL therefore be read as a partial order
+that admits those writes rather than as the complete list of them.
+
+The importer SHALL also replace the whole vendor assurance set (delete every
+`vendor_assurances` row then insert the new set), a whole-set replacement rather than an
+upsert because an upsert leaves behind the row of an entry the author removed and a
+per-vendor replace additionally misses the rows of a vendor that left the config entirely.
+Its position is fixed by one constraint rather than two: the replace SHALL run after the
+declared assets and the standards are upserted and BEFORE the first of the absent-row
+deletes. Both of its `ON DELETE RESTRICT` foreign keys follow from that one placement,
+because the declared-asset prune already precedes the absent-standard delete, so neither a
+removed vendor nor a removed standard can be blocked by an assurance row.
+
+After all inserts,
 replacements, and deletes but BEFORE the transaction commits, the importer SHALL run the
 unresolved-subject check (a `LEFT JOIN assets` applying the subject-resolution predicate) within
 the same transaction so it observes the final post-write asset state, capture the unresolved
@@ -276,6 +297,14 @@ commit.
 - **THEN** the import succeeds without a foreign-key violation, because `subject_id` has no
   foreign key; the scope persists with a now-dangling subject, surfaced as a non-blocking
   warning
+
+#### Scenario: Removing an assurance entry leaves no row behind
+
+- **WHEN** a sync runs against a config that keeps a vendor but drops one of its assurance
+  entries, or that drops the vendor and its entries together
+- **THEN** the whole-set replace removes the dropped rows, no row survives for an entry the
+  config no longer declares, and the import succeeds without a foreign-key violation
+  because the replace ran before the declared-asset prune
 
 #### Scenario: Requirement upserted after its standard
 
@@ -1349,4 +1378,47 @@ isolation, so the snapshot cannot straddle a concurrent importer commit.
   names as its subject
 - **THEN** the resolution and the dangling-subject warning agree, because both are computed
   from the same asset list in the same snapshot
+
+### Requirement: Vendor assurance inputs are read as one snapshot
+
+The store SHALL expose the vendor assurance inputs as one repeatable-read snapshot carrying
+the ONE unified asset set and the whole vendor assurance set, and SHALL NOT expose a
+standalone assurance read.
+
+Both lists SHALL be read inside one transaction at repeatable-read isolation, so the
+snapshot cannot straddle a concurrent importer commit. The pairing is not an optimisation:
+every consumer narrows the assurances by the `owner` edges carried on the asset rows, so
+two separate reads can pair the pre-import owner edges with post-import assurance rows and
+produce a combination that never existed in the database. The asset list SHALL be the same
+unified read every other consumer uses, not a vendor-only or otherwise filtered one, so the
+narrowing decision resolves over the same tree everywhere.
+
+The snapshot SHALL carry the assets and the assurances and nothing else, and the standards
+and the unified scopes SHALL stay separate reads. The criterion is NOT that a separate read
+takes no part in narrowing. The standards are a shared reference label: an unresolvable
+standard title already renders as the standard id, so a title read from the far side of a
+commit costs a label rather than a narrowing decision. The unified scopes ARE narrowed by
+the same vendor visibility, and the register renders the justification of every excluded
+scope behind that narrowing, so a separate scope read straddles exactly as a separate
+assurance read would. That straddle is pre-existing and this requirement does not close it:
+it is stated here so a later reader does not mistake the scope read's exclusion for a rule
+that a narrowed read may sit outside the snapshot.
+
+The assurance list SHALL be the whole set, ordered by vendor id then standard id, which the
+caller groups by vendor, matching how the register reads scopes.
+
+#### Scenario: The snapshot reads the assets and the assurances once, together
+
+- **WHEN** a caller reads the vendor assurance input snapshot
+- **THEN** it receives one unified asset list and the whole assurance set, both read in one
+  repeatable-read transaction, and there is no separate assurance-only read method to call
+  instead
+
+#### Scenario: Narrowing and the rows it narrows agree
+
+- **WHEN** the snapshot is read while an importer concurrently commits a sync that changes
+  both a vendor's `owner` and its assurance rows
+- **THEN** the owner edges and the assurance rows in the result are from one side of that
+  commit, so no surface derived from the snapshot can show a vendor's assurances against
+  an owner edge that no longer decides its readability
 

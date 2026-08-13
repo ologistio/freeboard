@@ -113,6 +113,12 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
     /// </summary>
     public IReadOnlyDictionary<string, string?>? Settings { get; init; }
 
+    /// <summary>
+    /// Replaces the registered <see cref="TimeProvider"/> when set, so a date-sensitive render (an
+    /// assurance expiry against the warning window) is pinned rather than dated against the wall clock.
+    /// </summary>
+    public TimeProvider? Clock { get; init; }
+
     /// <summary>Drives the <c>Enterprise:CustomPolicies</c> entitlement so a test can boot on or off.</summary>
     public bool CustomPoliciesEntitled { get; init; }
 
@@ -186,6 +192,12 @@ internal class AuthWebFactory : WebApplicationFactory<Program>
             {
                 services.RemoveAll<IAssetAccess>();
                 services.AddSingleton(AssetAccess);
+            }
+
+            if (Clock is not null)
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton(Clock);
             }
 
             if (IncludeTestProbe)

@@ -52,7 +52,7 @@ public sealed class VendorCommandTests : IDisposable
         var fake = Install(new FakeApiClient
         {
             VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success(
-                [new ApiVendor("vendor-a", "Vendor A", "Critical", ["pii"]), new ApiVendor("vendor-b", "Vendor B", null, [])]),
+                [new ApiVendor("vendor-a", "Vendor A", "Critical", ["pii"], []), new ApiVendor("vendor-b", "Vendor B", null, [], [])]),
             ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success(
             [
                 new ApiScope("vs-a", "T", "vendor-a", null, "req-a", null, "Out", "Supports MFA but not SSO."),
@@ -79,8 +79,8 @@ public sealed class VendorCommandTests : IDisposable
         Install(new FakeApiClient
         {
             VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success(
-                [new ApiVendor("vendor-a", "Vendor A", "Critical", ["pii", "payment-card"]),
-                 new ApiVendor("vendor-b", "Vendor B", null, [])]),
+                [new ApiVendor("vendor-a", "Vendor A", "Critical", ["pii", "payment-card"], []),
+                 new ApiVendor("vendor-b", "Vendor B", null, [], [])]),
             ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success([]),
         });
 
@@ -89,6 +89,29 @@ public sealed class VendorCommandTests : IDisposable
         Assert.Equal(0, exit);
         Assert.Contains("vendor-a  Vendor A  Critical  pii,payment-card", output, StringComparison.Ordinal);
         Assert.Contains("vendor-b  Vendor B  -  -", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ListPrintsEachAssuranceWithItsStatusAndNoLineForAVendorWithNone()
+    {
+        Install(new FakeApiClient
+        {
+            VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success(
+                [new ApiVendor("vendor-a", "Vendor A", "Critical", ["pii"],
+                    [new ApiAssurance("std-soc2", "2027-03-27", "Valid"),
+                     new ApiAssurance("std-iso27001", "2026-03-06", "Expiring")]),
+                 new ApiVendor("vendor-b", "Vendor B", null, [], [])]),
+            ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success([]),
+        });
+
+        var (exit, output, _) = Capture(() => new VendorCommands().List());
+
+        Assert.Equal(0, exit);
+        Assert.Contains("    std-soc2  2027-03-27  Valid", output, StringComparison.Ordinal);
+        Assert.Contains("    std-iso27001  2026-03-06  Expiring", output, StringComparison.Ordinal);
+        // A vendor with no certification prints its own line and nothing under it.
+        var vendorB = output[output.IndexOf("vendor-b", StringComparison.Ordinal)..];
+        Assert.DoesNotContain("    ", vendorB, StringComparison.Ordinal);
     }
 
     [Fact]

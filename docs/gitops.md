@@ -194,6 +194,67 @@ tier: Critical
 data_classes: [pii, phi, special-category]
 ```
 
+#### Vendor assurances
+
+A `Vendor` asset may list the certifications it holds under `assurances`. No other
+type may carry the field. Each entry names:
+
+- `standard` - the id of a declared `Standard` document. The reference is hard: a
+  standard the config does not declare is an error. Recording a vendor's ISO 27001
+  therefore means declaring ISO 27001 as a `Standard`, even when you pursue none of
+  its requirements. A `Standard` with no `Requirement` documents is valid, so that
+  costs one short document.
+- `expires` - the date the certification lapses, as `yyyy-MM-dd`. Required. An
+  assurance with no expiry cannot be warned on, which is the point of recording it.
+- `warn_days` - optional. How many days of advance notice this entry gets, as a
+  whole number of zero or more. It overrides the deployment default.
+
+```yaml
+apiVersion: freeboard.dev/v1alpha1
+kind: Asset
+id: vendor-google-workspace
+title: Google Workspace
+type: Vendor
+source: declared
+owner: ologist-products
+tier: Critical
+assurances:
+  - standard: std-soc2
+    expires: 2027-03-31
+  - standard: std-iso-27001
+    expires: 2026-09-30
+    warn_days: 120
+```
+
+Six things an author can get wrong are reported. Five come from the validator: an
+`assurances` list on an asset that is not a `Vendor`, a `standard` that no declared
+`Standard` matches, a missing or unparseable `expires`, a `warn_days` that is not a
+whole number of zero or more, and two entries naming the same standard on one
+vendor. The sixth comes from the loader: an unknown field on an entry.
+
+A vendor with no `assurances` produces no diagnostic. Holding no certification is a
+normal state.
+
+An `expires` already in the past is not an error either. `validate` is clock-free,
+so its result cannot depend on when you ran it. Expired is a state the register
+renders, not an authoring mistake.
+
+The register derives each entry's state from its expiry, the current date, and the
+window that applies to it - the entry's own `warn_days` when it sets one, otherwise
+the deployment default of 90 days:
+
+| State      | When                                                     |
+| ---------- | -------------------------------------------------------- |
+| `Expired`  | The expiry date has passed.                              |
+| `Expiring` | The window is above zero and the expiry falls inside it. |
+| `Valid`    | Otherwise.                                               |
+
+A certification is valid through its expiry date, not up to it. `warn_days: 0`
+gives no advance notice at all: the entry reads `Valid` up to and including the day
+it expires, and `Expired` the day after. See
+[Read-only and assurance settings](#read-only-and-assurance-settings) for the
+deployment default.
+
 ### Scope
 
 A scope maps one `subject` (any asset id) to exactly one target - a `Standard`, a
@@ -279,8 +340,8 @@ and a standard/requirement/control cannot be deleted while a scope targets it.
 A vendor is an `Asset` with `type: Vendor`. It names a piece of software or
 platform in use. `owner` (a Company/Department asset) makes the vendor visible to
 that org's readers; a vendor with no owner is visible to no caller (a non-blocking
-warning). A vendor also carries the optional `tier` and `data_classes` fields. See
-[Asset](#asset) above.
+warning). A vendor also carries the optional `tier`, `data_classes`, and
+`assurances` fields. See [Asset](#asset) above.
 
 ```yaml
 apiVersion: freeboard.dev/v1alpha1
@@ -292,6 +353,9 @@ source: declared
 owner: ologist-products
 tier: High
 data_classes: [pii, credentials]
+assurances:
+  - standard: std-soc2
+    expires: 2027-01-31
 ```
 
 ### Collector
@@ -478,6 +542,17 @@ Validation collects every error in one pass (not just the first). It fails when:
 - an `Asset.parent` or `Asset.owner` names an asset that is not a `Company`/`Department`;
 - a declared `Asset` carries a discovered-only field (`identity_kind`,
   `identity_value`, `state`, `first_seen`, `last_seen`);
+- an `Asset.tier` or `Asset.data_classes` uses an unknown token, sits on an asset that
+  is not a `Vendor`, or repeats a data class token;
+- an `Asset.assurances` sits on an asset that is not a `Vendor`;
+- an `Asset.assurances` entry omits `standard`, or names a `Standard` id that does not
+  exist;
+- an `Asset.assurances` entry omits `expires`, or sets one that is not a `yyyy-MM-dd`
+  date (an expiry already in the past is NOT an error: validation does not read the
+  clock);
+- an `Asset.assurances` entry sets a `warn_days` that is not a whole number of zero or
+  more;
+- two `Asset.assurances` entries on one vendor name the same standard;
 - a `Scope` does not name exactly one of `standard`, `requirement`, or `control`
   (none set, or more than one);
 - a `Scope.standard`, `Scope.requirement`, or `Scope.control` names an id that does
@@ -609,9 +684,14 @@ a nullable `vendor_id` foreign key to the `Vendor` assets; a collector reference
 through its nullable `connection_id`. The `collectors` `RESTRICT` foreign keys are
 why `gitops sync` prunes an absent collector before deleting the control, vendor, or
 connection it referenced.
-One relation table
-(`control_requirements` for `Control.maps_to`) with a composite primary key and
-`ON DELETE CASCADE` foreign keys. One migration-tracking table
+Two relation tables, each with a composite primary key.
+`control_requirements` (for `Control.maps_to`) has `ON DELETE CASCADE` foreign keys.
+`vendor_assurances` (for `Asset.assurances`) is keyed on `(vendor_id, standard_id)`
+and holds an `expires` date and a nullable `warn_days`, guarded by a `CHECK` that
+keeps `warn_days` at zero or above. Its two foreign keys are `ON DELETE RESTRICT`,
+not `CASCADE`: a certification on file must not disappear silently with the vendor or
+the standard it names, so `gitops sync` replaces the whole assurance set before it
+deletes any absent vendor or standard. One migration-tracking table
 (`schema_migrations`) bootstrapped by the migration runner.
 
 Every `id` and foreign-key column uses the binary collation `utf8mb4_bin`, so the
@@ -622,6 +702,14 @@ database's identity rules match Core's case-sensitive, exact-byte `id` semantics
 
 Migrations are forward-only and applied explicitly. The web app never
 auto-migrates and never auto-syncs.
+
+Deploy the migration before the app. A newer app against an older schema degrades the
+surfaces that read the missing tables, not the whole application. An absent
+`vendor_assurances` table leaves the Vendors rail item unbadged, answers `/vendors`
+with a store-unreachable response, and shows the same notice on the vendor register
+page. Authorization gates, compliance write selectors and the role-assignment guards
+keep working, because they read the `assets` table alone. A table one feature needs
+cannot close a decision that does not need it.
 
 ```sh
 # Apply pending schema migrations.
@@ -698,10 +786,14 @@ read-only mode). All routes live under the `/api/v1/freeboard/` prefix:
   chain or its `owner` reaches the union, or when its own id is in it. A subject that
   is missing, dangling, or resolves to no live asset hides the scope (fail-closed),
   so a hidden subject's `Out` justification never leaks.
-- `GET /api/v1/freeboard/vendors` - persisted vendors (`id`, `title`). Narrowed by
-  the same test, which admits a vendor exactly when its `owner` (a Company/Department
-  asset) resolves into the caller's organisation union; a vendor with a null or
-  dangling owner is hidden from everyone (fail-closed).
+- `GET /api/v1/freeboard/vendors` - persisted vendors (`id`, `title`, `tier`,
+  `data_classes`, and `assurances`). Each assurance carries its `standard`, its
+  `expires` date, and a derived `status` of `Valid`, `Expiring`, or `Expired`. The
+  endpoint derives the status rather than returning the date alone, so the warning
+  window lives in one process and the register and the CLI cannot disagree. Narrowed
+  by the same test, which admits a vendor exactly when its `owner` (a
+  Company/Department asset) resolves into the caller's organisation union; a vendor
+  with a null or dangling owner is hidden from everyone (fail-closed).
 - `GET /api/v1/freeboard/collectors` - persisted collectors (`id`, `title`,
   `control`, `vendor`, `type`, `provider`, `frequency`, `threshold`, and a `config`
   object carrying only the payload keys the row actually holds; an absent one is
@@ -813,14 +905,24 @@ those databases (see `tests/Freeboard.TestInfrastructure/docker/mysql-init/`); t
 is a local dev/test convenience only and is not how a runtime user should be
 provisioned.
 
-## Read-only (GitOps) mode
+## Read-only and assurance settings
 
-The web app reads two config keys:
+The web app reads three config keys:
 
 - `Freeboard:GitOps:ReadOnly` (bool, default `false`) - when `true`, the app is
   read-only.
 - `Freeboard:GitOps:RepositoryUrl` (string, optional) - the git repo URL surfaced
   to callers; omitted when empty.
+- `Freeboard:Assurance:WarnWindowDays` (int, default `90`) - how many days before a
+  certification lapses the register starts warning. It applies to every assurance
+  entry that sets no `warn_days` of its own; an entry that sets one overrides it.
+  Ninety days because an annual certification needs about a quarter's notice to book
+  a renewal audit and get a report issued, so a shorter window warns after the
+  outcome is already decided. Zero means no advance notice at all: an entry reads
+  `Valid` up to and including its expiry date and `Expired` after it. A negative
+  value behaves the same way - the bind does not reject it and the status rule
+  treats it as zero - so it degrades to no advance warning rather than failing
+  startup.
 
 When read-only is on, mutating HTTP requests (POST, PUT, PATCH, DELETE) are
 rejected with `409 Conflict` and an RFC 7807 `application/problem+json` body that

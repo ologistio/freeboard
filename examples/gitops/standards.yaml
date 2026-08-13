@@ -17,3 +17,12 @@ id: std-soc2
 title: SOC 2
 version: "2017"
 authority: American Institute of Certified Public Accountants
+---
+# Declared so a vendor's certification can name it. A standard you hold no
+# requirements against is still worth declaring when a vendor is certified to it.
+apiVersion: freeboard.dev/v1alpha1
+kind: Standard
+id: std-iso-27001
+title: ISO/IEC 27001
+version: "2022"
+authority: International Organization for Standardization

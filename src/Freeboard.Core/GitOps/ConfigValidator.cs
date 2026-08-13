@@ -8,8 +8,9 @@ namespace Freeboard.Core.GitOps;
 /// <see cref="Diagnostic"/>; never throws and never writes output. Owns: required
 /// fields, apiVersion value, unique id per kind, reference resolution, the asset set (type/source
 /// tokens, mutually-exclusive parent/owner edges with their target/carrier-type rules, the Vendor-only
-/// tier and data_classes vocabularies, and dangling edges, parent cycles, missing read anchors, and a
-/// tierless vendor as non-blocking warnings), the scope mapping
+/// tier and data_classes vocabularies, the Vendor-only assurances with their resolvable standard
+/// reference, expiry date, and warning-window override, and dangling edges, parent cycles, missing read
+/// anchors, and a tierless vendor as non-blocking warnings), the scope mapping
 /// (exactly-one target of standard/requirement/control, resolvable target references, a scalar
 /// dangling-tolerant subject warned when it resolves to no asset, the Vendor-subject-no-standard rule,
 /// disposition enum, justification required when Out, and the three unique subject/target pairs), the
@@ -75,7 +76,7 @@ public static class ConfigValidator
         var controlIds = ValidateControls(config, requirementIds, diagnostics);
         // Assets produce the typed id subsets the reference phases consume: organisation refs resolve
         // against Company/Department asset ids, vendor refs against Vendor asset ids.
-        var assets = ValidateAssets(config, diagnostics);
+        var assets = ValidateAssets(config, standardIds, diagnostics);
         var vendorIds = assets.VendorIds;
         ValidateScopes(config, assets.AllIds, vendorIds, standardIds, requirementIds, controlIds, diagnostics);
         // Integration-connections consume vendor ids (for the optional vendor reference) and produce the
@@ -237,7 +238,8 @@ public static class ConfigValidator
     /// <paramref name="AllIds"/> is every asset id (any type), for the scope subject-dangling check.</summary>
     private sealed record AssetIdSets(HashSet<string> OrganisationIds, HashSet<string> VendorIds, HashSet<string> AllIds);
 
-    private static AssetIdSets ValidateAssets(GitOpsConfig config, List<Diagnostic> diagnostics)
+    private static AssetIdSets ValidateAssets(
+        GitOpsConfig config, HashSet<string> standardIds, List<Diagnostic> diagnostics)
     {
         var allIds = new HashSet<string>(StringComparer.Ordinal);
         var organisationIds = new HashSet<string>(StringComparer.Ordinal);
@@ -301,6 +303,7 @@ public static class ConfigValidator
             }
 
             ValidateVendorRiskProfile(asset, typeParsed, type, diagnostics);
+            ValidateVendorAssurances(asset, typeParsed, type, standardIds, diagnostics);
 
             if (!string.IsNullOrEmpty(asset.Id))
             {
@@ -391,6 +394,100 @@ public static class ConfigValidator
                 Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' is a Vendor with no tier; the register "
                     + "shows it as untracked until a tier is set.",
             });
+        }
+    }
+
+    // Assurances are Vendor-only, like the risk profile. The standard reference keeps referential
+    // integrity (matching the Scope target references) rather than warning as a dangling parent or owner
+    // does: a certification names a document in the same config, not a thing another writer owns. An
+    // expiry already in the past draws NO diagnostic - validation reads no clock, so a time-dependent
+    // check would make two runs over one unchanged config disagree.
+    private static void ValidateVendorAssurances(
+        Asset asset,
+        bool typeParsed,
+        AssetKind type,
+        HashSet<string> standardIds,
+        List<Diagnostic> diagnostics)
+    {
+        if (asset.Assurances.Count == 0)
+        {
+            return;
+        }
+
+        if (typeParsed && type != AssetKind.Vendor)
+        {
+            diagnostics.Add(new Diagnostic
+            {
+                Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' sets 'assurances' but is not a Vendor; "
+                    + "only a vendor holds certifications.",
+            });
+        }
+
+        var seenStandards = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var assurance in asset.Assurances)
+        {
+            if (string.IsNullOrWhiteSpace(assurance.Standard))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has an assurance with no 'standard'.",
+                });
+            }
+            else
+            {
+                // Uniqueness is checked whether or not the standard resolves. Two entries naming the
+                // same missing standard are two mistakes, and reporting only the dangling reference
+                // would leave the duplicate behind once the author declared the standard.
+                if (!standardIds.Contains(assurance.Standard))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has an assurance referencing unknown "
+                            + $"Standard id '{assurance.Standard}'.",
+                    });
+                }
+
+                if (!seenStandards.Add(assurance.Standard))
+                {
+                    diagnostics.Add(new Diagnostic
+                    {
+                        Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' has duplicate assurance standard "
+                            + $"'{assurance.Standard}'.",
+                    });
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(assurance.Expires))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' assurance "
+                        + $"'{Describe(assurance.Standard)}' is missing required field 'expires'.",
+                });
+            }
+            else if (!DateOnly.TryParseExact(
+                assurance.Expires, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' assurance "
+                        + $"'{Describe(assurance.Standard)}' has malformed expires '{assurance.Expires}'. "
+                        + "Expected a calendar date in YYYY-MM-DD form.",
+                });
+            }
+
+            // Zero is legitimate and means no advance notice; only a non-integer or a negative is a mistake.
+            if (!string.IsNullOrWhiteSpace(assurance.WarnDays)
+                && (!int.TryParse(assurance.WarnDays, NumberStyles.Integer, CultureInfo.InvariantCulture, out var warnDays)
+                    || warnDays < 0))
+            {
+                diagnostics.Add(new Diagnostic
+                {
+                    Message = $"{GitOpsSchema.KindAsset} '{Describe(asset.Id)}' assurance "
+                        + $"'{Describe(assurance.Standard)}' has invalid warn_days '{assurance.WarnDays}'. "
+                        + "Expected a whole number of zero or more days.",
+                });
+            }
         }
     }
 

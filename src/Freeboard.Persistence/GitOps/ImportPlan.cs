@@ -102,6 +102,13 @@ public sealed record ScopeRowPlan(
 public sealed record ControlRequirementRow(string ControlId, string RequirementId);
 
 /// <summary>
+/// One vendor assurance row to insert. Identity is the pair (<see cref="VendorId"/>,
+/// <see cref="StandardId"/>). <see cref="WarnDays"/> is the optional per-entry warning-window override,
+/// null when the entry authors none.
+/// </summary>
+public sealed record VendorAssuranceRowPlan(string VendorId, string StandardId, DateOnly Expires, int? WarnDays);
+
+/// <summary>
 /// The flattened, id-keyed shape derived from a validated <see cref="GitOpsConfig"/>.
 /// Pure (no database), so the mapping is unit testable without MySQL.
 /// </summary>
@@ -122,6 +129,8 @@ public sealed class ImportPlan
     public IReadOnlyList<CollectorRowPlan> Collectors { get; }
 
     public IReadOnlyList<IntegrationConnectionRowPlan> IntegrationConnections { get; }
+
+    public IReadOnlyList<VendorAssuranceRowPlan> VendorAssurances { get; }
 
     private ImportPlan(GitOpsConfig config)
     {
@@ -171,14 +180,21 @@ public sealed class ImportPlan
         Collectors = config.Collectors
             .Select(c => new CollectorRowPlan(
                 c.Id, c.ApiVersion, c.Title, c.Control, NullIfBlank(c.Vendor), NullIfBlank(c.Connection),
-                c.Type, NullIfBlank(c.Provider), c.Frequency, ParseThreshold(c.Threshold),
-                StoredCollectorConfig.Write(c.Config, ParseThreshold(c.Config.PassMark))))
+                c.Type, NullIfBlank(c.Provider), c.Frequency, ParseOptionalInt(c.Threshold),
+                StoredCollectorConfig.Write(c.Config, ParseOptionalInt(c.Config.PassMark))))
             .ToList();
 
         // Optional vendor normalizes to null (blank means absent), like the collector's vendor.
         IntegrationConnections = config.IntegrationConnections
             .Select(c => new IntegrationConnectionRowPlan(
                 c.Id, c.ApiVersion, c.Title, c.Provider, c.BaseUrl, c.DiscoveryCadence, NullIfBlank(c.Vendor)))
+            .ToList();
+
+        // An asset with no entries contributes no rows. warn_days is optional, so it uses the tolerant
+        // TryParse idiom; expires is required and the column is NOT NULL, so it parses strictly.
+        VendorAssurances = config.Assets
+            .SelectMany(a => a.Assurances.Select(entry => new VendorAssuranceRowPlan(
+                a.Id, entry.Standard, ParseExpires(a.Id, entry), ParseOptionalInt(entry.WarnDays))))
             .ToList();
     }
 
@@ -189,7 +205,17 @@ public sealed class ImportPlan
     private static string? WriteDataClasses(IReadOnlyList<string> dataClasses) =>
         dataClasses.Count == 0 ? null : JsonSerializer.Serialize(dataClasses);
 
-    private static int? ParseThreshold(string value) =>
+    // Throws rather than dropping the row: Core validation has already rejected an unparseable date, so
+    // reaching this line means the caller skipped validation, and a silently dropped row would read as a
+    // vendor that quietly lost a certification. InvalidOperationException specifically, because that is
+    // what the CLI's sync path catches - a FormatException would escape as an unhandled stack trace.
+    private static DateOnly ParseExpires(string assetId, Assurance entry) =>
+        DateOnly.TryParseExact(entry.Expires, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed
+            : throw new InvalidOperationException(
+                $"Asset '{assetId}' assurance '{entry.Standard}' has an unparseable expires '{entry.Expires}'.");
+
+    private static int? ParseOptionalInt(string value) =>
         int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
 
     public IReadOnlyList<string> StandardIds => Standards.Select(r => r.Id).ToList();

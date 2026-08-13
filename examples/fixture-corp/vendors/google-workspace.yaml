@@ -9,6 +9,9 @@ source: declared
 owner: fixture-corp
 tier: Critical
 data_classes: [pii, credentials]
+assurances:
+  - standard: std-soc2
+    expires: 2026-09-30
 ---
 apiVersion: freeboard.dev/v1alpha1
 kind: Scope

@@ -57,15 +57,16 @@ public sealed record OrgSelectionState(
     string? SelectedId);
 
 /// <summary>
-/// Request-scoped resolver serving ONLY the layout selector. It loads the asset list once (memoized),
-/// derives the accessible ORGANISATION ids via <see cref="IAssetAccess"/>, reads the cookie candidate,
-/// and resolves it - so the view component reads once per request. A store-load failure degrades to
-/// "All Organisations" with an empty list rather than throwing, so a store outage never faults the
-/// layout. It exposes no store-failure flag: an empty store and an unreachable one render the same
-/// "All Organisations" entry, and org-scoped pages detect an outage through their own direct reads.
+/// Request-scoped resolver serving ONLY the layout selector. It takes the request's shared asset list from
+/// <see cref="Authz.AuthzRequestCache"/> rather than reading the store itself, derives the
+/// accessible ORGANISATION ids via <see cref="IAssetAccess"/>, reads the cookie candidate, and resolves it.
+/// A store-load failure degrades to "All Organisations" with an empty list rather than throwing, so a store
+/// outage never faults the layout. It exposes no store-failure flag: an empty store and an unreachable one
+/// render the same "All Organisations" entry, and org-scoped pages detect an outage through their own
+/// direct reads.
 /// </summary>
 public sealed class OrgSelectionResolver(
-    IHttpContextAccessor httpContextAccessor, IComplianceStore store, IAssetAccess access)
+    IHttpContextAccessor httpContextAccessor, Authz.AuthzRequestCache cache, IAssetAccess access)
 {
     private static readonly IReadOnlySet<string> Empty = new HashSet<string>(StringComparer.Ordinal);
 
@@ -81,7 +82,7 @@ public sealed class OrgSelectionResolver(
         var http = httpContextAccessor.HttpContext;
         try
         {
-            var assets = await store.GetAssetsAsync(cancellationToken).ConfigureAwait(false);
+            var assets = await cache.GetAssetsAsync(cancellationToken).ConfigureAwait(false);
             var user = http?.User ?? new ClaimsPrincipal();
             var accessible = await access.AccessibleAssetIdsAsync(user, assets, cancellationToken).ConfigureAwait(false);
 

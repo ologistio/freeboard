@@ -19,9 +19,11 @@ namespace Freeboard.Authz;
 /// with a missing or dangling edge, and a retired discovered asset, outside the set - otherwise Observe
 /// would preview a mode with different fail-closed semantics from the one it stands in for.
 ///
-/// The whole resolution runs at most once per principal per request, memoized on the request cache.
-/// A page render asks for it at least twice (the layout selector, then the page), and the Compat
-/// zero-grant fallback writes an audit row each time it actually runs - one use, one row.
+/// The whole resolution runs at most once per principal PER ASSET LIST, memoized on the request cache.
+/// A page render asks for it at least twice (the layout selector, then the page); those share a list
+/// and so resolve once, while a request that reads assets twice resolves twice, each over its own owner
+/// edges. The Compat zero-grant fallback writes an audit row each time it actually runs, so the rows
+/// follow the resolutions rather than the request - one use, one row.
 /// </summary>
 public sealed class AuthzAssetAccess(
     AuthzRequestCache cache,
@@ -33,6 +35,7 @@ public sealed class AuthzAssetAccess(
         ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
         => cache.AccessibleAssetIdsAsync(
             PrincipalKey(user),
+            assets,
             async () => AssetReadAccess.AccessibleAssetIds(
                 assets, await OrganisationUnionAsync(user, assets, cancellationToken).ConfigureAwait(false)));
 

@@ -1,3 +1,4 @@
+using Freeboard.Authz;
 using Freeboard.Compliance;
 using Freeboard.Persistence;
 using Freeboard.Web;
@@ -18,7 +19,7 @@ namespace Freeboard.Pages.Compliance;
 /// as one with no vendor.
 /// </summary>
 public sealed class IntegrationConnectionsModel(
-    IComplianceStore store, IIntegrationTokenResolver tokens, IAssetAccess assetAccess) : PageModel
+    IComplianceStore store, AuthzRequestCache cache, IIntegrationTokenResolver tokens, IAssetAccess assetAccess) : PageModel
 {
     /// <summary>All connections with their composed token-resolvable flag, failing (unresolvable) first (L1).</summary>
     public IReadOnlyList<ConnectionView> Connections { get; private set; } = [];
@@ -30,7 +31,7 @@ public sealed class IntegrationConnectionsModel(
     {
         try
         {
-            var assets = await store.GetAssetsAsync(ct).ConfigureAwait(false);
+            var assets = await cache.GetAssetsAsync(ct).ConfigureAwait(false);
             var accessible = await assetAccess.AccessibleAssetIdsAsync(User, assets, ct).ConfigureAwait(false);
 
             // L1: exceptions first - unresolvable-token connections sort above resolvable ones, then by id.
@@ -41,7 +42,7 @@ public sealed class IntegrationConnectionsModel(
                 .ThenBy(v => v.Connection.Id, StringComparer.Ordinal)
                 .ToList();
         }
-        catch (Exception ex) when (IsStoreFailure(ex))
+        catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
         {
             StoreUnreachable = true;
         }
@@ -49,7 +50,4 @@ public sealed class IntegrationConnectionsModel(
 
     /// <summary>A persisted connection paired with its read-time token-resolvable health flag.</summary>
     public sealed record ConnectionView(IntegrationConnectionRow Connection, bool TokenResolvable);
-
-    private static bool IsStoreFailure(Exception ex) =>
-        ex is global::System.Data.Common.DbException or InvalidOperationException or TimeoutException;
 }

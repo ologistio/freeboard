@@ -32,6 +32,7 @@ public static class ConfigLoader
             [GitOpsSchema.KindAsset] = new(StringComparer.Ordinal)
             {
                 "apiVersion", "kind", "id", "title", "type", "source", "parent", "owner", "tier", "data_classes",
+                "assurances",
             },
             [GitOpsSchema.KindScope] = new(StringComparer.Ordinal)
             {
@@ -183,6 +184,11 @@ public static class ConfigLoader
             ReportUnknownConfigKeys(mapping, relative, diagnostics);
         }
 
+        if (string.Equals(kind, GitOpsSchema.KindAsset, StringComparison.Ordinal))
+        {
+            ReportUnknownAssuranceKeys(mapping, relative, diagnostics);
+        }
+
         try
         {
             switch (kind)
@@ -201,9 +207,16 @@ public static class ConfigLoader
                     break;
                 case GitOpsSchema.KindAsset:
                     var asset = Deserialize<Asset>(mapping);
-                    // Explicit-null list (`data_classes:`) deserializes to null; normalize to empty so the
-                    // validator and the import path read one shape. An absent key already binds to empty.
-                    config.Assets.Add(asset with { DataClasses = asset.DataClasses ?? [] });
+                    // Explicit-null list (`data_classes:`/`assurances:`) deserializes to null; normalize to
+                    // empty so the validator and the import path read one shape. An absent key already binds
+                    // to empty. A null assurances ITEM is KEPT as an empty entry, the `checks` treatment, so
+                    // the validator reports its missing standard and expires; dropping it would swallow the
+                    // authoring mistake.
+                    config.Assets.Add(asset with
+                    {
+                        DataClasses = asset.DataClasses ?? [],
+                        Assurances = (asset.Assurances ?? []).Select(a => a ?? new Assurance()).ToList(),
+                    });
                     break;
                 case GitOpsSchema.KindScope:
                     config.Scopes.Add(Deserialize<Scope>(mapping));
@@ -325,6 +338,43 @@ public static class ConfigLoader
                 Column = (int)key.Start.Column,
                 Message = $"Unknown field '{key.Value}' on {GitOpsSchema.KindCollector} config.",
             });
+        }
+    }
+
+    /// <summary>Keys an <c>assurances</c> entry may author.</summary>
+    private static readonly HashSet<string> AssuranceKeys = new(StringComparer.Ordinal)
+    {
+        "standard", "expires", "warn_days",
+    };
+
+    // Same reason as ReportUnknownConfigKeys: the check runs on the authored entry rather than on the
+    // bound object, because a key with an empty value binds identically to an absent one. The
+    // document-level unknown-field check reads top-level keys only, so without this an unknown key inside
+    // an entry vanishes under IgnoreUnmatchedProperties.
+    private static void ReportUnknownAssuranceKeys(YamlMappingNode mapping, string relative, List<Diagnostic> diagnostics)
+    {
+        if (ValueNode(mapping, "assurances") is not YamlSequenceNode entries)
+        {
+            return;
+        }
+
+        foreach (var entry in entries.Children.OfType<YamlMappingNode>())
+        {
+            foreach (var field in entry.Children)
+            {
+                if (field.Key is not YamlScalarNode key || key.Value is null || AssuranceKeys.Contains(key.Value))
+                {
+                    continue;
+                }
+
+                diagnostics.Add(new Diagnostic
+                {
+                    File = relative,
+                    Line = (int)key.Start.Line,
+                    Column = (int)key.Start.Column,
+                    Message = $"Unknown field '{key.Value}' on {GitOpsSchema.KindAsset} assurance.",
+                });
+            }
         }
     }
 

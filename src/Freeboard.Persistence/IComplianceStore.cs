@@ -42,5 +42,13 @@ public interface IComplianceStore
     /// </summary>
     Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads the assets and the whole vendor assurance set together in one repeatable-read snapshot. There
+    /// is no standalone assurance read: every caller narrows the assurances by the <c>owner</c> edges on
+    /// the asset rows, so a lone assurance read has no honest caller. The caller groups the assurances by
+    /// vendor, matching how the register reads scopes.
+    /// </summary>
+    Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default);
+
     Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default);
 }

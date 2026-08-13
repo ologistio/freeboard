@@ -262,6 +262,30 @@ public sealed class MySqlComplianceStore(IDbConnectionFactory connectionFactory)
         return new SoaDrilldownInputs(assets, scopes, requirements, controls, collectors);
     }
 
+    private const string VendorAssuranceSelect =
+        "SELECT vendor_id AS VendorId, standard_id AS StandardId, expires AS Expires, warn_days AS WarnDays "
+        + "FROM vendor_assurances ORDER BY vendor_id, standard_id;";
+
+    public async Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        // One consistent snapshot: every caller narrows the assurances by the owner edges on the assets,
+        // so two autocommit reads could pair pre-sync owner edges with post-sync assurance rows.
+        await using var transaction = await connection
+            .BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
+
+        var assets = await ReadAssetsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+
+        var assurances = (await connection.QueryAsync<VendorAssuranceRow>(new CommandDefinition(
+            VendorAssuranceSelect,
+            transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return new VendorAssuranceInputs(assets, assurances);
+    }
+
     public async Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);

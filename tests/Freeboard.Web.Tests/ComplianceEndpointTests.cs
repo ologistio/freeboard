@@ -398,8 +398,78 @@ public sealed class ComplianceEndpointTests
         // The row mirrors the register. The owner edge is the authorization anchor and is deliberately
         // not published.
         Assert.Equal(
-            ["id", "title", "tier", "data_classes"],
+            ["id", "title", "tier", "data_classes", "assurances"],
             json[0].EnumerateObject().Select(p => p.Name).ToArray());
+    }
+
+    [Fact]
+    public async Task VendorsEndpointReturnsEachAssuranceWithItsDerivedStatus()
+    {
+        // The endpoint derives the status rather than returning the expiry alone, so the warning window
+        // lives in one process and the page and the CLI cannot disagree about one certification.
+        var store = PopulatedStore();
+        store.Assurances =
+        [
+            new VendorAssuranceRow("vendor-a", "std-a", AssuranceToday.AddDays(365), null),
+            new VendorAssuranceRow("vendor-a", "std-b", AssuranceToday.AddDays(5), null),
+            new VendorAssuranceRow("vendor-b", "std-a", AssuranceToday.AddDays(-3), null),
+        ];
+        using var factory = new AuthWebFactory { Compliance = store, Clock = new FixedClock(AssuranceToday) };
+        using var client = MemberClient(factory);
+
+        var json = await client.GetFromJsonAsync<JsonElement>("/api/v1/freeboard/vendors");
+
+        var vendorA = json.EnumerateArray().Single(e => e.GetProperty("id").GetString() == "vendor-a");
+        var assurances = vendorA.GetProperty("assurances").EnumerateArray().ToList();
+        Assert.Equal(2, assurances.Count);
+        Assert.Equal("std-a", assurances[0].GetProperty("standard").GetString());
+        Assert.Equal(AssuranceToday.AddDays(365).ToString("yyyy-MM-dd"), assurances[0].GetProperty("expires").GetString());
+        Assert.Equal("Valid", assurances[0].GetProperty("status").GetString());
+        Assert.Equal("Expiring", assurances[1].GetProperty("status").GetString());
+
+        var vendorB = json.EnumerateArray().Single(e => e.GetProperty("id").GetString() == "vendor-b");
+        Assert.Equal("Expired", vendorB.GetProperty("assurances")[0].GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task VendorsEndpointOmitsAHiddenVendorsAssurances()
+    {
+        // The row itself is absent rather than redacted, so neither the vendor id nor its assurance
+        // reaches the caller.
+        var store = new FakeComplianceStore
+        {
+            Assets =
+            [
+                TestAssets.Org("org-a"),
+                TestAssets.Org("org-b"),
+                TestAssets.Vendor("vendor-a", "org-a"),
+                TestAssets.Vendor("vendor-b", "org-b"),
+            ],
+            Assurances = [new VendorAssuranceRow("vendor-b", "std-hidden", AssuranceToday.AddDays(5), null)],
+        };
+        var authz = new FakeAuthzStore().GrantComplianceReader("u1", "org-a");
+        using var factory = new AuthWebFactory
+        {
+            Compliance = store,
+            AuthzMode = "Enforce",
+            Authz = authz,
+            Clock = new FixedClock(AssuranceToday),
+        };
+        using var client = factory.CreateAuthenticatedClient(AuthWebFactory.MakeUser("u1"));
+
+        var response = await client.GetAsync("/api/v1/freeboard/vendors");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("vendor-b", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("std-hidden", body, StringComparison.Ordinal);
+        Assert.Contains("vendor-a", body, StringComparison.Ordinal);
+    }
+
+    private static readonly DateOnly AssuranceToday = new(2026, 3, 1);
+
+    private sealed class FixedClock(DateOnly today) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(today.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
     }
 
     [Fact]

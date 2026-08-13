@@ -1,7 +1,11 @@
 using System.Security.Claims;
 using Freeboard.Authz;
+using Freeboard.Compliance;
+using Freeboard.Core.Assets;
 using Freeboard.Core.Authz;
 using Freeboard.Core.Enterprise;
+using Freeboard.Web;
+using Microsoft.Extensions.Options;
 
 namespace Freeboard.Navigation;
 
@@ -18,16 +22,34 @@ public sealed record ShellNavView(IReadOnlyList<ShellNavGroupView> Groups);
 /// Evaluates <see cref="ShellNavCatalog"/> for the current request: it drops items whose entitlement or
 /// authorization gate fails (a dropped item emits no label and no href, so a gated destination is never
 /// leaked), marks exactly one item active (an explicit page-declared key first, else the longest route
-/// that prefixes the current path), and attaches a badge count where a source exists. No actionable-count
-/// source exists yet, so every count stays null and nothing badges (N6 - no fabricated badges).
+/// that prefixes the current path), and attaches a badge count where a source exists.
+///
+/// The Vendors item is the one badged source: how many readable vendors hold an expiring or already
+/// expired certification. A vendor holding no certification is never counted, because a badge that is
+/// permanently non-zero stops being read (N6). The count reads the assurance snapshot on
+/// <see cref="AuthzRequestCache"/> rather than taking its own, so a page that renders the register pays
+/// for one read rather than two; the accessible set that narrows it is resolved over that snapshot's own
+/// asset list, so sharing is a read-count matter and not what keeps the narrowing honest. It is memoized
+/// because the layout resolves the navigation up to three times per render, and it is computed inside the
+/// store-failure catch so an outage leaves the item unbadged rather than failing every page in the app.
 /// Request-scoped, mirroring the per-request authz/entitlement calls the layout already made.
 /// </summary>
-public sealed class ShellNavResolver(IAuthzFactProvider facts, IEnterpriseEntitlements entitlements)
+public sealed class ShellNavResolver(
+    IAuthzFactProvider facts,
+    IEnterpriseEntitlements entitlements,
+    AuthzRequestCache cache,
+    IAssetAccess assetAccess,
+    TimeProvider clock,
+    IOptions<AssuranceOptions> assurance)
 {
+    private bool _countResolved;
+    private int? _lapsingVendorCount;
+
     public async Task<ShellNavView> ResolveAsync(
         ClaimsPrincipal user, string currentPath, string? activeKey, CancellationToken cancellationToken = default)
     {
         var path = (currentPath ?? "/").ToLowerInvariant();
+        var lapsingVendors = await LapsingVendorCountAsync(user, cancellationToken).ConfigureAwait(false);
 
         var visible = new List<(ShellNavItem Item, ShellNavGroup Group)>();
         foreach (var group in ShellNavCatalog.Groups)
@@ -50,12 +72,54 @@ public sealed class ShellNavResolver(IAuthzFactProvider facts, IEnterpriseEntitl
                     .Select(v => new ShellNavItemView(
                         v.Item.Key, v.Item.Label, v.Item.Route,
                         string.Equals(v.Item.Key, active, StringComparison.Ordinal),
-                        Count: null))
+                        Count: string.Equals(v.Item.Key, "vendors", StringComparison.Ordinal) ? lapsingVendors : null))
                     .ToList()))
             .Where(g => g.Items.Count > 0)
             .ToList();
 
         return new ShellNavView(groups);
+    }
+
+    // Null when nothing lapses and null when the store fails: the shell renders an item with no count
+    // source unbadged either way, which is the safe reading of a number nobody could compute. The failed
+    // result is memoized too, so an outage costs one attempt per request rather than three.
+    private async Task<int?> LapsingVendorCountAsync(ClaimsPrincipal user, CancellationToken cancellationToken)
+    {
+        if (_countResolved)
+        {
+            return _lapsingVendorCount;
+        }
+
+        _countResolved = true;
+        try
+        {
+            var inputs = await cache.GetVendorAssuranceInputsAsync(cancellationToken).ConfigureAwait(false);
+            var accessible = await assetAccess
+                .AccessibleAssetIdsAsync(user, inputs.Assets, cancellationToken).ConfigureAwait(false);
+            var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
+            var warnWindowDays = assurance.Value.WarnWindowDays;
+
+            // Narrowed the same way the register narrows, on both tests: an accessible id AND a Vendor
+            // row. The badge and the page must not be able to disagree about which vendors count.
+            var vendorIds = inputs.Assets
+                .Where(a => a.Type is "Vendor")
+                .Select(a => a.Id)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var count = inputs.Assurances
+                .Where(a => vendorIds.Contains(a.VendorId)
+                    && accessible.Contains(a.VendorId)
+                    && VendorAssurance.Evaluate(a.Expires, a.WarnDays ?? warnWindowDays, today) is not AssuranceStatus.Valid)
+                .Select(a => a.VendorId)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+
+            return _lapsingVendorCount = count > 0 ? count : null;
+        }
+        catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
+        {
+            return _lapsingVendorCount = null;
+        }
     }
 
     private async Task<bool> IsVisibleAsync(ShellNavItem item, ClaimsPrincipal user, CancellationToken cancellationToken)
