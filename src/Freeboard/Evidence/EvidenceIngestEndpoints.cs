@@ -106,8 +106,15 @@ public static class EvidenceIngestEndpoints
             string vendor;
             try
             {
-                var collectors = await reads.GetCollectorsAsync(ct).ConfigureAwait(false);
-                var found = collectors.FirstOrDefault(c =>
+                // One snapshot for the whole admission: the collector, its control's mapping, and the
+                // Statement of Applicability the organisation is resolved against decide one outcome, so a
+                // sync landing between them could admit a run against a requirement that had just resolved
+                // Out.
+                var snapshot = await reads.GetSnapshotAsync(
+                    ComplianceReadSet.Assets | ComplianceReadSet.Scopes | ComplianceReadSet.Requirements
+                    | ComplianceReadSet.Controls | ComplianceReadSet.Collectors, ct).ConfigureAwait(false);
+
+                var found = snapshot.Collectors.FirstOrDefault(c =>
                     string.Equals(c.Id, validated.CollectorId, StringComparison.Ordinal));
                 if (found is null)
                 {
@@ -126,8 +133,7 @@ public static class EvidenceIngestEndpoints
                 vendor = collector.Vendor;
 
                 // requirement_id must be one of the collector control's resolved requirement ids.
-                var controls = await reads.GetControlsAsync(ct).ConfigureAwait(false);
-                var control = controls.FirstOrDefault(c =>
+                var control = snapshot.Controls.FirstOrDefault(c =>
                     string.Equals(c.Id, collector.Control, StringComparison.Ordinal));
                 if (control is null || !control.MapsTo.Contains(validated.RequirementId, StringComparer.Ordinal))
                 {
@@ -137,15 +143,15 @@ public static class EvidenceIngestEndpoints
 
                 // (organisation_id, requirement_id) must resolve In in the Statement of Applicability for
                 // the requirement's owning standard.
-                var soa = await reads.GetStatementOfApplicabilityInputsAsync(ct).ConfigureAwait(false);
-                var requirement = soa.Requirements.FirstOrDefault(r =>
+                var requirement = snapshot.Requirements.FirstOrDefault(r =>
                     string.Equals(r.Id, validated.RequirementId, StringComparison.Ordinal));
                 if (requirement is null)
                 {
                     return Semantic($"requirement_id '{validated.RequirementId}' is not a known requirement.");
                 }
 
-                if (!IsOrganisationInScope(soa, requirement.Standard, validated.OrganisationId, validated.RequirementId))
+                if (!IsOrganisationInScope(
+                        snapshot, requirement.Standard, validated.OrganisationId, validated.RequirementId))
                 {
                     return Semantic(
                         $"organisation_id '{validated.OrganisationId}' is not in scope for requirement "
@@ -231,9 +237,9 @@ public static class EvidenceIngestEndpoints
     /// exactly as it is without the type test.
     /// </summary>
     private static bool IsOrganisationInScope(
-        SoaInputs soa, string standardId, string organisationId, string requirementId)
+        ComplianceSnapshot snapshot, string standardId, string organisationId, string requirementId)
     {
-        var organisation = soa.Assets.FirstOrDefault(a =>
+        var organisation = snapshot.Assets.FirstOrDefault(a =>
             a.IsOrganisation && string.Equals(a.Id, organisationId, StringComparison.Ordinal));
         if (organisation is null)
         {
@@ -241,7 +247,7 @@ public static class EvidenceIngestEndpoints
         }
 
         var nodes = StatementOfApplicability.Resolve(
-            soa.Assets, soa.Scopes, soa.Requirements, standardId);
+            snapshot.Assets, snapshot.Scopes, snapshot.Requirements, standardId);
         var node = nodes.FirstOrDefault(n => string.Equals(n.Id, organisationId, StringComparison.Ordinal));
         if (node is null || !string.Equals(node.Disposition, nameof(ScopeDisposition.In), StringComparison.Ordinal))
         {

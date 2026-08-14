@@ -4,28 +4,71 @@ namespace Freeboard.Web.Tests;
 
 /// <summary>
 /// In-memory <see cref="IComplianceStore"/> double for web tests so the suite is green
-/// without MySQL. Open for a test that needs to count or fail one read. When <see cref="Unreachable"/> is true, every read throws to
-/// simulate a down store. <see cref="Assets"/> is the one unfiltered asset set every read
-/// projects from, exactly as the real store serves it.
+/// without MySQL. When <see cref="Unreachable"/> is true, every read throws to simulate a down store.
+/// <see cref="Assets"/> is the one unfiltered asset set every read projects from, exactly as the real
+/// store serves it. <see cref="SnapshotReads"/> records the shape of each snapshot served, so a test can
+/// assert which sets a surface named and how many reads it cost.
 /// </summary>
-internal class FakeComplianceStore : IComplianceStore
+internal sealed class FakeComplianceStore : IComplianceStore
 {
+    // The app's startup token-resolvability warning reads off the request path, so the recording lists
+    // are written from a background thread while a test thread reads them. Guard both, and hand out
+    // snapshots, exactly as the connection-factory double does.
+    private readonly Lock _gate = new();
+    private readonly List<ComplianceReadSet> _snapshotReads = [];
+    private readonly List<IReadOnlyList<AssetNode>?> _servedAssets = [];
+    private readonly TaskCompletionSource _firstRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public bool Unreachable { get; init; }
 
     /// <summary>
-    /// When true, the reads that surface the asset list - <see cref="GetAssetsAsync"/>,
-    /// <see cref="GetStatementOfApplicabilityInputsAsync"/>,
-    /// <see cref="GetStatementOfApplicabilityDrilldownInputsAsync"/>, and
-    /// <see cref="GetVendorAssuranceInputsAsync"/> - throw; the other reads succeed.
+    /// The sets whose table is faulted. A snapshot naming any of them throws, so a test can fault the
+    /// assurance table alone - the shape of a schema that has not had the migration applied - or the
+    /// asset-bearing reads, without naming a method.
     /// </summary>
-    public bool AssetsUnreachable { get; init; }
+    public ComplianceReadSet Faulted { get; init; }
+
+    /// <summary>The shape of every snapshot served, in the order the request asked for them.</summary>
+    public IReadOnlyList<ComplianceReadSet> SnapshotReads
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _snapshotReads];
+            }
+        }
+    }
 
     /// <summary>
-    /// When true, only <see cref="GetVendorAssuranceInputsAsync"/> throws. Separate from
-    /// <see cref="AssetsUnreachable"/> so a test can fault the assurance table alone, which is the shape
-    /// of a schema that has not had the migration applied.
+    /// The asset list served with each snapshot, index-aligned with <see cref="SnapshotReads"/> and null
+    /// where the snapshot named no assets. A narrowing decision must resolve its accessible set from the
+    /// list of the snapshot its rows came from, so a test compares the two by reference.
     /// </summary>
-    public bool AssurancesUnreachable { get; init; }
+    public IReadOnlyList<IReadOnlyList<AssetNode>?> ServedAssets
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _servedAssets];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Completes when the store has served its first snapshot. The app's only boot-time read is the
+    /// startup token warning, which runs on a background task, so a test awaits this instead of polling
+    /// a count.
+    /// </summary>
+    public Task FirstRead => _firstRead.Task;
+
+    /// <summary>
+    /// The assets to serve from the SECOND asset-bearing snapshot onward, when set. A decision anchored
+    /// on a snapshot it did not read then reaches a different tree, so the mistake shows up as a
+    /// different outcome rather than as an identical read sequence.
+    /// </summary>
+    public IReadOnlyList<AssetNode>? AssetsAfterFirstRead { get; init; }
 
     public IReadOnlyList<StandardRow> Standards { get; set; } = [];
 
@@ -43,75 +86,53 @@ internal class FakeComplianceStore : IComplianceStore
 
     public IReadOnlyList<VendorAssuranceRow> Assurances { get; set; } = [];
 
-    public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Standards);
-
-    public Task<IReadOnlyList<RequirementRow>> GetRequirementsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Requirements);
-
-    public Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Controls);
-
-    public virtual Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
+    public Task<ComplianceSnapshot> GetSnapshotAsync(
+        ComplianceReadSet sets, CancellationToken cancellationToken = default)
     {
-        if (AssetsUnreachable)
+        IReadOnlyList<AssetNode>? assets;
+        lock (_gate)
         {
-            throw new InvalidOperationException("assets unreachable");
+            _snapshotReads.Add(sets);
+
+            var source = AssetsAfterFirstRead is not null && _servedAssets.Exists(a => a is not null)
+                ? AssetsAfterFirstRead
+                : Assets;
+
+            // A fresh asset list per snapshot: the accessible-set memo keys on the list, so a shared
+            // instance would collapse two reads into one key and let a memo test pass without the code
+            // doing anything.
+            assets = Named(sets, ComplianceReadSet.Assets, (IReadOnlyList<AssetNode>)[.. source]);
+            _servedAssets.Add(assets);
         }
 
-        // A fresh instance per read: the accessible-set memo keys on the list, so a shared instance would
-        // collapse two reads into one key and let a memo test pass without the code doing anything.
-        return Guard(() => (IReadOnlyList<AssetNode>)[.. Assets]);
-    }
+        _firstRead.TrySetResult();
 
-    public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Scopes);
-
-    public Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Collectors);
-
-    public Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default) =>
-        Guard(() => Connections);
-
-    public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default)
-    {
-        if (AssetsUnreachable)
+        if ((sets & Faulted) != ComplianceReadSet.None)
         {
-            throw new InvalidOperationException("assets unreachable");
+            throw new InvalidOperationException($"{sets & Faulted} unreachable");
         }
 
-        return Guard(() => new SoaInputs([.. Assets], Scopes, Requirements));
-    }
-
-    public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default)
-    {
-        if (AssetsUnreachable)
-        {
-            throw new InvalidOperationException("assets unreachable");
-        }
-
-        return Guard(() => new SoaDrilldownInputs([.. Assets], Scopes, Requirements, Controls, Collectors));
-    }
-
-    public virtual Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
-    {
-        if (AssurancesUnreachable)
-        {
-            throw new InvalidOperationException("assurances unreachable");
-        }
-
-        if (AssetsUnreachable)
-        {
-            throw new InvalidOperationException("assets unreachable");
-        }
-
-        return Guard(() => new VendorAssuranceInputs([.. Assets], Assurances));
+        return Guard(() => new ComplianceSnapshot(
+            sets,
+            assets: assets,
+            standards: Named(sets, ComplianceReadSet.Standards, Standards),
+            requirements: Named(sets, ComplianceReadSet.Requirements, Requirements),
+            controls: Named(sets, ComplianceReadSet.Controls, Controls),
+            scopes: Named(sets, ComplianceReadSet.Scopes, Scopes),
+            collectors: Named(sets, ComplianceReadSet.Collectors, Collectors),
+            integrationConnections: Named(sets, ComplianceReadSet.IntegrationConnections, Connections),
+            vendorAssurances: Named(sets, ComplianceReadSet.VendorAssurances, Assurances)));
     }
 
     public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
         Guard(() => new ComplianceCounts(
             Standards.Count, Controls.Count, Requirements.Count, Assets.Count(a => a.IsOrganisation), Scopes.Count,
             Assets.Count(a => a.Type is "Vendor"), Collectors.Count));
+
+    // Null for a set the snapshot does not name, so reading it throws just as it does in production.
+    private static IReadOnlyList<T>? Named<T>(
+        ComplianceReadSet sets, ComplianceReadSet set, IReadOnlyList<T> rows) =>
+        sets.HasFlag(set) ? rows : null;
 
     private Task<T> Guard<T>(Func<T> value)
     {

@@ -261,15 +261,15 @@ public sealed class IntegrationConnectionsTests
     }
 
     [Fact]
-    public void PageConstructorTakesStoreRequestCacheTokenResolverAndAssetAccess()
+    public void PageConstructorTakesRequestCacheTokenResolverAndAssetAccess()
     {
         var ctor = Assert.Single(typeof(IntegrationConnectionsModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToList();
 
-        // The assets come from the cache's shared asset read; the store still serves this page's own rows.
+        // One snapshot of the connections and the assets serves the page, so it takes no store of its own.
         Assert.Equal(
             [
-                typeof(IComplianceStore), typeof(Freeboard.Authz.AuthzRequestCache),
+                typeof(Freeboard.Authz.AuthzRequestCache),
                 typeof(Freeboard.Compliance.IIntegrationTokenResolver), typeof(IAssetAccess),
             ],
             paramTypes);

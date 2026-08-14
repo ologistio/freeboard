@@ -78,50 +78,12 @@ public sealed record ScopeRow(
     string? Justification);
 
 /// <summary>
-/// The inputs the Statement of Applicability projection needs, read together in one
-/// repeatable-read snapshot so they cannot straddle a concurrent importer commit. <see cref="Assets"/>
-/// is the whole unfiltered asset set: the resolution tree and the live-subject predicate need different
-/// subsets of it, so retirement and type are applied by the consumer. The requirement layer comes from
-/// the one unified <see cref="Scopes"/> list (requirement-target rows).
-/// </summary>
-public sealed record SoaInputs(
-    IReadOnlyList<AssetNode> Assets,
-    IReadOnlyList<ScopeRow> Scopes,
-    IReadOnlyList<RequirementRow> Requirements);
-
-/// <summary>
-/// The inputs the Statement of Applicability drill-down projection needs, read together in one
-/// repeatable-read snapshot so they cannot straddle a concurrent importer commit. Extends the flat
-/// <see cref="SoaInputs"/> with controls (resolved <c>maps_to</c>) and collectors so the
-/// requirement -> control -> check hierarchy resolves from one consistent read; a collector's vendor id
-/// maps to a title through the <c>Vendor</c>-typed rows of <see cref="Assets"/>. The requirement layer
-/// comes from the one unified <see cref="Scopes"/> list.
-/// </summary>
-public sealed record SoaDrilldownInputs(
-    IReadOnlyList<AssetNode> Assets,
-    IReadOnlyList<ScopeRow> Scopes,
-    IReadOnlyList<RequirementRow> Requirements,
-    IReadOnlyList<ControlRow> Controls,
-    IReadOnlyList<CollectorRow> Collectors);
-
-/// <summary>
 /// One persisted certification a vendor holds. Identity is the pair (<see cref="VendorId"/>,
 /// <see cref="StandardId"/>). <see cref="WarnDays"/> is the per-row warning-window override and is null
 /// when the row carries none, which means "use the deployment's configured window" rather than "no
 /// window". There is no status column: the state is derived from <see cref="Expires"/> and the clock.
 /// </summary>
 public sealed record VendorAssuranceRow(string VendorId, string StandardId, DateOnly Expires, int? WarnDays);
-
-/// <summary>
-/// The assets and the whole vendor assurance set, read together in one repeatable-read snapshot. The
-/// pairing is not an optimisation: every consumer narrows the assurances by the <c>owner</c> edges carried
-/// on the asset rows, so two separate reads could pair the pre-import owner edges with post-import
-/// assurance rows and produce a combination that never existed. <see cref="Assets"/> is the same unfiltered
-/// read every other consumer uses, so the narrowing decision resolves over the same tree everywhere.
-/// </summary>
-public sealed record VendorAssuranceInputs(
-    IReadOnlyList<AssetNode> Assets,
-    IReadOnlyList<VendorAssuranceRow> Assurances);
 
 /// <summary>
 /// A persisted collector attached to one control - a data source or an attestation form. Identity is
@@ -199,3 +161,126 @@ public sealed record ComplianceCounts(
     int Scopes,
     int Vendors,
     int Collectors);
+
+/// <summary>
+/// The lists a compliance read can name. A caller names the ones its decision needs and receives them
+/// in one <see cref="ComplianceSnapshot"/>.
+/// </summary>
+[Flags]
+public enum ComplianceReadSet
+{
+    /// <summary>No list.</summary>
+    None = 0,
+
+    /// <summary>
+    /// Every asset of every type, unfiltered. Resolution, read-access, and the live-subject predicate
+    /// each need a different subset, so type and retirement are applied by the caller.
+    /// </summary>
+    Assets = 1 << 0,
+
+    /// <summary>The standards.</summary>
+    Standards = 1 << 1,
+
+    /// <summary>The requirements, each with its resolved owning standard.</summary>
+    Requirements = 1 << 2,
+
+    /// <summary>The controls, each with its resolved <c>maps_to</c> requirement ids.</summary>
+    Controls = 1 << 3,
+
+    /// <summary>The unified scopes: subject, one target, disposition, justification.</summary>
+    Scopes = 1 << 4,
+
+    /// <summary>The collectors.</summary>
+    Collectors = 1 << 5,
+
+    /// <summary>The integration connections.</summary>
+    IntegrationConnections = 1 << 6,
+
+    /// <summary>The whole vendor assurance set, ordered by vendor id then standard id.</summary>
+    VendorAssurances = 1 << 7,
+}
+
+/// <summary>
+/// The lists one read asked for, read together. <see cref="Sets"/> is the shape the snapshot was read
+/// with AND the contract it serves, so a caller and a test can both see which lists a decision drew on.
+/// Reading a list the snapshot does not name throws <see cref="ComplianceReadSetNotRequestedException"/>
+/// rather than reading as empty: an empty list is a plausible answer, so returning one would render a
+/// programming error as an ordinary page.
+/// </summary>
+// A class rather than a record: nothing copies or compares a snapshot, and a record's generated
+// ToString reads every property, so printing a partial snapshot - in a log line, a debugger, or an
+// assertion failure - would throw the not-requested exception over whatever was being diagnosed.
+public sealed class ComplianceSnapshot
+{
+    private readonly IReadOnlyList<AssetNode>? _assets;
+    private readonly IReadOnlyList<StandardRow>? _standards;
+    private readonly IReadOnlyList<RequirementRow>? _requirements;
+    private readonly IReadOnlyList<ControlRow>? _controls;
+    private readonly IReadOnlyList<ScopeRow>? _scopes;
+    private readonly IReadOnlyList<CollectorRow>? _collectors;
+    private readonly IReadOnlyList<IntegrationConnectionRow>? _integrationConnections;
+    private readonly IReadOnlyList<VendorAssuranceRow>? _vendorAssurances;
+
+    public ComplianceSnapshot(
+        ComplianceReadSet sets,
+        IReadOnlyList<AssetNode>? assets = null,
+        IReadOnlyList<StandardRow>? standards = null,
+        IReadOnlyList<RequirementRow>? requirements = null,
+        IReadOnlyList<ControlRow>? controls = null,
+        IReadOnlyList<ScopeRow>? scopes = null,
+        IReadOnlyList<CollectorRow>? collectors = null,
+        IReadOnlyList<IntegrationConnectionRow>? integrationConnections = null,
+        IReadOnlyList<VendorAssuranceRow>? vendorAssurances = null)
+    {
+        Sets = sets;
+        _assets = assets;
+        _standards = standards;
+        _requirements = requirements;
+        _controls = controls;
+        _scopes = scopes;
+        _collectors = collectors;
+        _integrationConnections = integrationConnections;
+        _vendorAssurances = vendorAssurances;
+    }
+
+    /// <summary>The lists this snapshot was read with.</summary>
+    public ComplianceReadSet Sets { get; }
+
+    public IReadOnlyList<AssetNode> Assets => Requested(_assets, ComplianceReadSet.Assets);
+
+    public IReadOnlyList<StandardRow> Standards => Requested(_standards, ComplianceReadSet.Standards);
+
+    public IReadOnlyList<RequirementRow> Requirements => Requested(_requirements, ComplianceReadSet.Requirements);
+
+    public IReadOnlyList<ControlRow> Controls => Requested(_controls, ComplianceReadSet.Controls);
+
+    public IReadOnlyList<ScopeRow> Scopes => Requested(_scopes, ComplianceReadSet.Scopes);
+
+    public IReadOnlyList<CollectorRow> Collectors => Requested(_collectors, ComplianceReadSet.Collectors);
+
+    public IReadOnlyList<IntegrationConnectionRow> IntegrationConnections =>
+        Requested(_integrationConnections, ComplianceReadSet.IntegrationConnections);
+
+    public IReadOnlyList<VendorAssuranceRow> VendorAssurances =>
+        Requested(_vendorAssurances, ComplianceReadSet.VendorAssurances);
+
+    // Sets is the contract: a list the snapshot did not name is refused even when one was supplied, so a
+    // snapshot cannot serve a set it never declared and a structural assertion on Sets cannot be evaded.
+    // A named set with no list is the store's own bug and fails the same way rather than reading as null.
+    private IReadOnlyList<T> Requested<T>(IReadOnlyList<T>? list, ComplianceReadSet set)
+        => Sets.HasFlag(set) && list is not null
+            ? list
+            : throw new ComplianceReadSetNotRequestedException(set);
+}
+
+/// <summary>
+/// Thrown when a caller reads a list its snapshot did not name. Deliberately NOT an
+/// <see cref="InvalidOperationException"/>: the read paths turn that type into "compliance store
+/// unreachable", and a programming error must not be reported to an operator as a database outage.
+/// </summary>
+public sealed class ComplianceReadSetNotRequestedException(ComplianceReadSet set)
+    : Exception($"The compliance snapshot was not read with {set}.")
+{
+    /// <summary>The list the caller read.</summary>
+    public ComplianceReadSet Set { get; } = set;
+}

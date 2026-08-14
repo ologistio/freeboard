@@ -33,8 +33,11 @@ public sealed class VendorCommands
 
     private static void Print(IReadOnlyList<ApiVendor> vendors, IReadOnlyList<ApiScope> scopes)
     {
-        // Vendor exceptions are the unified scopes whose subject is a vendor; the endpoint has already
-        // owner-narrowed them, so filtering by the visible vendor ids yields each vendor's rows.
+        // Vendor exceptions are the unified scopes whose subject is a vendor. The two responses come from
+        // two requests, and the server narrowed each against its own snapshot. The loop below prints a
+        // scope only under a vendor the vendor response carried, so a scope whose vendor is absent is
+        // dropped. A printed justification has therefore passed both narrowings, and a sync landing between
+        // the two requests costs freshness, not disclosure.
         var scopesByVendor = scopes
             .GroupBy(s => s.Subject, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);

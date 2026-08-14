@@ -20,6 +20,9 @@ namespace Freeboard.Web.Tests;
 /// </summary>
 public sealed class ShellNavCatalogTests
 {
+    /// <summary>The sets the rail's badge narrows on: the vendor rows and the assurances against them.</summary>
+    private const ComplianceReadSet Register = ComplianceReadSet.Assets | ComplianceReadSet.VendorAssurances;
+
     private static readonly string[] MovedSettingsRoutes =
     [
         "/settings/collectors",
@@ -233,7 +236,7 @@ public sealed class ShellNavCatalogTests
     public async Task ResolvingTheNavThreeTimesReadsTheStoreOnce()
     {
         // The layout resolves the nav three times per render (rail, palette, breadcrumbs).
-        var store = new CountingComplianceStore
+        var store = new FakeComplianceStore
         {
             Assets = [TestAssets.Vendor("vendor-a", "org-a")],
             Assurances = [Assurance("vendor-a", Today.AddDays(10))],
@@ -245,14 +248,14 @@ public sealed class ShellNavCatalogTests
             Assert.Equal(1, VendorsItem(await resolver.ResolveAsync(User("admin"), "/home", activeKey: null)).Count);
         }
 
-        Assert.Equal(1, store.SnapshotReads);
+        Assert.Equal([Register], store.SnapshotReads);
     }
 
     [Fact]
     public async Task ResolvingTheNavThreeTimesAgainstAThrowingStoreAttemptsOnce()
     {
         // The failed result is memoized too, so an outage costs one attempt per request rather than three.
-        var store = new CountingComplianceStore { Fails = true };
+        var store = new FakeComplianceStore { Unreachable = true };
         var resolver = Resolver(SuperAdminFacts(), Entitlements(customPolicies: true), store);
 
         for (var i = 0; i < 3; i++)
@@ -261,7 +264,7 @@ public sealed class ShellNavCatalogTests
                 item => Assert.Null(item.Count));
         }
 
-        Assert.Equal(1, store.SnapshotReads);
+        Assert.Equal([Register], store.SnapshotReads);
     }
 
     [Fact]
@@ -271,7 +274,7 @@ public sealed class ShellNavCatalogTests
         // page costs one read rather than two. Sharing is a read-count matter only: what stops either
         // surface narrowing with the other's owner edges is the per-asset-list memo, asserted in
         // AuthorizerTests.
-        var store = new CountingComplianceStore
+        var store = new FakeComplianceStore
         {
             Assets = [TestAssets.Vendor("vendor-a", "org-a"), TestAssets.Vendor("vendor-b", "org-b")],
             Assurances = [Assurance("vendor-a", Today.AddDays(10)), Assurance("vendor-b", Today.AddDays(10))],
@@ -279,14 +282,14 @@ public sealed class ShellNavCatalogTests
         var cache = new AuthzRequestCache(new FakeAuthzStore(), store);
         var access = Access("vendor-a");
 
-        var inputs = await cache.GetVendorAssuranceInputsAsync();
-        await access.AccessibleAssetIdsAsync(User("admin"), inputs.Assets);
+        var snapshot = await cache.GetSnapshotAsync(Register);
+        await access.AccessibleAssetIdsAsync(User("admin"), snapshot.Assets);
 
         var resolver = Resolver(SuperAdminFacts(), Entitlements(customPolicies: true), store, access, cache);
         var nav = await resolver.ResolveAsync(User("admin"), "/home", activeKey: null);
 
         Assert.Equal(1, VendorsItem(nav).Count);
-        Assert.Equal(1, store.SnapshotReads);
+        Assert.Equal([Register], store.SnapshotReads);
     }
 
     private static readonly DateOnly Today = new(2026, 3, 1);
@@ -330,21 +333,6 @@ public sealed class ShellNavCatalogTests
     {
         public override DateTimeOffset GetUtcNow() =>
             new(today.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-    }
-
-    private sealed class CountingComplianceStore : FakeComplianceStore
-    {
-        public int SnapshotReads { get; private set; }
-
-        public bool Fails { get; init; }
-
-        public override Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
-        {
-            SnapshotReads++;
-            return Fails
-                ? throw new InvalidOperationException("store unreachable")
-                : base.GetVendorAssuranceInputsAsync(cancellationToken);
-        }
     }
 
     private static IEnumerable<ShellNavItemView> AllItems(ShellNavView nav) => nav.Groups.SelectMany(g => g.Items);

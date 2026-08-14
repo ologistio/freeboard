@@ -49,8 +49,8 @@ public static class CollectorCredentialEndpoints
         bool exists;
         try
         {
-            exists = (await reads.GetCollectorsAsync(ct).ConfigureAwait(false))
-                .Any(c => string.Equals(c.Id, id, StringComparison.Ordinal));
+            exists = (await reads.GetSnapshotAsync(ComplianceReadSet.Collectors, ct).ConfigureAwait(false))
+                .Collectors.Any(c => string.Equals(c.Id, id, StringComparison.Ordinal));
         }
         catch (Exception ex) when (ComplianceEndpoints.IsStoreFailure(ex))
         {

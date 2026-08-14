@@ -318,7 +318,7 @@ public sealed class CollectorMergeMigrationTests
         // Carried verbatim under the config Checks key, and it binds on read to a check with empty
         // members because an UNMATCHED property is ignored.
         var store = new MySqlComplianceStore(db.ConnectionFactory);
-        var check = Assert.Single(Assert.Single(await store.GetCollectorsAsync()).Config.Checks);
+        var check = Assert.Single(Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors).Config.Checks);
         Assert.Equal((string.Empty, string.Empty, string.Empty), (check.SourceKey, check.Name, check.Severity));
     }
 
@@ -365,7 +365,7 @@ public sealed class CollectorMergeMigrationTests
         await ApplyMergeAsync(conn);
 
         var store = new MySqlComplianceStore(db.ConnectionFactory);
-        var config = Assert.Single(await store.GetCollectorsAsync()).Config;
+        var config = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors).Config;
         Assert.Empty(config.Fields);
         Assert.Equal(string.Empty, Assert.Single(config.Quiz).Id);
     }
@@ -420,7 +420,7 @@ public sealed class CollectorMergeMigrationTests
         await ApplyMergeAsync(conn);
 
         var store = new MySqlComplianceStore(db.ConnectionFactory);
-        var rows = (await store.GetCollectorsAsync()).ToDictionary(c => c.Id);
+        var rows = (await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors.ToDictionary(c => c.Id);
         Assert.Equal(2, rows.Count);
         Assert.All(rows.Values, r => Assert.Equal("training", r.Type));
         Assert.All(rows.Values, r => Assert.Equal("ctrl-a", r.Control));

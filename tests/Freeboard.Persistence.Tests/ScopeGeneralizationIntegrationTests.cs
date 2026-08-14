@@ -313,13 +313,13 @@ public sealed class ScopeGeneralizationIntegrationTests
         await importer.ImportAsync(Config(
             [Std("std-a")], [Req("req-a", "std-a")], assets: [Org("org-a")],
             scopes: [Scope("sc-std", "org-a", standard: "std-a"), Scope("sc-req", "org-a", requirement: "req-a")]));
-        Assert.Equal(["sc-req", "sc-std"], (await store.GetScopesAsync()).Select(s => s.Id).ToArray());
+        Assert.Equal(["sc-req", "sc-std"], (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.Select(s => s.Id).ToArray());
 
         // A re-sync dropping sc-req hard-removes it (the whole-set replace is the prune).
         var result = await importer.ImportAsync(Config(
             [Std("std-a")], [Req("req-a", "std-a")], assets: [Org("org-a")],
             scopes: [Scope("sc-std", "org-a", standard: "std-a")]));
-        Assert.Equal(["sc-std"], (await store.GetScopesAsync()).Select(s => s.Id).ToArray());
+        Assert.Equal(["sc-std"], (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.Select(s => s.Id).ToArray());
         Assert.Empty(result.UnresolvedScopeSubjects);
     }
 
@@ -341,10 +341,10 @@ public sealed class ScopeGeneralizationIntegrationTests
         var result = await importer.ImportAsync(Config(
             [Std("std-a")], scopes: [Scope("sc-1", "org-a", standard: "std-a")]));
 
-        Assert.DoesNotContain(await store.GetAssetsAsync(), a => a.IsOrganisation);
+        Assert.DoesNotContain((await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets, a => a.IsOrganisation);
         // The scope read carries no join to assets, so a row whose subject resolves to nothing still
         // reads back whole; readability is decided by resolving Subject against the asset read instead.
-        var scope = Assert.Single(await store.GetScopesAsync());
+        var scope = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
         Assert.Equal("org-a", scope.Subject);
         Assert.Equal("std-a", scope.Standard);
         Assert.Contains("org-a", result.UnresolvedScopeSubjects);
@@ -423,7 +423,7 @@ public sealed class ScopeGeneralizationIntegrationTests
         Assert.True((await writeStore.UpsertRequirementScopeDispositionAsync("sc-ctrl", "T", "org-a", "req-a", "In")).IsNotFound);
 
         // Nothing was mutated by the no-op wrong-kind writes: the three seeded rows keep their targets.
-        var before = (await store.GetScopesAsync()).ToDictionary(s => s.Id);
+        var before = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.ToDictionary(s => s.Id);
         Assert.Equal(3, before.Count);
         Assert.Equal("std-a", before["sc-std"].Standard);
         Assert.Equal("req-a", before["sc-req"].Requirement);
@@ -433,7 +433,7 @@ public sealed class ScopeGeneralizationIntegrationTests
         Assert.True((await writeStore.UpsertScopeDispositionAsync("new-std", "T", "org-b", "std-a", "In")).Ok);
         Assert.True((await writeStore.UpsertRequirementScopeDispositionAsync("new-req", "T", "org-b", "req-a", "In")).Ok);
 
-        var after = (await store.GetScopesAsync()).ToDictionary(s => s.Id);
+        var after = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.ToDictionary(s => s.Id);
         Assert.Equal("std-a", after["new-std"].Standard);
         Assert.Null(after["new-std"].Requirement);
         Assert.Equal("req-a", after["new-req"].Requirement);
@@ -460,12 +460,12 @@ public sealed class ScopeGeneralizationIntegrationTests
         // Expected owner org-b does not match the org-a subject: nothing is deleted on either route.
         Assert.True((await writeStore.DeleteScopeAsync("sc-std", expectedOwner: "org-b")).IsNotFound);
         Assert.True((await writeStore.DeleteRequirementScopeAsync("sc-req", expectedOwner: "org-b")).IsNotFound);
-        Assert.Equal(["sc-req", "sc-std"], (await store.GetScopesAsync()).Select(s => s.Id).OrderBy(id => id).ToArray());
+        Assert.Equal(["sc-req", "sc-std"], (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.Select(s => s.Id).OrderBy(id => id).ToArray());
 
         // Expected owner org-a matches the subject: the delete removes the row on each route.
         Assert.True((await writeStore.DeleteScopeAsync("sc-std", expectedOwner: "org-a")).Ok);
         Assert.True((await writeStore.DeleteRequirementScopeAsync("sc-req", expectedOwner: "org-a")).Ok);
-        Assert.Empty(await store.GetScopesAsync());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
     }
 
     // App-managed scope writes are restricted to Company/Department subjects: a Vendor or Machine subject
@@ -515,7 +515,7 @@ public sealed class ScopeGeneralizationIntegrationTests
         Assert.True((await writeStore.DeleteRequirementScopeAsync("sc-mac-req", expectedOwner: machineId)).IsNotFound);
 
         // The four Vendor/Machine subject rows are untouched by the rejected writes.
-        var mid = (await store.GetScopesAsync()).ToDictionary(s => s.Id);
+        var mid = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.ToDictionary(s => s.Id);
         Assert.Equal("std-a", mid["sc-vnd-std"].Standard);
         Assert.Equal("req-a", mid["sc-vnd-req"].Requirement);
         Assert.Equal("std-a", mid["sc-mac-std"].Standard);
@@ -529,7 +529,7 @@ public sealed class ScopeGeneralizationIntegrationTests
         // A brand-new id still creates a Company/Department subject scope.
         Assert.True((await writeStore.UpsertScopeDispositionAsync("new-std", "T", "org-b", "std-a", "In")).Ok);
 
-        var after = (await store.GetScopesAsync()).ToDictionary(s => s.Id);
+        var after = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.ToDictionary(s => s.Id);
         Assert.Equal("Updated", after["sc-org-req"].Title);
         Assert.Equal("Out", after["sc-org-req"].Disposition);
         Assert.False(after.ContainsKey("sc-org-std"));

@@ -52,13 +52,13 @@ public sealed record VendorRow(
 /// Read-only server-rendered vendor register: each vendor the caller may see and, alongside it, its
 /// certifications and its vendor-subject scopes (target, disposition, and - for every Out - the
 /// justification, so an exception is never silent). GET-only, so the GitOps read-only middleware never
-/// blocks it. Takes the assets and the assurances from one assurance snapshot on
-/// <see cref="AuthzRequestCache"/> - the request may take a second read for its gates, so this is one
-/// snapshot of two - and reads the scopes and standards separately, all inside one try/catch
-/// that sets <see cref="StoreUnreachable"/>, so a store outage renders an in-page notice rather than a
-/// 500. A vendor is shown when it is in the caller's accessible asset set, which admits it exactly when
-/// its owner resolves into the caller's organisation union; a vendor with a null or dangling owner is
-/// hidden (fail-closed), and its assurances and scope justifications are hidden with it.
+/// blocks it. Takes the assets, the assurances, and the scopes - everything its visibility decision rests
+/// on - from ONE snapshot on <see cref="AuthzRequestCache"/>, and reads the standards separately, all
+/// inside one try/catch that sets <see cref="StoreUnreachable"/>, so a store outage renders an in-page
+/// notice rather than a 500. A vendor is shown when it is in the caller's accessible asset set, which
+/// admits it exactly when its owner resolves into the caller's organisation union. A vendor with a null
+/// or dangling owner is hidden (fail-closed), and its assurances and scope justifications are hidden
+/// with it.
 /// </summary>
 public sealed class VendorsModel(
     IComplianceStore store,
@@ -90,12 +90,14 @@ public sealed class VendorsModel(
     {
         try
         {
-            var inputs = await cache.GetVendorAssuranceInputsAsync(ct).ConfigureAwait(false);
-            var assets = inputs.Assets;
+            var snapshot = await cache.GetSnapshotAsync(
+                ComplianceReadSet.Assets | ComplianceReadSet.VendorAssurances | ComplianceReadSet.Scopes, ct)
+                .ConfigureAwait(false);
+            var assets = snapshot.Assets;
             var accessible = await assetAccess.AccessibleAssetIdsAsync(User, assets, ct).ConfigureAwait(false);
 
             // Vendor exceptions are the unified scopes whose subject is a visible vendor.
-            var scopesBySubject = (await store.GetScopesAsync(ct).ConfigureAwait(false))
+            var scopesBySubject = snapshot.Scopes
                 .GroupBy(s => s.Subject, StringComparer.Ordinal)
                 .ToDictionary(
                     g => g.Key,
@@ -104,12 +106,12 @@ public sealed class VendorsModel(
 
             // An unresolvable standard renders as its id, so this title read costs a label rather than a
             // narrowing decision and stays outside the snapshot.
-            var standardTitles = (await store.GetStandardsAsync(ct).ConfigureAwait(false))
-                .ToDictionary(s => s.Id, s => s.Title, StringComparer.Ordinal);
+            var standardTitles = (await store.GetSnapshotAsync(ComplianceReadSet.Standards, ct).ConfigureAwait(false))
+                .Standards.ToDictionary(s => s.Id, s => s.Title, StringComparer.Ordinal);
 
             var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
             var warnWindowDays = assurance.Value.WarnWindowDays;
-            var assurancesByVendor = inputs.Assurances
+            var assurancesByVendor = snapshot.VendorAssurances
                 .GroupBy(a => a.VendorId, StringComparer.Ordinal)
                 .ToDictionary(
                     g => g.Key,

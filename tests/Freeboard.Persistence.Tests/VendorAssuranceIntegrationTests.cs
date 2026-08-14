@@ -96,14 +96,15 @@ public sealed class VendorAssuranceIntegrationTests
             Assets = [Org("org-a"), Vendor("vendor-a", Entry("std-a", "2027-03-27"), Entry("std-b", "2026-11-01", "30"))],
         });
 
-        var inputs = await new MySqlComplianceStore(db.ConnectionFactory).GetVendorAssuranceInputsAsync();
+        var inputs = await new MySqlComplianceStore(db.ConnectionFactory).GetSnapshotAsync(
+            ComplianceReadSet.Assets | ComplianceReadSet.VendorAssurances);
 
-        Assert.Equal(2, inputs.Assurances.Count);
-        var soc = inputs.Assurances.Single(a => a.StandardId == "std-a");
+        Assert.Equal(2, inputs.VendorAssurances.Count);
+        var soc = inputs.VendorAssurances.Single(a => a.StandardId == "std-a");
         Assert.Equal("vendor-a", soc.VendorId);
         Assert.Equal(new DateOnly(2027, 3, 27), soc.Expires);
         Assert.Null(soc.WarnDays);
-        Assert.Equal(30, inputs.Assurances.Single(a => a.StandardId == "std-b").WarnDays);
+        Assert.Equal(30, inputs.VendorAssurances.Single(a => a.StandardId == "std-b").WarnDays);
         Assert.Contains(inputs.Assets, a => a.Id == "vendor-a");
     }
 
@@ -126,7 +127,8 @@ public sealed class VendorAssuranceIntegrationTests
             Assets = [Org("org-a"), Vendor("vendor-a", Entry("std-a", "2027-03-27"))],
         });
 
-        var assurances = (await new MySqlComplianceStore(db.ConnectionFactory).GetVendorAssuranceInputsAsync()).Assurances;
+        var assurances = (await new MySqlComplianceStore(db.ConnectionFactory)
+            .GetSnapshotAsync(ComplianceReadSet.VendorAssurances)).VendorAssurances;
 
         Assert.Equal("std-a", Assert.Single(assurances).StandardId);
     }

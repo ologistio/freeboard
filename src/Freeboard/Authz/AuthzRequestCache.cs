@@ -7,31 +7,37 @@ namespace Freeboard.Authz;
 
 /// <summary>
 /// The ONE request-scoped cache shared by the authorizer and <c>AuthzAssetAccess</c>, holding nothing
-/// across requests (registered SCOPED). A principal's facts and the shared asset list are each produced
-/// at most once per request; a principal's accessible asset set is produced at most once per asset list,
-/// because a request may hold more than one - the shared read, and an assurance snapshot beside it.
-/// Implements <see cref="IAuthzFactProvider"/> so it is the single fact loader. It also builds
-/// the organisation-anchored <see cref="AuthzResource"/> every organisation gate is constructed from,
-/// because the asset list that anchoring needs is already memoized here.
+/// across requests (registered SCOPED). A principal's facts are produced at most once per request, and so
+/// is each shape of compliance snapshot. A principal's accessible asset set is produced at most once per
+/// asset list, because a request may hold more than one. Implements <see cref="IAuthzFactProvider"/> so it
+/// is the single fact loader. It also builds the organisation-anchored <see cref="AuthzResource"/> every
+/// organisation gate is constructed from, because the asset list that anchoring needs is already
+/// memoized here.
 ///
 /// The accessible set is memoized per principal AND per asset list, so two reads in one request each
-/// narrow with their own owner edges rather than the first one's. That keying is what lets the shared
-/// asset read carry nothing but the <c>assets</c> table: every organisation gate, every compliance write
-/// selector and both role-assignment guards reach their assets through <see cref="GetAssetsAsync"/>, and
-/// none of them should depend on a table only the vendor register needs.
+/// narrow with their own owner edges rather than the first one's. That keying is what lets several
+/// snapshots coexist honestly in one request.
 ///
-/// <see cref="GetAssetsAsync"/> may be SERVED from an assurance snapshot the request has already taken,
-/// but never takes one. So a request that renders the register pays for one read, and a request that only
-/// gates pays for a read of <c>assets</c> alone - and a schema missing the assurance table degrades the
-/// register rather than closing every gated write.
+/// <see cref="GetSnapshotAsync"/> keeps every snapshot the request has taken and serves a later request
+/// from the first taken snapshot whose sets COVER it. Reuse is sound because a wider snapshot is one
+/// transaction containing every list the narrower request asked for, so the reusing decision takes its
+/// rows and its asset list from that one transaction. Two snapshots are never merged into a synthetic
+/// wider one: the merged lists would come from two transactions, which is the straddle this cache exists
+/// to prevent. A FAULTED read keeps nothing, so a gate arriving after it still reads and answers.
+///
+/// <see cref="GetAssetsAsync"/> names the assets and no payload set, so every gate that reaches its
+/// assets through it - every route- or body-anchored organisation gate, every compliance write selector,
+/// and both role-assignment guards - reads the <c>assets</c> table alone, and a schema missing a payload
+/// table degrades the surface that reads it rather than closing every gated write. The one gate that does
+/// not reach its assets this way is the scope write, whose organisation is only knowable from the stored
+/// row: it brings its own snapshot of the assets and the scopes.
 /// </summary>
 public sealed class AuthzRequestCache(IAuthzStore store, IComplianceStore compliance) : IAuthzFactProvider
 {
     private readonly Dictionary<string, AuthzPrincipalFacts> _facts = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Principal, AssetListKey Assets), IReadOnlySet<string>> _accessibleAssets = [];
-    private VendorAssuranceInputs? _assuranceInputs;
-    private IReadOnlyList<AssetNode>? _assets;
-    private IReadOnlyDictionary<string, AssetNode>? _assetsById;
+    private readonly List<ComplianceSnapshot> _snapshots = [];
+    private readonly Dictionary<AssetListKey, IReadOnlyDictionary<string, AssetNode>> _assetsById = [];
 
     public async ValueTask<AuthzPrincipalFacts> LoadFactsAsync(
         string userId, CancellationToken cancellationToken = default)
@@ -47,31 +53,39 @@ public sealed class AuthzRequestCache(IAuthzStore store, IComplianceStore compli
     }
 
     /// <summary>
-    /// The assets and assurances a vendor-assurance surface narrows one by the other, in one snapshot,
-    /// read at most once per request. Its assets also stand in for the shared read when a later caller
-    /// asks for one, which is why a request that renders the register pays for a single read.
+    /// The lists <paramref name="sets"/> names, in one snapshot. A snapshot the request has already taken
+    /// whose sets cover <paramref name="sets"/> is served instead of a new read, so a page render and the
+    /// shell around it share one read and one accessible set. Which snapshot is reused depends on the
+    /// order the surfaces of a request run in, and that is a performance property only: each snapshot
+    /// carries its own asset list, so every decision is internally consistent whichever order runs.
+    ///
+    /// Memoizing assumes the sequential access a request pipeline gives it. Two calls awaited
+    /// concurrently could each read before either is kept, and would then be served different snapshots.
+    /// Nothing in the app does that today. A caller that starts parallelising reads through this cache
+    /// has to give it a single-flight guard first.
     /// </summary>
-    public async ValueTask<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(
-        CancellationToken cancellationToken = default)
-        => _assuranceInputs ??= await compliance.GetVendorAssuranceInputsAsync(cancellationToken).ConfigureAwait(false);
+    public async ValueTask<ComplianceSnapshot> GetSnapshotAsync(
+        ComplianceReadSet sets, CancellationToken cancellationToken = default)
+    {
+        var covering = _snapshots.FirstOrDefault(taken => (taken.Sets & sets) == sets);
+        if (covering is not null)
+        {
+            return covering;
+        }
+
+        var snapshot = await compliance.GetSnapshotAsync(sets, cancellationToken).ConfigureAwait(false);
+        _snapshots.Add(snapshot);
+        return snapshot;
+    }
 
     /// <summary>
-    /// The request's shared asset list, pinned on first use: the first list served is served for the rest
-    /// of the request, so two consumers of this read can never narrow with different lists and the ancestry
-    /// map cannot disagree with what a later caller gets.
-    ///
-    /// An assurance snapshot the request has ALREADY taken supplies the list; this never takes one. A
-    /// faulted assurance read memoizes nothing, so a gate arriving after it still reads the assets alone.
-    ///
-    /// Pinning assumes the sequential access a request pipeline gives it. Two calls awaited concurrently
-    /// could each read before either memoizes, and would then be served different lists; nothing in the app
-    /// does that today, and a caller that starts parallelising reads through this cache has to give it a
-    /// single-flight guard first.
+    /// The request's shared asset list: the <c>assets</c> table alone, or a wider snapshot's assets when
+    /// the request has already taken one. The first list served is served for the rest of the request, so
+    /// two consumers of this read can never narrow with different lists.
     /// </summary>
     public async ValueTask<IReadOnlyList<AssetNode>> GetAssetsAsync(
         CancellationToken cancellationToken = default)
-        => _assets ??= _assuranceInputs?.Assets
-            ?? await compliance.GetAssetsAsync(cancellationToken).ConfigureAwait(false);
+        => (await GetSnapshotAsync(ComplianceReadSet.Assets, cancellationToken).ConfigureAwait(false)).Assets;
 
     /// <summary>
     /// The principal's accessible ASSET set over <paramref name="assets"/>, resolved at most once per
@@ -127,8 +141,23 @@ public sealed class AuthzRequestCache(IAuthzStore store, IComplianceStore compli
     /// </summary>
     public async ValueTask<AuthzResource> OrganisationResourceAsync(
         string type, string? id, string organisationId, CancellationToken cancellationToken = default)
+        => OrganisationResource(
+            type, id, organisationId, await GetAssetsAsync(cancellationToken).ConfigureAwait(false));
+
+    /// <summary>
+    /// The same resource, anchored on the assets of a snapshot the caller already holds. A gate whose
+    /// organisation was derived from a stored row takes this form: resolving the ancestry from a
+    /// separately taken asset read would authorize the write against a chain the row's own snapshot never
+    /// had.
+    /// </summary>
+    public AuthzResource OrganisationResource(
+        string type, string? id, string organisationId, ComplianceSnapshot snapshot)
+        => OrganisationResource(type, id, organisationId, snapshot.Assets);
+
+    private AuthzResource OrganisationResource(
+        string type, string? id, string organisationId, IReadOnlyList<AssetNode> assets)
     {
-        var byId = await AssetsByIdAsync(cancellationToken).ConfigureAwait(false);
+        var byId = AssetsById(assets);
 
         var chain = new List<string>();
         foreach (var entry in AssetAncestry.InclusiveAncestors(organisationId, byId))
@@ -145,9 +174,19 @@ public sealed class AuthzRequestCache(IAuthzStore store, IComplianceStore compli
         return new AuthzResource(type, id, organisationId, chain);
     }
 
-    // Memoized with the list it indexes: one request can gate several times (a reparenting write gates
-    // the org and both parents), and each gate walks the same map.
-    private async ValueTask<IReadOnlyDictionary<string, AssetNode>> AssetsByIdAsync(CancellationToken ct)
-        => _assetsById ??= (await GetAssetsAsync(ct).ConfigureAwait(false))
-            .ToDictionary(a => a.Id, StringComparer.Ordinal);
+    // Memoized per asset list: one request can gate several times (a reparenting write gates the org and
+    // both parents), each gate walks the same map, and a request holding more than one snapshot must not
+    // index one list's gate against another list's map.
+    private IReadOnlyDictionary<string, AssetNode> AssetsById(IReadOnlyList<AssetNode> assets)
+    {
+        var key = new AssetListKey(assets);
+        if (_assetsById.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var byId = assets.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        _assetsById[key] = byId;
+        return byId;
+    }
 }

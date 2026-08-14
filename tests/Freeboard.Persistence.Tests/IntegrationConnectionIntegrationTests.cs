@@ -158,7 +158,7 @@ public sealed class IntegrationConnectionIntegrationTests
             collectors: [IntegrationColl("collector-a", "fleet-prod", checks)]));
 
         // The read model exposes only the persisted subset; there is no token state.
-        var connection = Assert.Single(await store.GetIntegrationConnectionsAsync());
+        var connection = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.IntegrationConnections)).IntegrationConnections);
         Assert.Equal("fleet-prod", connection.Id);
         Assert.Equal("fleet", connection.Provider);
         Assert.Equal("https://fleet.example.com", connection.BaseUrl);
@@ -167,7 +167,7 @@ public sealed class IntegrationConnectionIntegrationTests
 
         // The collector's connection_id and provider round-trip through the read model, and its checks
         // come back inside the typed config view.
-        var collector = Assert.Single(await store.GetCollectorsAsync());
+        var collector = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors);
         Assert.Equal("fleet-prod", collector.Connection);
         Assert.Equal("fleet", collector.Provider);
         // The tracked set equals exactly the authored checks, in author order.
@@ -210,10 +210,10 @@ public sealed class IntegrationConnectionIntegrationTests
             collectors: [],
             vendors: [Vnd("vendor-a")]));
 
-        Assert.Empty(await store.GetCollectorsAsync());
-        var connection = Assert.Single(await store.GetIntegrationConnectionsAsync());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors);
+        var connection = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.IntegrationConnections)).IntegrationConnections);
         Assert.Equal("fleet-dev", connection.Id);
-        var vendor = Assert.Single(await store.GetAssetsAsync(), a => a.Type is "Vendor");
+        var vendor = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets, a => a.Type is "Vendor");
         Assert.Equal("vendor-a", vendor.Id);
     }
 }
