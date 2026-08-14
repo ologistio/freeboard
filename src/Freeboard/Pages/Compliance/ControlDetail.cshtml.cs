@@ -1,3 +1,4 @@
+using Freeboard.Authz;
 using Freeboard.Compliance;
 using Freeboard.Pages.Shared;
 using Freeboard.Persistence;
@@ -14,9 +15,17 @@ namespace Freeboard.Pages.Compliance;
 /// Authorization binds to the caller's full accessible asset set, not the active list scope, so a direct
 /// URL for any accessible org renders. A missing control, or one whose org lies outside that set,
 /// returns not-found and discloses no record name or facet, so a direct URL cannot probe for hidden records.
+///
+/// The assets it authorizes against and the lists it projects come from ONE snapshot on
+/// <see cref="AuthzRequestCache"/>, so the rest of the request shares that read and this page's
+/// accessible set is keyed to it. The standards existence check stays separate: it decides not-found
+/// rather than visibility.
 /// </summary>
 public sealed class ControlDetailModel(
-    IComplianceStore store, IAssetAccess assetAccess, IEvidenceStore evidenceStore) : PageModel
+    IComplianceStore store,
+    AuthzRequestCache cache,
+    IAssetAccess assetAccess,
+    IEvidenceStore evidenceStore) : PageModel
 {
     private const string UnknownStatus = "Unknown";
 
@@ -39,25 +48,30 @@ public sealed class ControlDetailModel(
 
         try
         {
-            var standards = await store.GetStandardsAsync(ct).ConfigureAwait(false);
+            var standards = (await store.GetSnapshotAsync(ComplianceReadSet.Standards, ct).ConfigureAwait(false))
+                .Standards;
             if (!standards.Any(s => string.Equals(s.Id, standard, StringComparison.Ordinal)))
             {
                 return NotFound();
             }
 
-            var inputs = await store.GetStatementOfApplicabilityDrilldownInputsAsync(ct).ConfigureAwait(false);
+            var snapshot = await cache.GetSnapshotAsync(
+                ComplianceReadSet.Assets | ComplianceReadSet.Scopes | ComplianceReadSet.Requirements
+                    | ComplianceReadSet.Controls | ComplianceReadSet.Collectors, ct)
+                .ConfigureAwait(false);
 
             // Authorize against every org the caller may see - not the active-scope-narrowed set or the
             // org-selection cookie - so a direct link to any accessible org renders. Out-of-set is not-found.
-            var accessibleIds = await assetAccess.AccessibleAssetIdsAsync(User, inputs.Assets, ct).ConfigureAwait(false);
+            var accessibleIds = await assetAccess
+                .AccessibleAssetIdsAsync(User, snapshot.Assets, ct).ConfigureAwait(false);
             if (!accessibleIds.Contains(org))
             {
                 return NotFound();
             }
 
             var resolved = global::Freeboard.Compliance.StatementOfApplicability.ResolveDrilldown(
-                inputs.Assets, inputs.Scopes, inputs.Requirements,
-                inputs.Controls, inputs.Collectors, accessibleIds, standard);
+                snapshot.Assets, snapshot.Scopes, snapshot.Requirements,
+                snapshot.Controls, snapshot.Collectors, accessibleIds, standard);
 
             var node = resolved.FirstOrDefault(n => string.Equals(n.Id, org, StringComparison.Ordinal));
             var requirementNode = node?.Requirements

@@ -4,6 +4,7 @@ using Freeboard.Compliance;
 using Freeboard.Core.Assets;
 using Freeboard.Core.Authz;
 using Freeboard.Core.Enterprise;
+using Freeboard.Persistence;
 using Freeboard.Web;
 using Microsoft.Extensions.Options;
 
@@ -26,13 +27,15 @@ public sealed record ShellNavView(IReadOnlyList<ShellNavGroupView> Groups);
 ///
 /// The Vendors item is the one badged source: how many readable vendors hold an expiring or already
 /// expired certification. A vendor holding no certification is never counted, because a badge that is
-/// permanently non-zero stops being read (N6). The count reads the assurance snapshot on
-/// <see cref="AuthzRequestCache"/> rather than taking its own, so a page that renders the register pays
-/// for one read rather than two; the accessible set that narrows it is resolved over that snapshot's own
-/// asset list, so sharing is a read-count matter and not what keeps the narrowing honest. It is memoized
-/// because the layout resolves the navigation up to three times per render, and it is computed inside the
-/// store-failure catch so an outage leaves the item unbadged rather than failing every page in the app.
-/// Request-scoped, mirroring the per-request authz/entitlement calls the layout already made.
+/// permanently non-zero stops being read (N6). The count names the assets and the assurances - the two
+/// lists its narrowing rests on - in one snapshot from <see cref="AuthzRequestCache"/>, which serves the
+/// register page's wider snapshot when that page has already taken one, so rendering the register pays
+/// for one read rather than two. The accessible set that narrows the count is resolved over whichever
+/// snapshot it is served, so sharing is a read-count matter and not what keeps the narrowing honest. It
+/// is memoized because the layout resolves the navigation up to three times per render, and it is
+/// computed inside the store-failure catch so an outage leaves the item unbadged rather than failing
+/// every page in the app. Request-scoped, mirroring the per-request authz/entitlement calls the layout
+/// already made.
 /// </summary>
 public sealed class ShellNavResolver(
     IAuthzFactProvider facts,
@@ -93,20 +96,22 @@ public sealed class ShellNavResolver(
         _countResolved = true;
         try
         {
-            var inputs = await cache.GetVendorAssuranceInputsAsync(cancellationToken).ConfigureAwait(false);
+            var snapshot = await cache.GetSnapshotAsync(
+                ComplianceReadSet.Assets | ComplianceReadSet.VendorAssurances, cancellationToken)
+                .ConfigureAwait(false);
             var accessible = await assetAccess
-                .AccessibleAssetIdsAsync(user, inputs.Assets, cancellationToken).ConfigureAwait(false);
+                .AccessibleAssetIdsAsync(user, snapshot.Assets, cancellationToken).ConfigureAwait(false);
             var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
             var warnWindowDays = assurance.Value.WarnWindowDays;
 
             // Narrowed the same way the register narrows, on both tests: an accessible id AND a Vendor
             // row. The badge and the page must not be able to disagree about which vendors count.
-            var vendorIds = inputs.Assets
+            var vendorIds = snapshot.Assets
                 .Where(a => a.Type is "Vendor")
                 .Select(a => a.Id)
                 .ToHashSet(StringComparer.Ordinal);
 
-            var count = inputs.Assurances
+            var count = snapshot.VendorAssurances
                 .Where(a => vendorIds.Contains(a.VendorId)
                     && accessible.Contains(a.VendorId)
                     && VendorAssurance.Evaluate(a.Expires, a.WarnDays ?? warnWindowDays, today) is not AssuranceStatus.Valid)

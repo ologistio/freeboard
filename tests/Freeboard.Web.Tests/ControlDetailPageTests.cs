@@ -293,13 +293,18 @@ public sealed class ControlDetailPageTests
     }
 
     [Fact]
-    public void ConstructorTakesComplianceStoreAssetAccessAndEvidenceStore()
+    public void ConstructorTakesComplianceStoreRequestCacheAssetAccessAndEvidenceStore()
     {
         var ctor = Assert.Single(typeof(Freeboard.Pages.Compliance.ControlDetailModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
         Assert.Equal(
-            new HashSet<Type> { typeof(IComplianceStore), typeof(IAssetAccess), typeof(IEvidenceStore) }, paramTypes);
+            new HashSet<Type>
+            {
+                typeof(IComplianceStore), typeof(Freeboard.Authz.AuthzRequestCache), typeof(IAssetAccess),
+                typeof(IEvidenceStore),
+            },
+            paramTypes);
     }
 
     private sealed class SubsetAssetAccess(IReadOnlySet<string> accessible) : IAssetAccess

@@ -92,11 +92,11 @@ public sealed class OrgSelectionTests
     [Fact]
     public async Task Resolver_RepeatedReads_HitStoreOnce()
     {
-        var store = new CountingComplianceStore { Assets = Assets() };
+        var store = new FakeComplianceStore { Assets = Assets() };
         var resolver = Resolver(store, new AllAssetAccess(), cookie: "org-a");
         await resolver.GetAsync();
         await resolver.GetAsync();
-        Assert.Equal(1, store.AssetReads);
+        Assert.Equal([ComplianceReadSet.Assets], store.SnapshotReads);
     }
 
     [Fact]
@@ -117,8 +117,8 @@ public sealed class OrgSelectionTests
             context.Request.Headers.Cookie = $"{OrgSelection.CookieName}={cookie}";
         }
 
-        // The resolver takes its assets from the request cache's shared asset read, which carries the
-        // assets alone unless the request has already taken an assurance snapshot to serve it from.
+        // The resolver takes its assets from the request cache's shared asset read, which names the
+        // assets alone unless the request has already taken a wider snapshot to serve it from.
         var cache = new AuthzRequestCache(new FakeAuthzStore(), store);
         return new OrgSelectionResolver(new HttpContextAccessor { HttpContext = context }, cache, access);
     }
@@ -128,49 +128,5 @@ public sealed class OrgSelectionTests
         public ValueTask<IReadOnlySet<string>> AccessibleAssetIdsAsync(
             ClaimsPrincipal user, IReadOnlyList<AssetNode> assets, CancellationToken cancellationToken = default)
             => ValueTask.FromResult(accessible);
-    }
-
-    private sealed class CountingComplianceStore : IComplianceStore
-    {
-        /// <summary>Reads of the shared asset list, which is what the resolver takes its assets from.</summary>
-        public int AssetReads { get; private set; }
-
-        public IReadOnlyList<AssetNode> Assets { get; init; } = [];
-
-        public Task<IReadOnlyList<AssetNode>> GetAssetsAsync(CancellationToken cancellationToken = default)
-        {
-            AssetReads++;
-            return Task.FromResult(Assets);
-        }
-
-        public Task<VendorAssuranceInputs> GetVendorAssuranceInputsAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new VendorAssuranceInputs(Assets, []));
-
-        public Task<IReadOnlyList<StandardRow>> GetStandardsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<StandardRow>)[]);
-
-        public Task<IReadOnlyList<RequirementRow>> GetRequirementsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<RequirementRow>)[]);
-
-        public Task<IReadOnlyList<ControlRow>> GetControlsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<ControlRow>)[]);
-
-        public Task<IReadOnlyList<ScopeRow>> GetScopesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<ScopeRow>)[]);
-
-        public Task<IReadOnlyList<CollectorRow>> GetCollectorsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<CollectorRow>)[]);
-
-        public Task<IReadOnlyList<IntegrationConnectionRow>> GetIntegrationConnectionsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult((IReadOnlyList<IntegrationConnectionRow>)[]);
-
-        public Task<SoaInputs> GetStatementOfApplicabilityInputsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SoaInputs(Assets, [], []));
-
-        public Task<SoaDrilldownInputs> GetStatementOfApplicabilityDrilldownInputsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SoaDrilldownInputs(Assets, [], [], [], []));
-
-        public Task<ComplianceCounts> GetCountsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ComplianceCounts(0, 0, 0, 0, 0, 0, 0));
     }
 }

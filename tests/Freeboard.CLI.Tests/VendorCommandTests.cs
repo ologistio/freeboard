@@ -115,6 +115,33 @@ public sealed class VendorCommandTests : IDisposable
     }
 
     [Fact]
+    public void ListDropsAScopeWhoseVendorIsAbsentFromTheVendorResponse()
+    {
+        // The property that makes the two-request composition safe. Each response is narrowed on the
+        // server against its own snapshot, and the join prints a scope only under a vendor the vendor
+        // response carried. A vendor that becomes readable between the two calls is therefore absent
+        // from the listing along with its justification: the residue is staleness, never disclosure.
+        Install(new FakeApiClient
+        {
+            VendorListResult = ApiResult<IReadOnlyList<ApiVendor>>.Success(
+                [new ApiVendor("vendor-a", "Vendor A", null, [], [])]),
+            ScopeListResult = ApiResult<IReadOnlyList<ApiScope>>.Success(
+            [
+                new ApiScope("vs-a", "T", "vendor-a", null, "req-a", null, "In", null),
+                new ApiScope("vs-hidden", "T", "vendor-hidden", null, "req-b", null, "Out", "Hidden justification."),
+            ]),
+        });
+
+        var (exit, output, _) = Capture(() => new VendorCommands().List());
+
+        Assert.Equal(0, exit);
+        Assert.Contains("vendor-a", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("vendor-hidden", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hidden justification.", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("req-b", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ListWithNoVendorsExitsZero()
     {
         Install(new FakeApiClient

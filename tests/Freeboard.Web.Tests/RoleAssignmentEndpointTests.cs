@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Freeboard.Auth;
 using Freeboard.Core.Authz;
+using Freeboard.Persistence;
 
 namespace Freeboard.Web.Tests;
 
@@ -130,7 +131,7 @@ public sealed class RoleAssignmentEndpointTests
         using var factory = new AuthWebFactory
         {
             Authz = new FakeAuthzStore().GrantSuperAdmin("u1"),
-            Compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a")], AssurancesUnreachable = true },
+            Compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a")], Faulted = ComplianceReadSet.VendorAssurances },
         };
         var token = factory.SeedSession(AuthWebFactory.MakeUser("u1"));
         using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { AllowAutoRedirect = false });

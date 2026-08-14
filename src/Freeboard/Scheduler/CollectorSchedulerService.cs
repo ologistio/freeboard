@@ -102,7 +102,10 @@ public sealed class CollectorSchedulerService(
             return;
         }
 
-        var collectors = await complianceStore.GetCollectorsAsync(cancellationToken).ConfigureAwait(false);
+        // The collectors alone: the cycle narrows nothing by asset, so there is nothing to pair them with.
+        var collectors = (await complianceStore
+            .GetSnapshotAsync(ComplianceReadSet.Collectors, cancellationToken).ConfigureAwait(false))
+            .Collectors;
 
         // Only integration collectors with a resolvable interval are scheduled. A null-interval collector is
         // not seeded and its id is kept out of the active set, so it is never claimed (the primary guard

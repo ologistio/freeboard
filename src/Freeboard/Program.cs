@@ -328,9 +328,11 @@ app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
     {
         var complianceStore = app.Services.GetRequiredService<IComplianceStore>();
         var tokenResolver = app.Services.GetRequiredService<Freeboard.Compliance.IIntegrationTokenResolver>();
-        var connectionIds = (await complianceStore.GetIntegrationConnectionsAsync())
+        var snapshot = await complianceStore.GetSnapshotAsync(
+            ComplianceReadSet.Collectors | ComplianceReadSet.IntegrationConnections);
+        var connectionIds = snapshot.IntegrationConnections
             .Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
-        var referencedConnections = (await complianceStore.GetCollectorsAsync())
+        var referencedConnections = snapshot.Collectors
             .Where(c => string.Equals(c.Type, "integration", StringComparison.Ordinal) && !string.IsNullOrEmpty(c.Connection))
             .Select(c => c.Connection!)
             .Where(connectionIds.Contains)

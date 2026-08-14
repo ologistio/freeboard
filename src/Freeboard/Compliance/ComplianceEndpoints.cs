@@ -10,12 +10,17 @@ using Microsoft.Extensions.Options;
 namespace Freeboard.Compliance;
 
 /// <summary>
-/// Read-only HTTP endpoints serving the persisted compliance domain through
-/// <see cref="IComplianceStore"/>. GET-only, so the read-only middleware does not
-/// touch them, and behind the default authorization policy so an anonymous caller is 401'd
-/// (any authenticated user may read; no admin role required). On an unreachable store the read
+/// Read-only HTTP endpoints serving the persisted compliance domain. GET-only, so the read-only
+/// middleware does not touch them, and behind the default authorization policy so an anonymous caller
+/// is 401'd (any authenticated user may read; no admin role required). On an unreachable store the read
 /// endpoints return RFC 7807 / HTTP 503; the status endpoint degrades to all-null counts with
 /// HTTP 200.
+///
+/// A narrowed endpoint takes its rows AND the asset list that narrows them from one
+/// <see cref="AuthzRequestCache"/> snapshot naming exactly the sets its decision needs, so a sync
+/// committing between two reads cannot pair one side's rows with the other side's owner edges. The
+/// unnarrowed catalog and count reads go to <see cref="IComplianceStore"/> directly: they narrow
+/// nothing, so they have nothing to pair and nothing for the request to share.
 /// </summary>
 public static class ComplianceEndpoints
 {
@@ -23,11 +28,13 @@ public static class ComplianceEndpoints
     {
         var reads = app.MapGroup(ApiRoutes.ApiRoutePrefix).RequireAuthorization();
 
+        // The three catalog reads narrow nothing, so each names its one set and goes to the store
+        // directly: there is no asset list to pair the rows with and nothing for the request to share.
         reads.MapGet("/standards", async (IComplianceStore store, CancellationToken ct) =>
         {
             try
             {
-                var rows = await store.GetStandardsAsync(ct);
+                var rows = (await store.GetSnapshotAsync(ComplianceReadSet.Standards, ct)).Standards;
                 return Results.Ok(rows.Select(r => new
                 {
                     id = r.Id,
@@ -48,7 +55,7 @@ public static class ComplianceEndpoints
         {
             try
             {
-                var rows = await store.GetRequirementsAsync(ct);
+                var rows = (await store.GetSnapshotAsync(ComplianceReadSet.Requirements, ct)).Requirements;
                 return Results.Ok(rows.Select(r => new
                 {
                     id = r.Id,
@@ -70,7 +77,7 @@ public static class ComplianceEndpoints
         {
             try
             {
-                var rows = await store.GetControlsAsync(ct);
+                var rows = (await store.GetSnapshotAsync(ComplianceReadSet.Controls, ct)).Controls;
                 return Results.Ok(rows.Select(r => new { id = r.Id, title = r.Title, maps_to = r.MapsTo, evaluation = r.Evaluation }));
             }
             catch (Exception ex) when (IsStoreFailure(ex))
@@ -79,11 +86,11 @@ public static class ComplianceEndpoints
             }
         });
 
-        reads.MapGet("/organisations", async (IComplianceStore store, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
+        reads.MapGet("/organisations", async (AuthzRequestCache cache, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
-                var assets = await store.GetAssetsAsync(ct);
+                var assets = (await cache.GetSnapshotAsync(ComplianceReadSet.Assets, ct)).Assets;
                 var accessible = await access.AccessibleAssetIdsAsync(user, assets, ct);
                 var organisationIds = assets.Where(a => a.IsOrganisation).Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
                 // Narrow to the accessible set, and null a parent the caller cannot access so an
@@ -110,14 +117,15 @@ public static class ComplianceEndpoints
         // One unified scopes read, narrowed by one test: the subject must be an asset the caller may
         // read. A subject that resolves to no asset row, to a retired discovered asset, or to one whose
         // anchoring edge lands outside the caller's set is omitted (fail-closed), so neither the scope
-        // nor its Out justification surfaces.
-        reads.MapGet("/scopes", async (IComplianceStore store, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
+        // nor its Out justification surfaces. The scopes and the assets travel in one snapshot, so a
+        // sync committing mid-read cannot admit a scope by owner edges the rows never had.
+        reads.MapGet("/scopes", async (AuthzRequestCache cache, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
-                var rows = await store.GetScopesAsync(ct);
-                var accessible = await access.AccessibleAssetIdsAsync(user, await store.GetAssetsAsync(ct), ct);
-                return Results.Ok(rows.Where(r => accessible.Contains(r.Subject)).Select(r => new
+                var snapshot = await cache.GetSnapshotAsync(ComplianceReadSet.Assets | ComplianceReadSet.Scopes, ct);
+                var accessible = await access.AccessibleAssetIdsAsync(user, snapshot.Assets, ct);
+                return Results.Ok(snapshot.Scopes.Where(r => accessible.Contains(r.Subject)).Select(r => new
                 {
                     id = r.Id,
                     title = r.Title,
@@ -139,8 +147,8 @@ public static class ComplianceEndpoints
         // exactly when its owner resolves into the caller's organisation union; a vendor with a null or
         // dangling owner is visible to no one (fail-closed). The same set withholds a vendor id from
         // /collectors and /integration-connections, so no read surface discloses one.
-        // The assets and the assurances come from one assurance snapshot, so the owner edges that narrow
-        // the response and the rows being narrowed cannot straddle a concurrent sync commit. The
+        // The assets and the assurances come from one snapshot, so the owner edges that narrow the
+        // response and the rows being narrowed cannot straddle a concurrent sync commit. The
         // status is derived here rather than left to the caller, so the warning window lives in one
         // process and this endpoint and the CLI cannot disagree about the state of one certification.
         reads.MapGet("/vendors", async (
@@ -153,15 +161,16 @@ public static class ComplianceEndpoints
         {
             try
             {
-                var inputs = await cache.GetVendorAssuranceInputsAsync(ct);
-                var accessible = await access.AccessibleAssetIdsAsync(user, inputs.Assets, ct);
+                var snapshot = await cache.GetSnapshotAsync(
+                    ComplianceReadSet.Assets | ComplianceReadSet.VendorAssurances, ct);
+                var accessible = await access.AccessibleAssetIdsAsync(user, snapshot.Assets, ct);
                 var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
                 var warnWindowDays = assurance.Value.WarnWindowDays;
-                var byVendor = inputs.Assurances
+                var byVendor = snapshot.VendorAssurances
                     .GroupBy(a => a.VendorId, StringComparer.Ordinal)
                     .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
-                return Results.Ok(inputs.Assets.Where(a => a.Type is "Vendor" && accessible.Contains(a.Id))
+                return Results.Ok(snapshot.Assets.Where(a => a.Type is "Vendor" && accessible.Contains(a.Id))
                     .Select(r => new
                     {
                         id = r.Id,
@@ -190,13 +199,14 @@ public static class ComplianceEndpoints
         // adds an org dimension. The quiz items carry no answer: the store returns an answer-free
         // QuizItemView, so the correct answer never appears in the JSON. `connection` is deliberately
         // not projected - it is sourced only to drive the startup token-resolvability warning.
-        reads.MapGet("/collectors", async (IComplianceStore store, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
+        reads.MapGet("/collectors", async (AuthzRequestCache cache, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
-                var rows = await store.GetCollectorsAsync(ct);
-                var accessible = await access.AccessibleAssetIdsAsync(user, await store.GetAssetsAsync(ct), ct);
-                return Results.Ok(rows.Select(r => new
+                var snapshot = await cache.GetSnapshotAsync(
+                    ComplianceReadSet.Assets | ComplianceReadSet.Collectors, ct);
+                var accessible = await access.AccessibleAssetIdsAsync(user, snapshot.Assets, ct);
+                return Results.Ok(snapshot.Collectors.Select(r => new
                 {
                     id = r.Id,
                     title = r.Title,
@@ -219,13 +229,14 @@ public static class ComplianceEndpoints
         // /collectors - the ROWS are not narrowed and the `vendor` id is: it reads null when that vendor is
         // outside the caller's accessible asset set. token_resolvable is composed at read time from the
         // out-of-band token resolver; the token value never appears here.
-        reads.MapGet("/integration-connections", async (IComplianceStore store, IIntegrationTokenResolver tokens, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
+        reads.MapGet("/integration-connections", async (AuthzRequestCache cache, IIntegrationTokenResolver tokens, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             try
             {
-                var rows = await store.GetIntegrationConnectionsAsync(ct);
-                var accessible = await access.AccessibleAssetIdsAsync(user, await store.GetAssetsAsync(ct), ct);
-                return Results.Ok(rows.Select(r => new
+                var snapshot = await cache.GetSnapshotAsync(
+                    ComplianceReadSet.Assets | ComplianceReadSet.IntegrationConnections, ct);
+                var accessible = await access.AccessibleAssetIdsAsync(user, snapshot.Assets, ct);
+                return Results.Ok(snapshot.IntegrationConnections.Select(r => new
                 {
                     id = r.Id,
                     provider = r.Provider,
@@ -242,25 +253,28 @@ public static class ComplianceEndpoints
         });
 
         reads.MapGet("/statement-of-applicability/{standardId}",
-            async (string standardId, IComplianceStore store, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
+            async (string standardId, AuthzRequestCache cache, IComplianceStore store, IAssetAccess access, ClaimsPrincipal user, CancellationToken ct) =>
             {
                 try
                 {
                     // Confirm the standard exists before projecting. Under opt-out an absent standard
                     // would otherwise resolve every organisation In by default, presenting a typo or
                     // deleted standard as applicable to all orgs instead of returning not found.
-                    var standards = await store.GetStandardsAsync(ct);
+                    // A catalog read, kept outside the projection snapshot: it decides not-found rather
+                    // than visibility, so a standard appearing or vanishing mid-read discloses nothing.
+                    var standards = (await store.GetSnapshotAsync(ComplianceReadSet.Standards, ct)).Standards;
                     if (!standards.Any(s => string.Equals(s.Id, standardId, StringComparison.Ordinal)))
                     {
                         return Results.NotFound();
                     }
 
-                    var inputs = await store.GetStatementOfApplicabilityInputsAsync(ct);
+                    var snapshot = await cache.GetSnapshotAsync(
+                        ComplianceReadSet.Assets | ComplianceReadSet.Scopes | ComplianceReadSet.Requirements, ct);
                     // Resolve over the FULL tree first (so inherited dispositions survive), then filter
                     // the node list to the accessible subtree.
-                    var accessible = await access.AccessibleAssetIdsAsync(user, inputs.Assets, ct);
+                    var accessible = await access.AccessibleAssetIdsAsync(user, snapshot.Assets, ct);
                     var nodes = StatementOfApplicability.Resolve(
-                            inputs.Assets, inputs.Scopes, inputs.Requirements, standardId)
+                            snapshot.Assets, snapshot.Scopes, snapshot.Requirements, standardId)
                         .Where(n => accessible.Contains(n.Id))
                         .ToList();
                     return Results.Ok(new

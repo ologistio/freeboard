@@ -201,7 +201,7 @@ public sealed class AssetUnificationIntegrationTests
         Assert.Equal("Critical", await conn.ExecuteScalarAsync<string>(
             "SELECT tier FROM assets WHERE id = 'vendor-a';"));
 
-        var written = (await store.GetAssetsAsync()).Single(a => a.Id == "vendor-a");
+        var written = (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Single(a => a.Id == "vendor-a");
         Assert.Equal("Critical", written.Tier);
         Assert.Equal(["pii", "payment-card"], written.DataClasses);
 
@@ -214,7 +214,7 @@ public sealed class AssetUnificationIntegrationTests
         Assert.Null(await conn.ExecuteScalarAsync<string>("SELECT tier FROM assets WHERE id = 'vendor-a';"));
         Assert.Null(await conn.ExecuteScalarAsync<string>("SELECT data_classes FROM assets WHERE id = 'vendor-a';"));
 
-        var cleared = (await store.GetAssetsAsync()).Single(a => a.Id == "vendor-a");
+        var cleared = (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Single(a => a.Id == "vendor-a");
         Assert.Null(cleared.Tier);
         Assert.Empty(cleared.DataClasses);
     }
@@ -372,7 +372,7 @@ public sealed class AssetUnificationIntegrationTests
         await conn.ExecuteAsync(
             "UPDATE assets SET state = 'Retired' WHERE id = @Id;", new { Id = retired.AssetId });
 
-        var assets = await reads.GetAssetsAsync();
+        var assets = (await reads.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets;
 
         Assert.Equal(
             new[] { "dept-a", "m-declared", "org-a", "vendor-a", seen.AssetId!, retired.AssetId! }
@@ -417,7 +417,7 @@ public sealed class AssetUnificationIntegrationTests
         Assert.True((await store.UpsertOrganisationAsync("child", "Child", "Department", "root", expectExisting: false)).Ok);
 
         // The org projection reads back the two Company/Department assets.
-        var orgs = (await reads.GetAssetsAsync()).Where(a => a.IsOrganisation).ToList();
+        var orgs = (await reads.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Where(a => a.IsOrganisation).ToList();
         Assert.Equal(["child", "root"], orgs.Select(o => o.Id).OrderBy(x => x, StringComparer.Ordinal).ToArray());
         Assert.Equal("root", orgs.Single(o => o.Id == "child").Parent);
 
@@ -429,7 +429,7 @@ public sealed class AssetUnificationIntegrationTests
         Assert.False((await store.DeleteOrganisationAsync("root")).Ok);
         Assert.True((await store.DeleteOrganisationAsync("child")).Ok);
         Assert.True((await store.DeleteOrganisationAsync("root")).Ok);
-        Assert.DoesNotContain(await reads.GetAssetsAsync(), a => a.IsOrganisation);
+        Assert.DoesNotContain((await reads.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets, a => a.IsOrganisation);
 
         // Authz org-role assignment validates the target org against the Company/Department asset subset.
         var authz = new MySqlAuthzAdministrationStore(db.ConnectionFactory, new UlidFactory());

@@ -310,7 +310,7 @@ public sealed class ComplianceWriteEndpointTests
         // the write rather than performing it on an authorization decision it could not make.
         using var factory = new WriteFactory(new FakeComplianceWriteStore())
         {
-            Compliance = new FakeComplianceStore { AssetsUnreachable = true },
+            Compliance = new FakeComplianceStore { Faulted = ComplianceReadSet.Assets },
         };
         using var client = AdminClient(factory);
 
@@ -330,7 +330,7 @@ public sealed class ComplianceWriteEndpointTests
         var writes = new FakeComplianceWriteStore();
         using var factory = new WriteFactory(writes)
         {
-            Compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a")], AssurancesUnreachable = true },
+            Compliance = new FakeComplianceStore { Assets = [TestAssets.Org("org-a")], Faulted = ComplianceReadSet.VendorAssurances },
         };
         using var client = AdminClient(factory);
 
@@ -342,115 +342,115 @@ public sealed class ComplianceWriteEndpointTests
         Assert.Equal("org-a", writes.LastOrganisationId);
     }
 
-    private sealed class WriteFactory(IComplianceWriteStore writes, bool readOnly = false) : AuthWebFactory
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            base.ConfigureWebHost(builder);
-
-            // Set after base so it overrides the base default; the mode drives the read-only middleware.
-            builder.UseSetting("Freeboard:GitOps:ReadOnly", readOnly ? "true" : "false");
-
-            builder.ConfigureTestServices(services =>
-            {
-                services.RemoveAll<IComplianceWriteStore>();
-                services.AddSingleton(writes);
-            });
-        }
-    }
-
-    private sealed class FakeComplianceWriteStore : IComplianceWriteStore
-    {
-        public WriteResult OrganisationResult { get; init; } = WriteResult.Success;
-
-        public WriteResult ScopeResult { get; init; } = WriteResult.Success;
-
-        public WriteResult RequirementScopeResult { get; init; } = WriteResult.Success;
-
-        /// <summary>When set, every write throws it, simulating a store failure past the pre-checks.</summary>
-        public Exception? Throw { get; init; }
-
-        public string? LastOrganisationId { get; private set; }
-
-        public string? LastScopeId { get; private set; }
-
-        public string? LastRequirementScopeId { get; private set; }
-
-        public Task<WriteResult> UpsertOrganisationAsync(
-            string id, string title, string kind, string? parent,
-            bool expectExisting = false, string? expectedCurrentParent = null, CancellationToken cancellationToken = default)
-        {
-            if (Throw is not null)
-            {
-                throw Throw;
-            }
-
-            if (OrganisationResult.Ok)
-            {
-                LastOrganisationId = id;
-            }
-
-            return Task.FromResult(OrganisationResult);
-        }
-
-        public Task<WriteResult> DeleteOrganisationAsync(string id, CancellationToken cancellationToken = default) =>
-            Throw is not null ? throw Throw : Task.FromResult(OrganisationResult);
-
-        public Task<WriteResult> UpsertScopeDispositionAsync(
-            string id, string title, string subject, string standard, string disposition,
-            string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
-        {
-            if (Throw is not null)
-            {
-                throw Throw;
-            }
-
-            // Mirror the store invariant: an Out disposition requires a non-blank justification.
-            if (disposition == "Out" && string.IsNullOrWhiteSpace(justification))
-            {
-                return Task.FromResult(WriteResult.Fail("An Out disposition requires a justification."));
-            }
-
-            if (ScopeResult.Ok)
-            {
-                LastScopeId = id;
-            }
-
-            return Task.FromResult(ScopeResult);
-        }
-
-        public Task<WriteResult> DeleteScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
-            Throw is not null ? throw Throw : Task.FromResult(ScopeResult);
-
-        public Task<WriteResult> UpsertRequirementScopeDispositionAsync(
-            string id, string title, string subject, string requirement, string disposition,
-            string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
-        {
-            if (Throw is not null)
-            {
-                throw Throw;
-            }
-
-            if (disposition == "Out" && string.IsNullOrWhiteSpace(justification))
-            {
-                return Task.FromResult(WriteResult.Fail("An Out disposition requires a justification."));
-            }
-
-            if (RequirementScopeResult.Ok)
-            {
-                LastRequirementScopeId = id;
-            }
-
-            return Task.FromResult(RequirementScopeResult);
-        }
-
-        public Task<WriteResult> DeleteRequirementScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
-            Throw is not null ? throw Throw : Task.FromResult(RequirementScopeResult);
-    }
-
     /// <summary>A concrete <see cref="DbException"/> with a settable SQLSTATE for the mapping tests.</summary>
     private sealed class FakeDbException(string message, string? sqlState) : DbException(message)
     {
         public override string? SqlState { get; } = sqlState;
     }
+}
+
+internal sealed class WriteFactory(IComplianceWriteStore writes, bool readOnly = false) : AuthWebFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+
+        // Set after base so it overrides the base default; the mode drives the read-only middleware.
+        builder.UseSetting("Freeboard:GitOps:ReadOnly", readOnly ? "true" : "false");
+
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IComplianceWriteStore>();
+            services.AddSingleton(writes);
+        });
+    }
+}
+
+internal sealed class FakeComplianceWriteStore : IComplianceWriteStore
+{
+    public WriteResult OrganisationResult { get; init; } = WriteResult.Success;
+
+    public WriteResult ScopeResult { get; init; } = WriteResult.Success;
+
+    public WriteResult RequirementScopeResult { get; init; } = WriteResult.Success;
+
+    /// <summary>When set, every write throws it, simulating a store failure past the pre-checks.</summary>
+    public Exception? Throw { get; init; }
+
+    public string? LastOrganisationId { get; private set; }
+
+    public string? LastScopeId { get; private set; }
+
+    public string? LastRequirementScopeId { get; private set; }
+
+    public Task<WriteResult> UpsertOrganisationAsync(
+        string id, string title, string kind, string? parent,
+        bool expectExisting = false, string? expectedCurrentParent = null, CancellationToken cancellationToken = default)
+    {
+        if (Throw is not null)
+        {
+            throw Throw;
+        }
+
+        if (OrganisationResult.Ok)
+        {
+            LastOrganisationId = id;
+        }
+
+        return Task.FromResult(OrganisationResult);
+    }
+
+    public Task<WriteResult> DeleteOrganisationAsync(string id, CancellationToken cancellationToken = default) =>
+        Throw is not null ? throw Throw : Task.FromResult(OrganisationResult);
+
+    public Task<WriteResult> UpsertScopeDispositionAsync(
+        string id, string title, string subject, string standard, string disposition,
+        string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
+    {
+        if (Throw is not null)
+        {
+            throw Throw;
+        }
+
+        // Mirror the store invariant: an Out disposition requires a non-blank justification.
+        if (disposition == "Out" && string.IsNullOrWhiteSpace(justification))
+        {
+            return Task.FromResult(WriteResult.Fail("An Out disposition requires a justification."));
+        }
+
+        if (ScopeResult.Ok)
+        {
+            LastScopeId = id;
+        }
+
+        return Task.FromResult(ScopeResult);
+    }
+
+    public Task<WriteResult> DeleteScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
+        Throw is not null ? throw Throw : Task.FromResult(ScopeResult);
+
+    public Task<WriteResult> UpsertRequirementScopeDispositionAsync(
+        string id, string title, string subject, string requirement, string disposition,
+        string? justification = null, string? expectedCurrentOrganisation = null, CancellationToken cancellationToken = default)
+    {
+        if (Throw is not null)
+        {
+            throw Throw;
+        }
+
+        if (disposition == "Out" && string.IsNullOrWhiteSpace(justification))
+        {
+            return Task.FromResult(WriteResult.Fail("An Out disposition requires a justification."));
+        }
+
+        if (RequirementScopeResult.Ok)
+        {
+            LastRequirementScopeId = id;
+        }
+
+        return Task.FromResult(RequirementScopeResult);
+    }
+
+    public Task<WriteResult> DeleteRequirementScopeAsync(string id, string expectedOwner, CancellationToken cancellationToken = default) =>
+        Throw is not null ? throw Throw : Task.FromResult(RequirementScopeResult);
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Claims;
+using Freeboard.Authz;
 using Freeboard.Pages.Compliance;
 using Freeboard.Persistence;
 using Freeboard.Web;
@@ -540,14 +541,13 @@ public sealed class StatementOfApplicabilityPageTests
     [Fact]
     public async Task InputsLoadFailingAfterStandardsStillRendersNotice()
     {
-        // The standards read succeeds, but the Statement-of-Applicability inputs read (which carries
-        // the asset list) throws: the page reads its organisations from its own inputs read,
-        // so that read failing raises the notice - it does not take the layout resolver's degraded
-        // empty list and render a healthy empty table.
+        // The standards read succeeds, but the projection snapshot (which carries the asset list) throws:
+        // the page reads its organisations from that snapshot, so the read failing raises the notice - it
+        // does not take the layout resolver's degraded empty list and render a healthy empty table.
         var store = ScopedStore();
         using var factory = Factory(new FakeComplianceStore
         {
-            AssetsUnreachable = true,
+            Faulted = ComplianceReadSet.Assets,
             Standards = store.Standards,
             Scopes = store.Scopes,
         });
@@ -593,13 +593,17 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
-    public void ConstructorTakesComplianceStoreAssetAccessAndEvidenceStore()
+    public void ConstructorTakesComplianceStoreRequestCacheAssetAccessAndEvidenceStore()
     {
         var ctor = Assert.Single(typeof(StatementOfApplicabilityModel).GetConstructors());
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToHashSet();
 
         Assert.Equal(
-            new HashSet<Type> { typeof(IComplianceStore), typeof(IAssetAccess), typeof(IEvidenceStore) }, paramTypes);
+            new HashSet<Type>
+            {
+                typeof(IComplianceStore), typeof(AuthzRequestCache), typeof(IAssetAccess), typeof(IEvidenceStore),
+            },
+            paramTypes);
         Assert.DoesNotContain(typeof(OrgSelectionResolver), paramTypes);
     }
 

@@ -540,7 +540,7 @@ public sealed class MySqlIntegrationTests
         var counts = await store.GetCountsAsync();
         Assert.Equal(new ComplianceCounts(2, 1, 2, 2, 3, 1, 0), counts);
 
-        var scopes = await store.GetScopesAsync();
+        var scopes = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes;
         var requirementScope = scopes.Single(s => s.Id == "rs-a");
         Assert.Equal("org-a", requirementScope.Subject);
         Assert.Equal("req-a", requirementScope.Requirement);
@@ -551,18 +551,18 @@ public sealed class MySqlIntegrationTests
         Assert.Equal("vendor-a", vendorScope.Subject);
         Assert.Equal("req-a", vendorScope.Requirement);
 
-        var standard = (await store.GetStandardsAsync()).Single(s => s.Id == "std-a");
+        var standard = (await store.GetSnapshotAsync(ComplianceReadSet.Standards)).Standards.Single(s => s.Id == "std-a");
         Assert.Equal("3.3", standard.Version);
         Assert.Equal("NCSC", standard.Authority);
 
-        var requirements = await store.GetRequirementsAsync();
+        var requirements = (await store.GetSnapshotAsync(ComplianceReadSet.Requirements)).Requirements;
         Assert.Equal(["req-a", "req-b"], requirements.Select(r => r.Id).ToArray());
         Assert.Equal("std-a", requirements.Single(r => r.Id == "req-a").Standard);
 
-        var control = Assert.Single(await store.GetControlsAsync());
+        var control = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Controls)).Controls);
         Assert.Equal(["req-a", "req-b"], control.MapsTo);
 
-        var organisations = (await store.GetAssetsAsync()).Where(a => a.IsOrganisation).ToList();
+        var organisations = (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Where(a => a.IsOrganisation).ToList();
         Assert.Equal(["org-a", "org-eng"], organisations.Select(o => o.Id).ToArray());
         var child = organisations.Single(o => o.Id == "org-eng");
         Assert.Equal("Department", child.Type);
@@ -607,7 +607,7 @@ public sealed class MySqlIntegrationTests
             [Org("org-a")],
             [Scp("scope-a", "org-a", "std-a"), Scp("scope-b", "org-a", "std-b", "Out")]));
 
-        Assert.Equal(2, (await store.GetScopesAsync()).Count);
+        Assert.Equal(2, (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.Count);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -628,7 +628,7 @@ public sealed class MySqlIntegrationTests
             [Std("std-a")], [], [Org("org-a")],
             [Scp("scope-new", "org-a", "std-a", "Out")]));
 
-        var scope = Assert.Single(await store.GetScopesAsync());
+        var scope = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
         Assert.Equal("scope-new", scope.Id);
         Assert.Equal("org-a", scope.Subject);
         Assert.Equal("std-a", scope.Standard);
@@ -650,7 +650,7 @@ public sealed class MySqlIntegrationTests
         // the child before the parent (ON DELETE RESTRICT would otherwise block it).
         await importer.ImportAsync(Config([], [], [], []));
 
-        Assert.DoesNotContain(await store.GetAssetsAsync(), a => a.IsOrganisation);
+        Assert.DoesNotContain((await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets, a => a.IsOrganisation);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -669,7 +669,7 @@ public sealed class MySqlIntegrationTests
             [Std("std-a", "New title")],
             [], []));
 
-        var standards = await store.GetStandardsAsync();
+        var standards = (await store.GetSnapshotAsync(ComplianceReadSet.Standards)).Standards;
         var only = Assert.Single(standards);
         Assert.Equal("std-a", only.Id);
         Assert.Equal("New title", only.Title);
@@ -738,8 +738,8 @@ public sealed class MySqlIntegrationTests
             [],
             requirements: [Req("req-a", "std-a")]));
 
-        Assert.Single(await store.GetStandardsAsync());
-        Assert.Equal(["req-a"], Assert.Single(await store.GetControlsAsync()).MapsTo);
+        Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Standards)).Standards);
+        Assert.Equal(["req-a"], Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Controls)).Controls).MapsTo);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -764,8 +764,8 @@ public sealed class MySqlIntegrationTests
             [],
             [Org("org-a")]));
 
-        Assert.Single(await store.GetStandardsAsync());
-        Assert.Empty(await store.GetScopesAsync());
+        Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Standards)).Standards);
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -791,8 +791,8 @@ public sealed class MySqlIntegrationTests
             [],
             requirements: [Req("req-a", "std-a")]));
 
-        Assert.Single(await store.GetStandardsAsync());
-        Assert.Equal(["req-a"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
+        Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Standards)).Standards);
+        Assert.Equal(["req-a"], (await store.GetSnapshotAsync(ComplianceReadSet.Requirements)).Requirements.Select(r => r.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -822,9 +822,9 @@ public sealed class MySqlIntegrationTests
             [],
             [Req("req-keep", "std-a")]));
 
-        Assert.Empty(await store.GetScopesAsync());
-        Assert.Equal(["org-keep"], (await store.GetAssetsAsync()).Where(a => a.IsOrganisation).Select(o => o.Id).ToArray());
-        Assert.Equal(["req-keep"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
+        Assert.Equal(["org-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Where(a => a.IsOrganisation).Select(o => o.Id).ToArray());
+        Assert.Equal(["req-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.Requirements)).Requirements.Select(r => r.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -847,7 +847,7 @@ public sealed class MySqlIntegrationTests
             scopes: [Rqs("rs-new", "org-a", "req-a", "Out")],
             requirements: [Req("req-a", "std-a")]));
 
-        var requirementScope = Assert.Single(await store.GetScopesAsync());
+        var requirementScope = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
         Assert.Equal("rs-new", requirementScope.Id);
         Assert.Equal("org-a", requirementScope.Subject);
         Assert.Equal("req-a", requirementScope.Requirement);
@@ -876,7 +876,7 @@ public sealed class MySqlIntegrationTests
             scopes: [Rqs("rs-1", "org-b", "req-y", "Out"), Rqs("rs-2", "org-a", "req-x", "In")],
             requirements: [Req("req-x", "std-a"), Req("req-y", "std-a")]));
 
-        var scopes = (await store.GetScopesAsync()).ToDictionary(r => r.Id);
+        var scopes = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.ToDictionary(r => r.Id);
         Assert.Equal(2, scopes.Count);
         Assert.Equal(("org-b", "req-y", "Out"), (scopes["rs-1"].Subject, scopes["rs-1"].Requirement, scopes["rs-1"].Disposition));
         Assert.Equal(("org-a", "req-x", "In"), (scopes["rs-2"].Subject, scopes["rs-2"].Requirement, scopes["rs-2"].Disposition));
@@ -905,12 +905,12 @@ public sealed class MySqlIntegrationTests
         Assert.Equal(2, counts.Vendors);
         Assert.Equal(2, counts.Scopes);
 
-        var vendors = (await store.GetAssetsAsync()).Where(a => a.Type is "Vendor").ToList();
+        var vendors = (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Where(a => a.Type is "Vendor").ToList();
         Assert.Equal(["vendor-a", "vendor-b"], vendors.Select(v => v.Id).ToArray());
         Assert.Equal("Vendor A", vendors.Single(v => v.Id == "vendor-a").Title);
 
         // Vendor exceptions read from the one unified scopes list, filtered to the vendor subject.
-        var scopes = (await store.GetScopesAsync()).Where(s => s.Subject == "vendor-a").ToDictionary(v => v.Id);
+        var scopes = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.Where(s => s.Subject == "vendor-a").ToDictionary(v => v.Id);
         Assert.Equal(2, scopes.Count);
 
         var reqScope = scopes["vs-req"];
@@ -953,8 +953,8 @@ public sealed class MySqlIntegrationTests
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-keep")]));
 
-        Assert.Empty(await store.GetScopesAsync());
-        Assert.Equal(["vendor-keep"], (await store.GetAssetsAsync()).Where(a => a.Type is "Vendor").Select(v => v.Id).ToArray());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
+        Assert.Equal(["vendor-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Where(a => a.Type is "Vendor").Select(v => v.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -980,8 +980,8 @@ public sealed class MySqlIntegrationTests
             requirements: [Req("req-keep", "std-a")],
             vendors: [Vnd("vendor-a")]));
 
-        Assert.Empty(await store.GetScopesAsync());
-        Assert.Equal(["req-keep"], (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
+        Assert.Equal(["req-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.Requirements)).Requirements.Select(r => r.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1007,8 +1007,8 @@ public sealed class MySqlIntegrationTests
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-a")]));
 
-        Assert.Empty(await store.GetScopesAsync());
-        Assert.Equal(["ctrl-keep"], (await store.GetControlsAsync()).Select(c => c.Id).ToArray());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
+        Assert.Equal(["ctrl-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.Controls)).Controls.Select(c => c.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1031,7 +1031,7 @@ public sealed class MySqlIntegrationTests
             vendors: [Vnd("vendor-a")],
             scopes: [VscReq("vs-new", "vendor-a", "req-a", "Out", "Reason.")]));
 
-        var scope = Assert.Single(await store.GetScopesAsync());
+        var scope = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
         Assert.Equal("vs-new", scope.Id);
         Assert.Equal("vendor-a", scope.Subject);
         Assert.Equal("req-a", scope.Requirement);
@@ -1065,7 +1065,7 @@ public sealed class MySqlIntegrationTests
                 VscReq("vs-2", "vendor-a", "req-x", "In", null),
             ]));
 
-        var scopes = (await store.GetScopesAsync()).ToDictionary(v => v.Id);
+        var scopes = (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.ToDictionary(v => v.Id);
         Assert.Equal(2, scopes.Count);
         Assert.Equal(("vendor-b", "req-y", "Out"), (scopes["vs-1"].Subject, scopes["vs-1"].Requirement, scopes["vs-1"].Disposition));
         Assert.Equal(("vendor-a", "req-x", "In"), (scopes["vs-2"].Subject, scopes["vs-2"].Requirement, scopes["vs-2"].Disposition));
@@ -1095,10 +1095,10 @@ public sealed class MySqlIntegrationTests
         var counts = await store.GetCountsAsync();
         Assert.Equal(3, counts.Collectors);
 
-        var control = Assert.Single(await store.GetControlsAsync());
+        var control = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Controls)).Controls);
         Assert.Equal("all", control.Evaluation);
 
-        var collectors = (await store.GetCollectorsAsync()).ToDictionary(c => c.Id);
+        var collectors = (await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors.ToDictionary(c => c.Id);
         Assert.Equal(3, collectors.Count);
 
         var integration = collectors["collector-int"];
@@ -1142,7 +1142,7 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-a", ["req-a", "req-b"])],
             requirements: [Req("req-a", "std-a"), Req("req-b", "std-a")]));
 
-        var before = Assert.Single(await store.GetControlsAsync());
+        var before = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Controls)).Controls);
         Assert.Null(before.Evaluation);
         Assert.Equal(["req-a", "req-b"], before.MapsTo);
 
@@ -1152,7 +1152,7 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-a", ["req-a", "req-b"], evaluation: "any")],
             requirements: [Req("req-a", "std-a"), Req("req-b", "std-a")]));
 
-        var after = Assert.Single(await store.GetControlsAsync());
+        var after = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Controls)).Controls);
         Assert.Equal("any", after.Evaluation);
         Assert.Equal(["req-a", "req-b"], after.MapsTo);
     }
@@ -1179,8 +1179,8 @@ public sealed class MySqlIntegrationTests
             [Ctrl("ctrl-keep", ["req-a"])],
             requirements: [Req("req-a", "std-a")]));
 
-        Assert.Empty(await store.GetCollectorsAsync());
-        Assert.Equal(["ctrl-keep"], (await store.GetControlsAsync()).Select(c => c.Id).ToArray());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors);
+        Assert.Equal(["ctrl-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.Controls)).Controls.Select(c => c.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1207,8 +1207,8 @@ public sealed class MySqlIntegrationTests
             requirements: [Req("req-a", "std-a")],
             vendors: [Vnd("vendor-keep")]));
 
-        Assert.Empty(await store.GetCollectorsAsync());
-        Assert.Equal(["vendor-keep"], (await store.GetAssetsAsync()).Where(a => a.Type is "Vendor").Select(v => v.Id).ToArray());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors);
+        Assert.Equal(["vendor-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Where(a => a.Type is "Vendor").Select(v => v.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1242,7 +1242,7 @@ public sealed class MySqlIntegrationTests
         var counts = await store.GetCountsAsync();
         Assert.Equal(2, counts.Collectors);
 
-        var collectors = (await store.GetCollectorsAsync()).ToDictionary(c => c.Id);
+        var collectors = (await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors.ToDictionary(c => c.Id);
         Assert.Equal(2, collectors.Count);
 
         var manual = collectors["attest-manual"].Config;
@@ -1276,7 +1276,7 @@ public sealed class MySqlIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task DrilldownInputsReadAllListsInOneSnapshot()
+    public async Task TheDrilldownSnapshotReadsAllOfItsListsTogether()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -1307,7 +1307,9 @@ public sealed class MySqlIntegrationTests
             ],
             integrationConnections: [Conn("conn-a")]));
 
-        var inputs = await store.GetStatementOfApplicabilityDrilldownInputsAsync();
+        var inputs = await store.GetSnapshotAsync(
+            ComplianceReadSet.Assets | ComplianceReadSet.Scopes | ComplianceReadSet.Requirements
+            | ComplianceReadSet.Controls | ComplianceReadSet.Collectors);
 
         // One unfiltered asset read serves the whole snapshot: the organisation, the vendor the check
         // titles resolve through, and the machines the resolution tree hangs off, all in one list.
@@ -1364,8 +1366,8 @@ public sealed class MySqlIntegrationTests
             requirements: [Req("req-a", "std-a")],
             integrationConnections: [Conn("conn-keep")]));
 
-        Assert.Empty(await store.GetCollectorsAsync());
-        Assert.Equal(["conn-keep"], (await store.GetIntegrationConnectionsAsync()).Select(c => c.Id).ToArray());
+        Assert.Empty((await store.GetSnapshotAsync(ComplianceReadSet.Collectors)).Collectors);
+        Assert.Equal(["conn-keep"], (await store.GetSnapshotAsync(ComplianceReadSet.IntegrationConnections)).IntegrationConnections.Select(c => c.Id).ToArray());
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1384,7 +1386,7 @@ public sealed class MySqlIntegrationTests
         // scope. An Out disposition now requires a justification.
         Assert.True((await writeStore.UpsertRequirementScopeDispositionAsync(
             "rs-a", "T", "org-a", "req-a", "Out", "Compensating control in place.")).Ok);
-        var persisted = Assert.Single(await store.GetScopesAsync());
+        var persisted = Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
         Assert.Equal("rs-a", persisted.Id);
         Assert.Equal("org-a", persisted.Subject);
         Assert.Equal("req-a", persisted.Requirement);
@@ -1398,7 +1400,7 @@ public sealed class MySqlIntegrationTests
         Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "absent-req", "Out", "r")).Ok);
         Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "req-a", "Sideways", "r")).Ok);
         Assert.False((await writeStore.UpsertRequirementScopeDispositionAsync("rs-b", "T", "org-a", "req-a", "Out")).Ok);
-        Assert.Single(await store.GetScopesAsync());
+        Assert.Single((await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1417,16 +1419,16 @@ public sealed class MySqlIntegrationTests
         // defaults to false, which is the create path.
         Assert.True((await writeStore.UpsertOrganisationAsync("org-x", "First", "Company", null)).Ok);
         Assert.True((await writeStore.UpsertOrganisationAsync("org-x", "Second", "Company", null)).IsConflict);
-        Assert.Equal("First", (await store.GetAssetsAsync()).Single(o => o.Id == "org-x").Title);
+        Assert.Equal("First", (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Single(o => o.Id == "org-x").Title);
 
         // Scope create is INSERT-only too (expectedCurrentOrganisation null is the create path).
         Assert.True((await writeStore.UpsertScopeDispositionAsync("sc-x", "First", "org-a", "std-a", "In")).Ok);
         Assert.True((await writeStore.UpsertScopeDispositionAsync("sc-x", "Second", "org-a", "std-a", "In")).IsConflict);
-        Assert.Equal("First", (await store.GetScopesAsync()).Single(s => s.Id == "sc-x").Title);
+        Assert.Equal("First", (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.Single(s => s.Id == "sc-x").Title);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
-    public async Task GetStatementOfApplicabilityInputsMatchesIndividualReads()
+    public async Task TheFlatStatementOfApplicabilitySnapshotMatchesTheSingleSetReads()
     {
         await using var db = await RequireDbAsync();
         await MigrateAsync(db);
@@ -1440,21 +1442,22 @@ public sealed class MySqlIntegrationTests
             scopes: [Scp("scope-a", "org-a", "std-a"), Rqs("rs-a", "org-a", "req-a")],
             requirements: [Req("req-a", "std-a"), Req("req-b", "std-a")]));
 
-        var inputs = await store.GetStatementOfApplicabilityInputsAsync();
+        var inputs = await store.GetSnapshotAsync(
+            ComplianceReadSet.Assets | ComplianceReadSet.Scopes | ComplianceReadSet.Requirements);
 
         Assert.Equal(
-            (await store.GetAssetsAsync()).Select(a => a.Id).ToArray(),
+            (await store.GetSnapshotAsync(ComplianceReadSet.Assets)).Assets.Select(a => a.Id).ToArray(),
             inputs.Assets.Select(a => a.Id).ToArray());
         // The snapshot carries the machine as well as the two organisations: the resolution tree hangs
         // off the same read, so nothing filters it back down to Company/Department.
         Assert.Equal(["m-1", "org-a", "org-eng"], inputs.Assets.Select(a => a.Id).ToArray());
         // The one unified scopes list feeds both the standard and requirement layers of the SoA.
         Assert.Equal(
-            (await store.GetScopesAsync()).Select(s => s.Id).ToArray(),
+            (await store.GetSnapshotAsync(ComplianceReadSet.Scopes)).Scopes.Select(s => s.Id).ToArray(),
             inputs.Scopes.Select(s => s.Id).ToArray());
         Assert.Equal(["rs-a", "scope-a"], inputs.Scopes.Select(s => s.Id).ToArray());
         Assert.Equal(
-            (await store.GetRequirementsAsync()).Select(r => r.Id).ToArray(),
+            (await store.GetSnapshotAsync(ComplianceReadSet.Requirements)).Requirements.Select(r => r.Id).ToArray(),
             inputs.Requirements.Select(r => r.Id).ToArray());
     }
 
@@ -1472,7 +1475,7 @@ public sealed class MySqlIntegrationTests
             [],
             requirements: [Req("req-a", "std-a"), Req("REQ-A", "std-a")]));
 
-        Assert.Equal(2, (await store.GetRequirementsAsync()).Count);
+        Assert.Equal(2, (await store.GetSnapshotAsync(ComplianceReadSet.Requirements)).Requirements.Count);
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
@@ -1485,7 +1488,7 @@ public sealed class MySqlIntegrationTests
 
         await importer.ImportAsync(Config([Std("ctrl-a"), Std("CTRL-A")], [], []));
 
-        Assert.Equal(2, (await store.GetStandardsAsync()).Count);
+        Assert.Equal(2, (await store.GetSnapshotAsync(ComplianceReadSet.Standards)).Standards.Count);
     }
 
     // A locked rate-limit bucket stays locked across a window rollover. The pure decision

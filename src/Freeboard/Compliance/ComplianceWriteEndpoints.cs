@@ -15,7 +15,7 @@ namespace Freeboard.Compliance;
 /// upsert can MOVE a row across organisations, a PUT on an existing scope/requirement-scope also
 /// authorizes the STORED owning org in-handler; an organisation reparent additionally authorizes the
 /// new parent. Every resource carrying an organisation id is built through
-/// <see cref="AuthzRequestCache.OrganisationResourceAsync"/>, so a gate is anchored on organisation
+/// <see cref="AuthzRequestCache"/>, so a gate is anchored on organisation
 /// ancestry alone and a grant beyond a non-organisation link is refused here rather than reaching the
 /// store to be answered as a 404 or a no-op. Deliberately NOT marked as auth endpoints, so the GitOps
 /// read-only middleware 409s them in read-only mode.
@@ -112,17 +112,19 @@ public static class ComplianceWriteEndpoints
     }
 
     private static async Task<IResult> UpsertScopeAsync(
-        string id, ScopeInput input, IComplianceStore reads, IComplianceWriteStore store,
+        string id, ScopeInput input, IComplianceWriteStore store,
         IAuthorizer authorizer, AuthzRequestCache cache, ClaimsPrincipal user, CancellationToken ct)
     {
         // Filter the stored-owner lookup to this route's target column AND a Company/Department subject: a
         // same-id row of a different target kind, or a Vendor/Machine subject row (GitOps-write-only),
         // yields no stored owner, so the handler takes the new/absent-row path and the store's global-id
         // branch resolves it to 404 - never a 403 against, or a silent authorization from, that row's org.
-        var storedOrg = await StoredOrgSubjectAsync(reads, cache, id, s => s.Standard is not null, ct);
-        if (storedOrg is not null
-            && !string.Equals(storedOrg, input.Subject, StringComparison.Ordinal)
-            && !await AuthorizeOrgAsync(authorizer, cache, user, AuthzActions.ComplianceScopeWrite, storedOrg, ct))
+        var stored = await StoredOrgSubjectAsync(cache, id, s => s.Standard is not null, ct);
+        if (stored is not null
+            && !string.Equals(stored.OrganisationId, input.Subject, StringComparison.Ordinal)
+            && !await AuthorizeOrgAsync(
+                authorizer, cache, user, AuthzActions.ComplianceScopeWrite, stored.OrganisationId, ct,
+                stored.Snapshot))
         {
             // The row currently belongs to an org the caller cannot write; moving it is a cross-org move.
             return Forbidden();
@@ -131,23 +133,27 @@ public static class ComplianceWriteEndpoints
         // Pass the authorized stored owner so the write locks the row and rejects a concurrent cross-org
         // move (the current owner is re-checked under the write lock, closing the TOCTOU).
         return await RunAsync(() => store.UpsertScopeDispositionAsync(
-            id, input.Title, input.Subject, input.Standard, input.Disposition, input.Justification, storedOrg, ct));
+            id, input.Title, input.Subject, input.Standard, input.Disposition, input.Justification,
+            stored?.OrganisationId, ct));
     }
 
     private static async Task<IResult> UpsertRequirementScopeAsync(
-        string id, RequirementScopeInput input, IComplianceStore reads, IComplianceWriteStore store,
+        string id, RequirementScopeInput input, IComplianceWriteStore store,
         IAuthorizer authorizer, AuthzRequestCache cache, ClaimsPrincipal user, CancellationToken ct)
     {
-        var storedOrg = await StoredOrgSubjectAsync(reads, cache, id, s => s.Requirement is not null, ct);
-        if (storedOrg is not null
-            && !string.Equals(storedOrg, input.Subject, StringComparison.Ordinal)
-            && !await AuthorizeOrgAsync(authorizer, cache, user, AuthzActions.ComplianceRequirementScopeWrite, storedOrg, ct))
+        var stored = await StoredOrgSubjectAsync(cache, id, s => s.Requirement is not null, ct);
+        if (stored is not null
+            && !string.Equals(stored.OrganisationId, input.Subject, StringComparison.Ordinal)
+            && !await AuthorizeOrgAsync(
+                authorizer, cache, user, AuthzActions.ComplianceRequirementScopeWrite, stored.OrganisationId, ct,
+                stored.Snapshot))
         {
             return Forbidden();
         }
 
         return await RunAsync(() => store.UpsertRequirementScopeDispositionAsync(
-            id, input.Title, input.Subject, input.Requirement, input.Disposition, input.Justification, storedOrg, ct));
+            id, input.Title, input.Subject, input.Requirement, input.Disposition, input.Justification,
+            stored?.OrganisationId, ct));
     }
 
     #region selectors
@@ -185,11 +191,11 @@ public static class ComplianceWriteEndpoints
                 .OrganisationResourceAsync(type, null, orgOf(input), context.HttpContext.RequestAborted);
         };
 
-    // Both DELETE authz selectors read the one GetScopesAsync filtered to their route's own target column
-    // AND a subject that resolves to a Company/Department asset, so a wrong-kind id or a Vendor/Machine
-    // subject row (GitOps-write-only) yields no stored owner: the DELETE is then not authorized against
-    // another kind's or subject's owning org (null selector -> 404), and the store delete resolves the
-    // same row to 404.
+    // Both DELETE authz selectors read the one scope list filtered to their route's own target column AND a
+    // subject that resolves to a Company/Department asset, so a wrong-kind id or a Vendor/Machine subject
+    // row (GitOps-write-only) yields no stored owner: the DELETE is then not authorized against another
+    // kind's or subject's owning org (null selector -> 404), and the store delete resolves the same row to
+    // 404.
     private static async ValueTask<AuthzResource?> StoredScopeOrgSelector(EndpointFilterInvocationContext context)
         => await StoredScopeSelectorAsync(context, "scope", s => s.Standard is not null);
 
@@ -201,16 +207,15 @@ public static class ComplianceWriteEndpoints
     {
         var id = (string)context.HttpContext.Request.RouteValues["id"]!;
         var ct = context.HttpContext.RequestAborted;
-        var reads = context.HttpContext.RequestServices.GetRequiredService<IComplianceStore>();
         var cache = Cache(context);
-        var org = await StoredOrgSubjectAsync(reads, cache, id, targetKind, ct);
-        if (org is null)
+        var stored = await StoredOrgSubjectAsync(cache, id, targetKind, ct);
+        if (stored is null)
         {
             return null;
         }
 
-        context.HttpContext.Items[AuthorizedOwnerItemKey] = org;
-        return await cache.OrganisationResourceAsync(type, id, org, ct);
+        context.HttpContext.Items[AuthorizedOwnerItemKey] = stored.OrganisationId;
+        return cache.OrganisationResource(type, id, stored.OrganisationId, stored.Snapshot);
     }
 
     private static AuthzRequestCache Cache(EndpointFilterInvocationContext context)
@@ -228,36 +233,58 @@ public static class ComplianceWriteEndpoints
                 "DELETE handler reached without an authorized owner; the authz selector must stash it.");
 
     /// <summary>
+    /// The organisation a stored scope row belongs to, and the snapshot it was found in. The caller gates
+    /// on that same snapshot, so the row and the ancestry the gate walks come from one repeatable-read
+    /// state of the domain.
+    /// </summary>
+    private sealed record StoredOrgSubject(string OrganisationId, ComplianceSnapshot Snapshot);
+
+    /// <summary>
     /// The stored owning organisation of a scope row: the row of this id and target kind whose subject
     /// resolves to an organisation ASSET. App-managed scope writes target Company/Department subjects
     /// only; a Vendor/Machine or unresolved subject is GitOps-write-only, so such a row yields no owner
-    /// and the caller takes its new/absent-row path. The type test reads assets through the cache, so it
-    /// sees the same snapshot the gate resolved this request's ancestry from.
+    /// and the caller takes its new/absent-row path.
+    ///
+    /// The scopes and the assets are read together. Resolving the subject against a separately read asset
+    /// list would let an import commit between the two and pair the stored row with owner edges that never
+    /// held with it. This is the one gate whose organisation is knowable only from a stored row, so it is
+    /// also the one that reads a payload table.
     /// </summary>
-    private static async Task<string?> StoredOrgSubjectAsync(
-        IComplianceStore reads, AuthzRequestCache cache, string id, Func<ScopeRow, bool> targetKind,
-        CancellationToken ct)
+    private static async Task<StoredOrgSubject?> StoredOrgSubjectAsync(
+        AuthzRequestCache cache, string id, Func<ScopeRow, bool> targetKind, CancellationToken ct)
     {
-        var subject = (await reads.GetScopesAsync(ct))
+        var snapshot = await cache.GetSnapshotAsync(
+            ComplianceReadSet.Assets | ComplianceReadSet.Scopes, ct);
+
+        var subject = snapshot.Scopes
             .FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal) && targetKind(s))?.Subject;
         if (subject is null)
         {
             return null;
         }
 
-        var asset = (await cache.GetAssetsAsync(ct))
+        var asset = snapshot.Assets
             .FirstOrDefault(a => string.Equals(a.Id, subject, StringComparison.Ordinal));
-        return asset is not null && asset.IsOrganisation ? subject : null;
+        return asset is not null && asset.IsOrganisation ? new StoredOrgSubject(subject, snapshot) : null;
     }
 
     #endregion
 
     #region helpers
+    /// <summary>
+    /// Authorizes <paramref name="action"/> on <paramref name="orgId"/>. <paramref name="snapshot"/> is the
+    /// snapshot the organisation was derived from, when it came from a stored row: the ancestry is then
+    /// walked over that snapshot's assets rather than over a separately read list. A caller whose
+    /// organisation comes from the route or the body passes none and anchors on the request's shared
+    /// assets-only read.
+    /// </summary>
     private static async Task<bool> AuthorizeOrgAsync(
         IAuthorizer authorizer, AuthzRequestCache cache, ClaimsPrincipal user, string action, string orgId,
-        CancellationToken ct)
+        CancellationToken ct, ComplianceSnapshot? snapshot = null)
     {
-        var resource = await cache.OrganisationResourceAsync("organisation", orgId, orgId, ct);
+        var resource = snapshot is null
+            ? await cache.OrganisationResourceAsync("organisation", orgId, orgId, ct)
+            : cache.OrganisationResource("organisation", orgId, orgId, snapshot);
         var decision = await authorizer.AuthorizeAsync(user, action, resource, alwaysEnforce: true, ct);
         return decision.IsPermitted;
     }

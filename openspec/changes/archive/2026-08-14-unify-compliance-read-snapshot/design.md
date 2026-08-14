@@ -292,8 +292,8 @@ table to the shared read.
 
 ### A gate resolves its ancestry from the snapshot its selector read
 
-`AuthzRequestCache.OrganisationResourceAsync` builds the pinned organisation ancestry chain that
-an organisation gate authorizes on. Where a caller has already read a snapshot to find the
+`AuthzRequestCache` builds the pinned organisation ancestry chain that an organisation gate
+authorizes on. Where a caller has already read a snapshot to find the
 organisation, the ancestry must come from that same snapshot, or the decision straddles between
 the row and the chain.
 
@@ -307,14 +307,15 @@ row between organisations.
 
 So `StoredOrgSubjectAsync` returns a small record carrying BOTH the organisation it found and
 the `ComplianceSnapshot` it found it in, and all four call sites pass that snapshot on:
-the DELETE selectors to `OrganisationResourceAsync`, the PUT handlers to `AuthorizeOrgAsync`,
+the DELETE selectors to `OrganisationResource`, the PUT handlers to `AuthorizeOrgAsync`,
 which forwards it. Returning the organisation alone is what leaves the PUT handlers gating on
 the request's pinned assets-only read - a different snapshot from the one the row came from, and
 the straddle again.
 
-`OrganisationResourceAsync` gains an overload taking the `ComplianceSnapshot` the caller already
-holds. The existing signature stays as a thin wrapper that takes the assets-only snapshot, so
-the call sites that hold no snapshot are unchanged. Relying on reuse ordering here instead would
+The cache gains `OrganisationResource`, taking the `ComplianceSnapshot` the caller already holds.
+It is synchronous, because a caller holding a snapshot needs no read. `OrganisationResourceAsync`
+stays as it is, taking the assets-only snapshot, so the call sites that hold no snapshot are
+unchanged. Relying on reuse ordering here instead would
 make a correctness property depend on call order, and the point of keying the memo per asset
 list is that no correctness property depends on which surface reads first.
 
@@ -373,6 +374,13 @@ methods it uses are being removed regardless, and because leaving one composed d
 would make the rule "every decision but that one". It asks for
 `Assets | Scopes | Requirements | Controls | Collectors`, which is one read where there were
 three.
+
+That count is the ADMITTED path. A reject costs more than it did: an unknown `collector_id` used
+to be refused after reading the collectors alone, and the whole five-set snapshot - six statements
+in one transaction - is now read before the first check runs. It is accepted because the composed
+decision needs all five sets, so keeping the cheap early reject would mean reading the collectors
+first and the rest afterwards, which is the straddle again on the highest-volume endpoint in the
+system.
 
 ### Reads that stay outside the rule, and why
 
