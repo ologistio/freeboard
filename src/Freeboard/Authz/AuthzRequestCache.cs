@@ -8,7 +8,7 @@ namespace Freeboard.Authz;
 /// <summary>
 /// The ONE request-scoped cache shared by the authorizer and <c>AuthzAssetAccess</c>, holding nothing
 /// across requests (registered SCOPED). A principal's facts are produced at most once per request, and so
-/// is each shape of compliance snapshot; a principal's accessible asset set is produced at most once per
+/// is each shape of compliance snapshot. A principal's accessible asset set is produced at most once per
 /// asset list, because a request may hold more than one. Implements <see cref="IAuthzFactProvider"/> so it
 /// is the single fact loader. It also builds the organisation-anchored <see cref="AuthzResource"/> every
 /// organisation gate is constructed from, because the asset list that anchoring needs is already
@@ -60,19 +60,17 @@ public sealed class AuthzRequestCache(IAuthzStore store, IComplianceStore compli
     /// carries its own asset list, so every decision is internally consistent whichever order runs.
     ///
     /// Memoizing assumes the sequential access a request pipeline gives it. Two calls awaited
-    /// concurrently could each read before either is kept, and would then be served different snapshots;
-    /// nothing in the app does that today, and a caller that starts parallelising reads through this
-    /// cache has to give it a single-flight guard first.
+    /// concurrently could each read before either is kept, and would then be served different snapshots.
+    /// Nothing in the app does that today. A caller that starts parallelising reads through this cache
+    /// has to give it a single-flight guard first.
     /// </summary>
     public async ValueTask<ComplianceSnapshot> GetSnapshotAsync(
         ComplianceReadSet sets, CancellationToken cancellationToken = default)
     {
-        foreach (var taken in _snapshots)
+        var covering = _snapshots.FirstOrDefault(taken => (taken.Sets & sets) == sets);
+        if (covering is not null)
         {
-            if ((taken.Sets & sets) == sets)
-            {
-                return taken;
-            }
+            return covering;
         }
 
         var snapshot = await compliance.GetSnapshotAsync(sets, cancellationToken).ConfigureAwait(false);

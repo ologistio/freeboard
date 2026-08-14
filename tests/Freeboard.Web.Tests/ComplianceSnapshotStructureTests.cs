@@ -220,7 +220,7 @@ public sealed class ComplianceSnapshotStructureTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.PostAsync($"{Api}/evidence", new StringContent(
+        using var content = new StringContent(
             """
             {
               "schema_version": "freeboard.evidence.v1",
@@ -233,7 +233,9 @@ public sealed class ComplianceSnapshotStructureTests
             }
             """,
             Encoding.UTF8,
-            "application/json"));
+            "application/json");
+
+        var response = await client.PostAsync($"{Api}/evidence", content);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal([Drilldown], RequestReads(store).Sets);

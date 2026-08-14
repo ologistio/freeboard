@@ -12,8 +12,8 @@ namespace Freeboard.Compliance;
 /// <summary>
 /// Read-only HTTP endpoints serving the persisted compliance domain. GET-only, so the read-only
 /// middleware does not touch them, and behind the default authorization policy so an anonymous caller
-/// is 401'd (any authenticated user may read; no admin role required). On an unreachable store the read
-/// endpoints return RFC 7807 / HTTP 503; the status endpoint degrades to all-null counts with
+/// is 401'd (any authenticated user may read, and no admin role is required). On an unreachable store the
+/// read endpoints return RFC 7807 / HTTP 503. The status endpoint degrades to all-null counts with
 /// HTTP 200.
 ///
 /// A narrowed endpoint takes its rows AND the asset list that narrows them from one

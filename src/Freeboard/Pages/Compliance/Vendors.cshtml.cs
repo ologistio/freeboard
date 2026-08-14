@@ -56,7 +56,7 @@ public sealed record VendorRow(
 /// on - from ONE snapshot on <see cref="AuthzRequestCache"/>, and reads the standards separately, all
 /// inside one try/catch that sets <see cref="StoreUnreachable"/>, so a store outage renders an in-page
 /// notice rather than a 500. A vendor is shown when it is in the caller's accessible asset set, which
-/// admits it exactly when its owner resolves into the caller's organisation union; a vendor with a null
+/// admits it exactly when its owner resolves into the caller's organisation union. A vendor with a null
 /// or dangling owner is hidden (fail-closed), and its assurances and scope justifications are hidden
 /// with it.
 /// </summary>

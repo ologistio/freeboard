@@ -14,7 +14,7 @@ public interface IComplianceStore
 {
     /// <summary>
     /// Reads exactly the lists <paramref name="sets"/> names. A snapshot spanning more than one statement
-    /// is read in one repeatable-read transaction, so it cannot straddle a concurrent importer commit; a
+    /// is read in one repeatable-read transaction, so it cannot straddle a concurrent importer commit. A
     /// one-statement snapshot runs without one, because one statement is already atomic. Reading a list
     /// the snapshot does not name throws <see cref="ComplianceReadSetNotRequestedException"/>.
     /// </summary>

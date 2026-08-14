@@ -197,7 +197,7 @@ public sealed class ComplianceSnapshotGateTests
         // A PUT reads twice: the body-anchored selector takes the assets, then the stored-owner lookup
         // takes the assets AND the scopes. The store serves a different tree the second time, so the two
         // reads disagree about where the stored owner hangs - and the outcome names which one the gate
-        // walked. Anchored on the stored row's snapshot, the moved-out case refuses; anchored on the
+        // walked. Anchored on the stored row's snapshot, the moved-out case refuses. Anchored on the
         // request's earlier assets-only read it would permit, and the write would land.
         var writes = new FakeComplianceWriteStore();
         using var factory = new WriteFactory(writes)
