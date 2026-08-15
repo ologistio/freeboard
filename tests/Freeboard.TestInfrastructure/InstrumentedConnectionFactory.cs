@@ -12,13 +12,26 @@ namespace Freeboard.TestInfrastructure;
 /// It does two jobs because both need the same connection and command wrapper. It RECORDS the
 /// transactions a store begins, with their isolation level, and the commands it executes, so a test can
 /// see that a snapshot spanning several statements runs in one repeatable-read transaction and that a
-/// one-statement snapshot runs in none. And it INTERLEAVES: an armed action runs to completion
-/// immediately before the Nth command executes, so a competing writer commits at an exactly known point
-/// in the middle of a read. That is what makes a concurrency guarantee testable - the interleaving is a
-/// counted command hook, with no sleep and no thread timing, so the test is deterministic. Without it a
-/// single-threaded test could only assert that MySQL implements repeatable read.
+/// one-statement snapshot runs in none. And it INTERLEAVES: an armed action runs immediately before the
+/// Nth command executes, so a competing writer commits at an exactly known point in the middle of a
+/// read. That is what makes a concurrency guarantee testable - the interleaving is a counted command
+/// hook, with no sleep and no thread timing, so the test is deterministic. Without it a single-threaded
+/// test could only assert that MySQL implements repeatable read.
 ///
-/// The interleaved action MUST open its connections from the UNDECORATED factory. A connection taken
+/// An armed action that may BLOCK on a lock the hooked transaction holds MUST bound its own wait, by
+/// giving its session a low <c>innodb_lock_wait_timeout</c>. The hooked transaction is suspended here
+/// until the action settles, so nothing else can release that lock. The factory's own cap does NOT
+/// substitute for that: it only turns a hang into a fast failure naming the boundary it happened at.
+///
+/// On expiry the cap throws, the throw propagates out of the store's execute call, and the
+/// <c>await using</c> on the transaction and the connection rolls the hooked transaction back and
+/// releases its locks - so that side is left in a defined state. The ABANDONED action is not cancelled.
+/// The rollback releases the very lock it was waiting for, so it may still complete (committing a write
+/// into a fixture the test has stopped tracking) or may fault, against a database the fixture is about
+/// to drop, with nothing observing it. A test that needs the abandoned action's outcome must observe it
+/// after the rollback rather than assume it failed.
+///
+/// The interleaved action MUST open its connections from the UNINSTRUMENTED factory. A connection taken
 /// from this one counts its commands here and re-enters the hook.
 ///
 /// The command counter spans every connection this factory opens, so a test that pins an exact Nth
@@ -27,23 +40,33 @@ namespace Freeboard.TestInfrastructure;
 /// </summary>
 public sealed class InstrumentedConnectionFactory(IDbConnectionFactory inner) : IDbConnectionFactory
 {
+    // How long the hook waits for an armed action that named no cap of its own. Set well above any
+    // interleaved action's runtime and below MySQL's 50-second default lock wait, so a test that
+    // deadlocks against the hooked transaction fails here rather than at the server.
+    private static readonly TimeSpan DefaultInterleaveCap = TimeSpan.FromSeconds(30);
+
     private readonly List<IsolationLevel> transactionsBegun = [];
     private int commandsExecuted;
     private int connectionsOpened;
     private int interleaveBeforeCommand;
+    private TimeSpan interleaveCap = DefaultInterleaveCap;
     private Func<CancellationToken, Task>? interleave;
 
     /// <summary>
-    /// Arms the interleave: <paramref name="action"/> runs to completion immediately before the
+    /// Arms the interleave: <paramref name="action"/> runs immediately before the
     /// <paramref name="beforeCommand"/>th command executed from here on, and the count restarts at zero.
     /// Called with no arguments it disarms and restarts the count, which is how a test measures the
     /// statements one read costs before racing each of them in turn, and how it discounts the statements
     /// an app issued while booting.
+    ///
+    /// <paramref name="cap"/> bounds the wait for the action. An action meant to block states its own
+    /// bound here alongside the session lock-wait timeout it sets, so the two do not fight.
     /// </summary>
-    public void Arm(int beforeCommand = 0, Func<CancellationToken, Task>? action = null)
+    public void Arm(int beforeCommand = 0, Func<CancellationToken, Task>? action = null, TimeSpan? cap = null)
     {
         interleave = action;
         interleaveBeforeCommand = beforeCommand;
+        interleaveCap = cap ?? DefaultInterleaveCap;
         Interlocked.Exchange(ref commandsExecuted, 0);
     }
 
@@ -79,16 +102,32 @@ public sealed class InstrumentedConnectionFactory(IDbConnectionFactory inner) : 
         }
     }
 
-    // Counts the command about to run and, on the Nth, runs the interleaved action to completion first.
-    // Awaiting it here is the whole point: the competing writer has committed before the hooked statement
-    // reaches the server, so the interleaving point is exact rather than raced.
+    // Counts the command about to run and, on the Nth, runs the interleaved action first. Awaiting it
+    // here is the whole point: the competing writer has settled before the hooked statement reaches the
+    // server, so the interleaving point is exact rather than raced. The cap is the diagnostic backstop
+    // for an action that never settles, not the mechanism that makes a blocking one give up.
     private async Task BeforeCommandAsync(CancellationToken cancellationToken)
     {
         var ordinal = Interlocked.Increment(ref commandsExecuted);
-        if (interleave is not null && ordinal == interleaveBeforeCommand)
+        if (interleave is null || ordinal != interleaveBeforeCommand)
         {
-            await interleave(cancellationToken).ConfigureAwait(false);
+            return;
         }
+
+        // WhenAny rather than WaitAsync, so the cap's own message is never put on a TimeoutException the
+        // action itself raised.
+        var action = interleave(cancellationToken);
+        using var expiry = new CancellationTokenSource();
+        if (await Task.WhenAny(action, Task.Delay(interleaveCap, expiry.Token)).ConfigureAwait(false) != action)
+        {
+            throw new TimeoutException(
+                $"The action interleaved before command {ordinal} did not settle within "
+                + $"{interleaveCap.TotalSeconds:0.###}s. An armed action that can block must bound its own "
+                + "wait: the hooked transaction is suspended here and cannot release the locks it holds.");
+        }
+
+        await expiry.CancelAsync().ConfigureAwait(false);
+        await action.ConfigureAwait(false);
     }
 
     private sealed class InstrumentedConnection(DbConnection inner, InstrumentedConnectionFactory owner) : DbConnection
