@@ -157,6 +157,24 @@ public sealed class ComplianceWriteEndpointTests
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
+    // A delete the store could not order against a concurrent write is retryable, so it must answer 409
+    // rather than the 422 an invariant failure gets or the 503 an unreachable store gets.
+    [Fact]
+    public async Task DeleteOrganisationConflictAnswers409()
+    {
+        var writes = new FakeComplianceWriteStore
+        {
+            OrganisationResult = WriteResult.Conflict("raced"),
+        };
+        using var factory = new WriteFactory(writes);
+        using var client = AdminClient(factory);
+
+        var response = await client.DeleteAsync("/api/v1/freeboard/organisations/org-a");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
     [Fact]
     public async Task UnauthenticatedWriteRejectedOffReadOnlyMode()
     {
