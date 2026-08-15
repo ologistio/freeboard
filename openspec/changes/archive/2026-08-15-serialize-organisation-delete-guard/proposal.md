@@ -87,8 +87,8 @@ gains a reference to it.
   organisation, or an asset of the wrong type, reports success. This is a real defect found
   while investigating, it is not a concurrency defect, and fixing it here would change the
   delete's observable result for reasons this change has nothing to say about. It needs its own
-  issue, and this change opens that issue rather than only naming it, because two accepted risks
-  in the design lean on the fix landing.
+  issue, and this change opens that issue as #152 rather than only naming it, because two
+  accepted risks in the design lean on the fix landing.
 - **A general locking or retry framework.** The change adds no lock manager, no advisory-lock
   namespace, and no retry loop. It makes two existing reads locking reads.
 - **Vendor and machine subjects.** Only `Company` and `Department` assets are deletable

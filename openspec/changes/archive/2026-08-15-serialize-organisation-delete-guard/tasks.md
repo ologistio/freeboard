@@ -260,16 +260,16 @@ armed action to completion, so a racing writer that blocks on a lock hangs the t
   cannot go red - that would mean the environment is wrong for this step, not that the guard
   holds.
 - [x] 5.7 `npx markdownlint-cli2 "**/*.md"`.
-- [ ] 5.8 Open a GitHub issue for the rows-affected check on `DeleteOrganisationAsync`, then put
-  its number in the two design risk bullets that lean on it (the absent-id gap-lock bullet and
-  the wrong-type record-lock bullet). Both accept their blast radius partly because that check
-  closes it, and nothing tracks it today, so the dependency would be lost.
+- [x] 5.8 Opened issue #152 for the rows-affected check on `DeleteOrganisationAsync`, and cited
+  it in the two design risk bullets that lean on it (the absent-id gap-lock bullet and the
+  wrong-type record-lock bullet). Both accept their blast radius partly because that check
+  closes it, so the dependency now resolves.
 
-  State in the issue WHICH form is meant. The delete must RETURN EARLY when its locking read
+  The issue states WHICH form is meant. The delete must RETURN EARLY when its locking read
   matches no `Company`/`Department` row, so the transaction ends before it holds the lock for the
   rest of its body. A rows-affected check on the final `DELETE FROM assets` answers not-found
   correctly and still holds the gap or record lock for the whole transaction: it closes the
-  unconditional-success defect and leaves the lock window those two bullets accept. Say both
-  halves the early return closes - the gap lock an absent id takes, and the exclusive record lock
-  a wrong-type id takes on a live vendor or machine row - so a later reader can tell what the
-  issue is for.
+  unconditional-success defect and leaves the lock window those two bullets accept. The issue
+  names both halves the early return closes - the gap lock an absent id takes, and the exclusive
+  record lock a wrong-type id takes on a live vendor or machine row - so a later reader can tell
+  what the issue is for.

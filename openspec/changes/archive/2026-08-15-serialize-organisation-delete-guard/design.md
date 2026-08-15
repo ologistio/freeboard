@@ -166,7 +166,7 @@ its Nth.
 
 - Changing `MySqlGitOpsImporter`. See Decision 4.
 - Issue #131. Its mechanism does not overlap; see the proposal's Non-goals.
-- The unconditional `WriteResult.Success` on delete. Separate defect, separate issue.
+- The unconditional `WriteResult.Success` on delete. Separate defect, tracked as issue #152.
 - Any schema migration, new index, or new dependency.
 
 ## Decisions
@@ -799,8 +799,8 @@ role-assignment case, it is uninstrumented and wrapped in nothing.
   the asset write is a discovery upsert). Bounding the window by returning early when the
   locking read matches nothing is deliberately NOT done here: that is the rows-affected check
   wearing a different name, and it changes the delete's observable result, which this change is
-  not the place to do. That check has its own tracking issue, which this change opens as a
-  follow-up, and the form that closes THIS bullet is the early return on the locking read. A
+  not the place to do. That check has its own tracking issue, #152, which this change opens as
+  a follow-up, and the form that closes THIS bullet is the early return on the locking read. A
   rows-affected check on the final `DELETE FROM assets` would answer not-found correctly and
   still hold the gap lock for the whole transaction, so it would close the result defect and not
   this one.
@@ -821,7 +821,7 @@ role-assignment case, it is uninstrumented and wrapped in nothing.
   unreachable without the app itself stalling. The request that causes it is an authoring error
   by a privileged caller - deleting an id that is not an organisation - not a load path any
   normal operation follows. And it needs no fix of its own: the rows-affected check closes this
-  half and the absent-id half together, in the early-return form the tracking issue names, so
+  half and the absent-id half together, in the early-return form tracking issue #152 names, so
   nothing is gained by inventing a second, narrower guard for it here. What makes it accepted
   rather than ignored is that it is written down: a reader who sees a vendor upsert time out
   against an organisation delete finds the reason here.

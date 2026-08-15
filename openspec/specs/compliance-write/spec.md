@@ -86,6 +86,30 @@ key, so this guard is enforced by the app counting referencing scopes, not by th
 database. To delete such a node the author must first re-parent or remove its children and
 detach its scopes.
 
+That guard SHALL hold under concurrency, not only against references that already exist when
+the delete starts. The delete and a concurrent app write that would create a reference to the
+same organisation SHALL be SERIALIZED against each other, so AT MOST ONE of them takes effect.
+Either the delete completes and the referencing write is then refused - because the
+organisation no longer resolves, or as a retryable conflict - or the referencing write
+completes and the delete is then rejected because a child or a scope now references the
+organisation, or - when the store cannot order them - both are refused. A referencing write is
+a scope write naming the organisation as `subject`, and an organisation write naming it as
+`parent`. What is forbidden is the pair BOTH taking effect: the delete SHALL NOT remove an
+organisation that a committed write references, and a referencing write SHALL NOT be accepted
+against an organisation a committed delete removed.
+
+The delete MAY be refused with a retryable conflict rather than an invalid-write rejection
+when the store cannot complete the ordering, and a referencing write MAY be refused the same
+way. A retryable conflict SHALL NOT be reported as a store failure, because the caller's
+correct response is to retry, not to treat the store as unavailable.
+
+The promise is bounded to writes that go through the app's write store. A writer reaching the
+`assets` or `scopes` tables by another route is outside it: the scope `subject` carries no
+foreign key by design, and the GitOps sync path deliberately TOLERATES a dangling subject as a
+non-blocking warning. So a dangling subject remains a state the system handles rather than one
+it declares impossible, and the compensating signals for it stay in place. What this
+requirement adds is that no app-managed write is a way to produce one.
+
 #### Scenario: Create an organisation asset
 
 - **WHEN** the instance is not in GitOps mode and a client posts a valid
@@ -203,8 +227,40 @@ detach its scopes.
 
 - **WHEN** a client deletes an organisation asset that still has a child asset or a scope
   whose `subject` is that organisation
-- **THEN** the write is rejected with a problem body and the store is unchanged, rather
-  than leaving an orphaned scope subject
+- **THEN** the write is rejected with a problem body and the store is unchanged, rather than
+  leaving a child organisation whose `parent` no longer resolves, or a scope whose `subject`
+  no longer resolves; both halves of the reference are guarded, not only the scope half
+
+#### Scenario: A delete racing a scope write on the same subject leaves no orphan
+
+- **WHEN** a client deletes an organisation asset while another client writes a scope naming
+  that same organisation as `subject`, at any point during the delete
+- **THEN** at most one of the two takes effect: either the organisation is deleted and the
+  scope write is refused - because its subject no longer resolves, or as a retryable conflict
+  when the store could not hold the write long enough to find that out - or the scope is
+  written and the delete is rejected because a scope now references the organisation, or both
+  are refused with a retryable conflict. No pairing exists in which both succeed, and no scope
+  is left naming a subject the same operation removed
+
+#### Scenario: A delete racing a child organisation write leaves no orphan
+
+- **WHEN** a client deletes an organisation asset while another client writes an organisation
+  naming that same organisation as `parent`, at any point during the delete
+- **THEN** at most one of the two takes effect: either the organisation is deleted and the
+  child write is refused - because its parent no longer resolves, or as a retryable conflict
+  when the store could not hold the write long enough to find that out - or the child is
+  written and the delete is rejected because a child organisation now references it, or both
+  are refused with a retryable conflict. No pairing exists in which both succeed, and no asset
+  is left naming a `parent` the same operation removed
+
+#### Scenario: A write refused for ordering is a retryable conflict
+
+- **WHEN** an organisation delete or a referencing write cannot be ordered against a
+  concurrent write and the store abandons it
+- **THEN** the caller receives the retryable conflict response, not the response that reports
+  the store as unavailable, and the refused operation leaves no partial write of its own. The
+  concurrent write it lost to MAY have changed the store, which is the point of refusing this
+  one
 
 ### Requirement: Writes are blocked in GitOps read-only mode
 
