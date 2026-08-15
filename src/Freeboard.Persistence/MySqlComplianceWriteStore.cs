@@ -21,6 +21,13 @@ namespace Freeboard.Persistence;
 /// holding the authorization line: an unauthorized caller is refused before this store is reached. They
 /// stay because a caller arriving by another path still has to meet them, but a write that leans on them
 /// would answer an authorization failure as a 404 or a no-op, neither of which is auditable as a denial.
+///
+/// Those guards also hold under CONCURRENCY, not only against references that already exist when a write
+/// starts. An organisation delete and every write that references an organisation serialize on that
+/// organisation's own assets row: the delete takes it exclusively, and a referencing write takes it
+/// shared. So at most one of the pair takes effect, and the loser is refused rather than reordered. The
+/// promise covers writes that go through this store; a writer reaching assets or scopes by another route
+/// is outside it.
 /// </summary>
 public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFactory) : IComplianceWriteStore
 {
@@ -55,56 +62,65 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        if (await LockedParentChangedAsync(connection, transaction, id, expectExisting, expectedParentId, cancellationToken).ConfigureAwait(false))
-        {
-            return WriteResult.Conflict("The organisation's parent changed concurrently; re-authorize and retry.");
-        }
-
-        if (parentId is not null)
-        {
-            if (string.Equals(parentId, id, StringComparison.Ordinal))
-            {
-                return WriteResult.Fail("An organisation cannot be its own parent.");
-            }
-
-            var parentExists = await OrganisationExistsAsync(connection, transaction, parentId, cancellationToken).ConfigureAwait(false);
-            if (!parentExists)
-            {
-                return WriteResult.Fail($"Parent organisation '{parentId}' does not exist.");
-            }
-
-            if (await WouldFormCycleAsync(connection, transaction, id, parentId, cancellationToken).ConfigureAwait(false))
-            {
-                return WriteResult.Fail("Setting this parent would form an organisation cycle.");
-            }
-        }
-
-        var now = DateTime.UtcNow;
-        var parameters = new { Id = id, ApiVersion = GitOpsSchema.ApiVersion, Title = title, Kind = kind, Parent = parentId, Now = now };
+        // The catch spans the whole body, not just the insert: the locking reads that can block sit
+        // earlier - the row lock below, and the parent-exists check.
         try
         {
-            // Org rows now live in the unified assets table as declared Company/Department assets; the
-            // org kind is the asset `type` and the parent is `parent`. Create is INSERT-only so a row
-            // inserted concurrently (or an id already used by any asset) surfaces as a conflict, not a
-            // silent overwrite. Update stays an upsert keyed on the row the caller re-locked above.
-            var sql = expectExisting
-                ? "INSERT INTO assets (id, type, source, api_version, title, parent, created_at, updated_at) "
-                    + "VALUES (@Id, @Kind, 'declared', @ApiVersion, @Title, @Parent, @Now, @Now) "
-                    + "ON DUPLICATE KEY UPDATE "
-                    + "api_version = VALUES(api_version), title = VALUES(title), type = VALUES(type), "
-                    + "parent = VALUES(parent), updated_at = VALUES(updated_at);"
-                : "INSERT INTO assets (id, type, source, api_version, title, parent, created_at, updated_at) "
-                    + "VALUES (@Id, @Kind, 'declared', @ApiVersion, @Title, @Parent, @Now, @Now);";
-            await connection.ExecuteAsync(new CommandDefinition(
-                sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        }
-        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
-        {
-            return WriteResult.Conflict("An organisation with that id already exists.");
-        }
+            if (await LockedParentChangedAsync(connection, transaction, id, expectExisting, expectedParentId, cancellationToken).ConfigureAwait(false))
+            {
+                return WriteResult.Conflict("The organisation's parent changed concurrently; re-authorize and retry.");
+            }
 
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return WriteResult.Success;
+            if (parentId is not null)
+            {
+                if (string.Equals(parentId, id, StringComparison.Ordinal))
+                {
+                    return WriteResult.Fail("An organisation cannot be its own parent.");
+                }
+
+                var parentExists = await OrganisationExistsAsync(connection, transaction, parentId, cancellationToken).ConfigureAwait(false);
+                if (!parentExists)
+                {
+                    return WriteResult.Fail($"Parent organisation '{parentId}' does not exist.");
+                }
+
+                if (await WouldFormCycleAsync(connection, transaction, id, parentId, cancellationToken).ConfigureAwait(false))
+                {
+                    return WriteResult.Fail("Setting this parent would form an organisation cycle.");
+                }
+            }
+
+            var now = DateTime.UtcNow;
+            var parameters = new { Id = id, ApiVersion = GitOpsSchema.ApiVersion, Title = title, Kind = kind, Parent = parentId, Now = now };
+            try
+            {
+                // Org rows now live in the unified assets table as declared Company/Department assets; the
+                // org kind is the asset `type` and the parent is `parent`. Create is INSERT-only so a row
+                // inserted concurrently (or an id already used by any asset) surfaces as a conflict, not a
+                // silent overwrite. Update stays an upsert keyed on the row the caller re-locked above.
+                var sql = expectExisting
+                    ? "INSERT INTO assets (id, type, source, api_version, title, parent, created_at, updated_at) "
+                        + "VALUES (@Id, @Kind, 'declared', @ApiVersion, @Title, @Parent, @Now, @Now) "
+                        + "ON DUPLICATE KEY UPDATE "
+                        + "api_version = VALUES(api_version), title = VALUES(title), type = VALUES(type), "
+                        + "parent = VALUES(parent), updated_at = VALUES(updated_at);"
+                    : "INSERT INTO assets (id, type, source, api_version, title, parent, created_at, updated_at) "
+                        + "VALUES (@Id, @Kind, 'declared', @ApiVersion, @Title, @Parent, @Now, @Now);";
+                await connection.ExecuteAsync(new CommandDefinition(
+                    sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
+            catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+            {
+                return WriteResult.Conflict("An organisation with that id already exists.");
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return WriteResult.Success;
+        }
+        catch (MySqlException ex) when (IsLockFailure(ex))
+        {
+            return LockConflict();
+        }
     }
 
     public async Task<WriteResult> DeleteOrganisationAsync(string id, CancellationToken cancellationToken = default)
@@ -112,37 +128,56 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        var childCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM assets WHERE parent = @Id AND type IN ('Company', 'Department');",
-            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (childCount > 0)
+        try
         {
-            return WriteResult.Fail("Cannot delete an organisation that still has child organisations.");
-        }
+            // FIRST, before either count. A referencing write reads this same row under a shared lock, so
+            // the two are ordered here. Being first is the guarantee, not the style: a locking read builds
+            // no read view, so the counts below are taken AFTER any wait for a referencing write and see
+            // whatever it committed. A plain read ahead of this one pins the read view early, and a
+            // reference committed after it would then be invisible to the counts.
+            _ = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT id FROM assets WHERE id = @Id AND type IN ('Company', 'Department') FOR UPDATE;",
+                new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 
-        // One unified scopes table now; an org subject may target a standard, requirement, or control, so
-        // the guard counts any scope whose subject is this org.
-        var scopeCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM scopes WHERE subject_id = @Id;",
-            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (scopeCount > 0)
+            var childCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT COUNT(*) FROM assets WHERE parent = @Id AND type IN ('Company', 'Department');",
+                new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            if (childCount > 0)
+            {
+                return WriteResult.Fail("Cannot delete an organisation that still has child organisations.");
+            }
+
+            // One unified scopes table now; an org subject may target a standard, requirement, or control, so
+            // the guard counts any scope whose subject is this org.
+            var scopeCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+                "SELECT COUNT(*) FROM scopes WHERE subject_id = @Id;",
+                new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            if (scopeCount > 0)
+            {
+                return WriteResult.Fail("Cannot delete an organisation that still has scopes.");
+            }
+
+            // Prune the org's role assignments before the delete: the organisation FK is ON DELETE
+            // RESTRICT, so an existing assignment would otherwise wedge the delete. Same prune-before-
+            // delete pattern the pre-counts above rely on for scopes.
+            await connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM authz_organisation_role_assignments WHERE organisation_id = @Id;",
+                new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
+                new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return WriteResult.Success;
+        }
+        catch (MySqlException ex) when (IsLockFailure(ex))
         {
-            return WriteResult.Fail("Cannot delete an organisation that still has scopes.");
+            // A deadlock is reachable here as well as a timeout: a concurrent gitops import takes this
+            // organisation's role assignments before its asset row and this delete takes them the other
+            // way round, so the two can hold each other's locks.
+            return LockConflict();
         }
-
-        // Prune the org's role assignments before the delete: the organisation FK is ON DELETE
-        // RESTRICT, so an existing assignment would otherwise wedge the delete. Same prune-before-
-        // delete pattern the pre-counts above rely on for scopes.
-        await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM authz_organisation_role_assignments WHERE organisation_id = @Id;",
-            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-
-        await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
-            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return WriteResult.Success;
     }
 
     public Task<WriteResult> UpsertScopeDispositionAsync(
@@ -225,103 +260,112 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        // Lock the row by global id and read its target columns and subject, joining the subject asset for
-        // its type. A row whose own target column is not this route's kind is not-found: a PUT must not
-        // retarget it, and it must not be authorized against that row's owning subject. A row whose subject
-        // is not a live Company/Department asset (a Vendor/Machine subject, or an unresolved subject) is
-        // likewise not-found: those scopes are GitOps-write-only, so an app PUT must not retarget them.
-        var locked = (await connection.QueryAsync<ScopeLockRow>(new CommandDefinition(
-            "SELECT s.standard_id AS StandardId, s.requirement_id AS RequirementId, s.control_id AS ControlId, "
-            + "s.subject_id AS SubjectId, a.type AS SubjectType FROM scopes s "
-            + "LEFT JOIN assets a ON a.id = s.subject_id WHERE s.id = @Id FOR UPDATE;",
-            new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).FirstOrDefault();
-
-        if (locked is not null)
+        // The catch spans the whole body, not just the insert: the locking reads that can block sit
+        // earlier - the scope row lock below, and the subject-exists check.
+        try
         {
-            var thisKindId = target == ScopeTarget.Standard ? locked.StandardId : locked.RequirementId;
-            if (thisKindId is null)
+            // Lock the row by global id and read its target columns and subject, joining the subject asset for
+            // its type. A row whose own target column is not this route's kind is not-found: a PUT must not
+            // retarget it, and it must not be authorized against that row's owning subject. A row whose subject
+            // is not a live Company/Department asset (a Vendor/Machine subject, or an unresolved subject) is
+            // likewise not-found: those scopes are GitOps-write-only, so an app PUT must not retarget them.
+            var locked = (await connection.QueryAsync<ScopeLockRow>(new CommandDefinition(
+                "SELECT s.standard_id AS StandardId, s.requirement_id AS RequirementId, s.control_id AS ControlId, "
+                + "s.subject_id AS SubjectId, a.type AS SubjectType FROM scopes s "
+                + "LEFT JOIN assets a ON a.id = s.subject_id WHERE s.id = @Id FOR UPDATE;",
+                new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).FirstOrDefault();
+
+            if (locked is not null)
             {
-                return WriteResult.NotFound();
+                var thisKindId = target == ScopeTarget.Standard ? locked.StandardId : locked.RequirementId;
+                if (thisKindId is null)
+                {
+                    return WriteResult.NotFound();
+                }
+
+                if (locked.SubjectType is not ("Company" or "Department"))
+                {
+                    return WriteResult.NotFound();
+                }
+
+                if (expectedCurrentOrganisation is null)
+                {
+                    // The caller authorized a create, but a same-kind row now exists: a concurrent create.
+                    return WriteResult.Conflict("A scope with that id already exists.");
+                }
+
+                if (!string.Equals(locked.SubjectId, expectedCurrentOrganisation, StringComparison.Ordinal))
+                {
+                    return WriteResult.Conflict("The scope's owning organisation changed concurrently; re-authorize and retry.");
+                }
             }
 
-            if (locked.SubjectType is not ("Company" or "Department"))
+            if (!await OrganisationExistsAsync(connection, transaction, subject, cancellationToken).ConfigureAwait(false))
             {
-                return WriteResult.NotFound();
+                return WriteResult.Fail($"Organisation '{subject}' does not exist.");
             }
 
-            if (expectedCurrentOrganisation is null)
+            if (!await ExistsAsync(connection, transaction, targetTable, targetId, cancellationToken).ConfigureAwait(false))
             {
-                // The caller authorized a create, but a same-kind row now exists: a concurrent create.
+                return WriteResult.Fail($"Target '{targetId}' does not exist.");
+            }
+
+            // At most one scope per (subject, target). A row for the pair under a DIFFERENT id is a duplicate
+            // mapping; the same id updating its own pair is fine. The pair query is confined to this target
+            // column, so a wrong-kind row (target column null) never matches.
+            var pairColumn = target == ScopeTarget.Standard ? "standard_id" : "requirement_id";
+            var conflictingId = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+                $"SELECT id FROM scopes WHERE subject_id = @Subject AND {pairColumn} = @TargetId LIMIT 1;",
+                new { Subject = subject, TargetId = targetId }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            if (conflictingId is not null && !string.Equals(conflictingId, id, StringComparison.Ordinal))
+            {
+                return WriteResult.Fail($"A scope already maps subject '{subject}' to target '{targetId}'.");
+            }
+
+            var now = DateTime.UtcNow;
+            var parameters = new
+            {
+                Id = id,
+                ApiVersion = GitOpsSchema.ApiVersion,
+                Title = title,
+                Subject = subject,
+                Standard = target == ScopeTarget.Standard ? targetId : null,
+                Requirement = target == ScopeTarget.Requirement ? targetId : null,
+                Disposition = disposition,
+                Justification = normalizedJustification,
+                Now = now,
+            };
+            try
+            {
+                // A null expected owner is a create: INSERT-only so a row inserted concurrently between the
+                // lock and this write conflicts rather than silently overwriting. An expected owner is an
+                // update on the row the caller was authorized for and already re-locked above. Both write the
+                // route's own target column and leave the other two target columns null.
+                var isCreate = expectedCurrentOrganisation is null;
+                var sql = isCreate
+                    ? "INSERT INTO scopes (id, api_version, title, subject_id, standard_id, requirement_id, control_id, disposition, justification, created_at, updated_at) "
+                        + "VALUES (@Id, @ApiVersion, @Title, @Subject, @Standard, @Requirement, NULL, @Disposition, @Justification, @Now, @Now);"
+                    : "INSERT INTO scopes (id, api_version, title, subject_id, standard_id, requirement_id, control_id, disposition, justification, created_at, updated_at) "
+                        + "VALUES (@Id, @ApiVersion, @Title, @Subject, @Standard, @Requirement, NULL, @Disposition, @Justification, @Now, @Now) "
+                        + "ON DUPLICATE KEY UPDATE "
+                        + "api_version = VALUES(api_version), title = VALUES(title), subject_id = VALUES(subject_id), "
+                        + "standard_id = VALUES(standard_id), requirement_id = VALUES(requirement_id), "
+                        + "disposition = VALUES(disposition), justification = VALUES(justification), updated_at = VALUES(updated_at);";
+                await connection.ExecuteAsync(new CommandDefinition(
+                    sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
+            catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+            {
                 return WriteResult.Conflict("A scope with that id already exists.");
             }
 
-            if (!string.Equals(locked.SubjectId, expectedCurrentOrganisation, StringComparison.Ordinal))
-            {
-                return WriteResult.Conflict("The scope's owning organisation changed concurrently; re-authorize and retry.");
-            }
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return WriteResult.Success;
         }
-
-        if (!await OrganisationExistsAsync(connection, transaction, subject, cancellationToken).ConfigureAwait(false))
+        catch (MySqlException ex) when (IsLockFailure(ex))
         {
-            return WriteResult.Fail($"Organisation '{subject}' does not exist.");
+            return LockConflict();
         }
-
-        if (!await ExistsAsync(connection, transaction, targetTable, targetId, cancellationToken).ConfigureAwait(false))
-        {
-            return WriteResult.Fail($"Target '{targetId}' does not exist.");
-        }
-
-        // At most one scope per (subject, target). A row for the pair under a DIFFERENT id is a duplicate
-        // mapping; the same id updating its own pair is fine. The pair query is confined to this target
-        // column, so a wrong-kind row (target column null) never matches.
-        var pairColumn = target == ScopeTarget.Standard ? "standard_id" : "requirement_id";
-        var conflictingId = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
-            $"SELECT id FROM scopes WHERE subject_id = @Subject AND {pairColumn} = @TargetId LIMIT 1;",
-            new { Subject = subject, TargetId = targetId }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (conflictingId is not null && !string.Equals(conflictingId, id, StringComparison.Ordinal))
-        {
-            return WriteResult.Fail($"A scope already maps subject '{subject}' to target '{targetId}'.");
-        }
-
-        var now = DateTime.UtcNow;
-        var parameters = new
-        {
-            Id = id,
-            ApiVersion = GitOpsSchema.ApiVersion,
-            Title = title,
-            Subject = subject,
-            Standard = target == ScopeTarget.Standard ? targetId : null,
-            Requirement = target == ScopeTarget.Requirement ? targetId : null,
-            Disposition = disposition,
-            Justification = normalizedJustification,
-            Now = now,
-        };
-        try
-        {
-            // A null expected owner is a create: INSERT-only so a row inserted concurrently between the
-            // lock and this write conflicts rather than silently overwriting. An expected owner is an
-            // update on the row the caller was authorized for and already re-locked above. Both write the
-            // route's own target column and leave the other two target columns null.
-            var isCreate = expectedCurrentOrganisation is null;
-            var sql = isCreate
-                ? "INSERT INTO scopes (id, api_version, title, subject_id, standard_id, requirement_id, control_id, disposition, justification, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Subject, @Standard, @Requirement, NULL, @Disposition, @Justification, @Now, @Now);"
-                : "INSERT INTO scopes (id, api_version, title, subject_id, standard_id, requirement_id, control_id, disposition, justification, created_at, updated_at) "
-                    + "VALUES (@Id, @ApiVersion, @Title, @Subject, @Standard, @Requirement, NULL, @Disposition, @Justification, @Now, @Now) "
-                    + "ON DUPLICATE KEY UPDATE "
-                    + "api_version = VALUES(api_version), title = VALUES(title), subject_id = VALUES(subject_id), "
-                    + "standard_id = VALUES(standard_id), requirement_id = VALUES(requirement_id), "
-                    + "disposition = VALUES(disposition), justification = VALUES(justification), updated_at = VALUES(updated_at);";
-            await connection.ExecuteAsync(new CommandDefinition(
-                sql, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        }
-        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
-        {
-            return WriteResult.Conflict("A scope with that id already exists.");
-        }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return WriteResult.Success;
     }
 
     // Target-column-scoped delete, further confined to a Company/Department subject: the standard route
@@ -341,11 +385,22 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
     {
         var column = target == ScopeTarget.Standard ? "standard_id" : "requirement_id";
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var affected = await connection.ExecuteAsync(new CommandDefinition(
-            $"DELETE s FROM scopes s JOIN assets a ON a.id = s.subject_id "
-            + $"WHERE s.id = @Id AND s.{column} IS NOT NULL AND a.type IN ('Company', 'Department') "
-            + "AND s.subject_id = @ExpectedOwner;",
-            new { Id = id, ExpectedOwner = expectedOwner }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        int affected;
+        try
+        {
+            // The join locks the subject's asset row, so a concurrent delete of that organisation - which
+            // holds that row exclusively for its whole transaction - can block this out.
+            affected = await connection.ExecuteAsync(new CommandDefinition(
+                $"DELETE s FROM scopes s JOIN assets a ON a.id = s.subject_id "
+                + $"WHERE s.id = @Id AND s.{column} IS NOT NULL AND a.type IN ('Company', 'Department') "
+                + "AND s.subject_id = @ExpectedOwner;",
+                new { Id = id, ExpectedOwner = expectedOwner }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (MySqlException ex) when (IsLockFailure(ex))
+        {
+            return LockConflict();
+        }
+
         return affected == 0 ? WriteResult.NotFound() : WriteResult.Success;
     }
 
@@ -371,14 +426,29 @@ public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFac
     /// True when the id names a Company or Department asset. Org data now lives in the unified assets
     /// table, so an org-existence check must exclude Vendor and Machine rows sharing the id space.
     /// </summary>
+    /// <remarks>
+    /// A LOCKING read, because both callers are writes that create a reference to this organisation. A
+    /// locking read is a current read, so a caller that waited here for a concurrent delete sees the row
+    /// is gone and refuses, instead of answering from a snapshot taken before the delete committed and
+    /// writing a reference to a row that no longer exists.
+    /// </remarks>
     private static async Task<bool> OrganisationExistsAsync(
         DbConnection connection, DbTransaction transaction, string id, CancellationToken cancellationToken)
     {
         var count = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM assets WHERE id = @Id AND type IN ('Company', 'Department');",
+            "SELECT COUNT(*) FROM assets WHERE id = @Id AND type IN ('Company', 'Department') FOR SHARE;",
             new { Id = id }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return count > 0;
     }
+
+    // The server declined to order this write against a concurrent one. Unmapped it leaves the store as a
+    // DbException, which the endpoint answers as an unreachable store - untrue, and it points the caller
+    // away from the one thing that resolves it.
+    private static bool IsLockFailure(MySqlException ex) =>
+        ex.ErrorCode is MySqlErrorCode.LockDeadlock or MySqlErrorCode.LockWaitTimeout;
+
+    private static WriteResult LockConflict() =>
+        WriteResult.Conflict("The write raced a concurrent write on the organisation; retry.");
 
     /// <summary>
     /// Locks the organisation row (<c>SELECT ... FOR UPDATE</c>) and reports whether its current parent

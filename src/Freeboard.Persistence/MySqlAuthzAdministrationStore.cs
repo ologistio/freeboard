@@ -149,6 +149,24 @@ public sealed class MySqlAuthzAdministrationStore(IDbConnectionFactory connectio
         {
             return AuthzWriteResult.Conflict("The user already holds that role on the organisation.");
         }
+        catch (MySqlException ex) when (
+            ex.ErrorCode is MySqlErrorCode.LockDeadlock or MySqlErrorCode.LockWaitTimeout)
+        {
+            // The insert takes shared locks on its foreign-key parents, so an organisation delete holding
+            // the asset row exclusively blocks it. Losing that race is retryable.
+            return AuthzWriteResult.Conflict(
+                "The assignment lost a race with a concurrent write on the organisation; retry.");
+        }
+        catch (MySqlException ex) when (
+            ex.ErrorCode is MySqlErrorCode.NoReferencedRow or MySqlErrorCode.NoReferencedRow2)
+        {
+            // The three existence checks above are plain reads, so any of the insert's three parents can
+            // be removed between the check and the insert. The row is gone for good, so a retry cannot
+            // win: this is the same answer the checks give when they observe it in time. Which parent
+            // vanished is not asserted - the caller resolves all three the same way.
+            return AuthzWriteResult.Invalid(
+                "A referenced user, role, or organisation no longer exists.");
+        }
     }
 
     public async Task<AuthzWriteResult> RevokeOrganisationRoleAsync(
