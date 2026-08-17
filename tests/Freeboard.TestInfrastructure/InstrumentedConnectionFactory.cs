@@ -23,14 +23,6 @@ namespace Freeboard.TestInfrastructure;
 /// until the action settles, so nothing else can release that lock. The factory's own cap does NOT
 /// substitute for that: it only turns a hang into a fast failure naming the boundary it happened at.
 ///
-/// On expiry the cap throws, the throw propagates out of the store's execute call, and the
-/// <c>await using</c> on the transaction and the connection rolls the hooked transaction back and
-/// releases its locks - so that side is left in a defined state. The ABANDONED action is not cancelled.
-/// The rollback releases the very lock it was waiting for, so it may still complete (committing a write
-/// into a fixture the test has stopped tracking) or may fault, against a database the fixture is about
-/// to drop, with nothing observing it. A test that needs the abandoned action's outcome must observe it
-/// after the rollback rather than assume it failed.
-///
 /// The interleaved action MUST open its connections from the UNINSTRUMENTED factory. A connection taken
 /// from this one counts its commands here and re-enters the hook.
 ///
@@ -106,6 +98,14 @@ public sealed class InstrumentedConnectionFactory(IDbConnectionFactory inner) : 
     // here is the whole point: the competing writer has settled before the hooked statement reaches the
     // server, so the interleaving point is exact rather than raced. The cap is the diagnostic backstop
     // for an action that never settles, not the mechanism that makes a blocking one give up.
+    //
+    // On expiry the cap throws, the throw propagates out of the store's execute call, and the await
+    // using on the transaction and the connection rolls the hooked transaction back and releases its
+    // locks - so that side is left in a defined state. The ABANDONED action is not cancelled. The
+    // rollback releases the very lock it was waiting for, so it may still complete (committing a write
+    // into a fixture the test has stopped tracking) or may fault, against a database the fixture is
+    // about to drop, with nothing observing it. A test that needs the abandoned action's outcome must
+    // observe it after the rollback rather than assume it failed.
     private async Task BeforeCommandAsync(CancellationToken cancellationToken)
     {
         var ordinal = Interlocked.Increment(ref commandsExecuted);

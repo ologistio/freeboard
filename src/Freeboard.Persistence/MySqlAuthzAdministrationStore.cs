@@ -152,10 +152,12 @@ public sealed class MySqlAuthzAdministrationStore(IDbConnectionFactory connectio
         catch (MySqlException ex) when (
             ex.ErrorCode is MySqlErrorCode.LockDeadlock or MySqlErrorCode.LockWaitTimeout)
         {
-            // The insert takes shared locks on its foreign-key parents, so an organisation delete holding
-            // the asset row exclusively blocks it. Losing that race is retryable.
+            // The insert takes shared locks on all three of its foreign-key parents, so an exclusive
+            // write on any one of them blocks it. Which parent was contended is not asserted. Unlike the
+            // missing-parent case below, every row is still there, so a retry can win.
             return AuthzWriteResult.Conflict(
-                "The assignment lost a race with a concurrent write on the organisation; retry.");
+                "The assignment lost a race with a concurrent write on a referenced user, role, or "
+                + "organisation. Retry.");
         }
         catch (MySqlException ex) when (
             ex.ErrorCode is MySqlErrorCode.NoReferencedRow or MySqlErrorCode.NoReferencedRow2)

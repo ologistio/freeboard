@@ -26,7 +26,7 @@ namespace Freeboard.Persistence;
 /// starts. An organisation delete and every write that references an organisation serialize on that
 /// organisation's own assets row: the delete takes it exclusively, and a referencing write takes it
 /// shared. So at most one of the pair takes effect, and the loser is refused rather than reordered. The
-/// promise covers writes that go through this store; a writer reaching assets or scopes by another route
+/// promise covers writes that go through this store. A writer reaching assets or scopes by another route
 /// is outside it.
 /// </summary>
 public sealed class MySqlComplianceWriteStore(IDbConnectionFactory connectionFactory) : IComplianceWriteStore

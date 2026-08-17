@@ -226,7 +226,7 @@ requirement adds is that no app-managed write is a way to produce one.
   whose `subject` is that organisation
 - **THEN** the write is rejected with a problem body and the store is unchanged, rather than
   leaving a child organisation whose `parent` no longer resolves, or a scope whose `subject`
-  no longer resolves; both halves of the reference are guarded, not only the scope half
+  no longer resolves. Both halves of the reference are guarded, not only the scope half
 
 #### Scenario: A delete racing a scope write on the same subject leaves no orphan
 

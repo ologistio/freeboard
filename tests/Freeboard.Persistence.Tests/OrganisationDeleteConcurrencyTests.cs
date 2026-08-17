@@ -12,36 +12,12 @@ namespace Freeboard.Persistence.Tests;
 /// against a real MySQL discovered via FREEBOARD_TEST_DB. Each test SKIPS cleanly when the env var is
 /// absent.
 ///
-/// The racing write commits at an exact statement boundary of the delete, driven by the counted command
-/// hook rather than a sleep, and the delete is raced at every boundary it has. What is asserted is the
-/// PAIR of outcomes, never which side won: both orders are legal, so a test that demanded one would pin
-/// timing rather than the guarantee. What is forbidden is both sides succeeding, and any orphan left
-/// behind - a scope naming a subject that is gone, or an asset naming a parent that is gone. It is also a
-/// failure for either side to throw a MySqlException: a lock failure the store did not map reaches the
-/// endpoint as an unreachable store, which is exactly what the mapping exists to prevent.
-///
-/// Every run re-seeds the fixture, because BOTH sides are destructive: the measuring run deletes the
-/// organisation outright, a writer-wins run leaves a committed reference under it, and a delete-wins run
-/// leaves it gone. Without the reset, every run after the first would race nothing and the "both outcomes
-/// occur" assertion could pass by fixture exhaustion instead of by the race. The reset runs BEFORE Arm,
-/// which zeroes the command counter.
-///
-/// The racing session bounds its own lock wait. Once the delete holds the row, the racing writer blocks -
-/// on a transaction that is itself suspended inside the hook waiting for that writer, so nothing releases
-/// the lock. A low session innodb_lock_wait_timeout is what breaks that: the server refuses the writer
-/// with the lock-wait timeout the store must map, and the delete proceeds. The hook's own cap is a
-/// diagnostic backstop, not the mechanism.
-///
-/// Boundary 2 is the statement-order guard, and it is asserted by name. The locking read is the delete's
-/// first statement, so boundary 2 is the first interleaving where the delete already holds the row.
-/// Boundary 1 cannot serve: with no command issued the delete has taken no read view, so even a delete
-/// with no locking read at all sees the racing commit and refuses there.
-///
-/// The two role-assignment cases instrument OPPOSITE sides of the race because they need different
-/// endings. The lock-wait timeout needs the delete held open, so the delete is hooked and the assign
-/// blocks. The foreign-key failure needs the delete COMMITTED first, which the racing session can never
-/// reach - it times out before the delete finishes - so the ASSIGN is hooked instead and the delete runs
-/// to completion inside the hook.
+/// What is asserted is the PAIR of outcomes, never which side won: both orders are legal, so a test that
+/// demanded one would pin timing rather than the guarantee. What is forbidden is both sides succeeding,
+/// and any orphan left behind - a scope naming a subject that is gone, or an asset naming a parent that
+/// is gone. It is also a failure for either side to throw a MySqlException: a lock failure the store did
+/// not map reaches the endpoint as an unreachable store, which is exactly what the mapping exists to
+/// prevent.
 /// </summary>
 [Trait("Category", TestCategories.Integration)]
 public sealed class OrganisationDeleteConcurrencyTests
@@ -52,8 +28,10 @@ public sealed class OrganisationDeleteConcurrencyTests
     private const string ScopeId = "sc-1";
     private const string UserId = "user-1";
 
-    // The locking read is the delete's first statement, so this is the first interleaving at which the
-    // delete already holds the organisation's row.
+    // The statement-order guard, asserted by name. The locking read is the delete's first statement, so
+    // this is the first interleaving at which the delete already holds the organisation's row. Boundary 1
+    // cannot serve: with no command issued the delete has taken no read view, so even a delete with no
+    // locking read at all sees the racing commit and refuses there.
     private const int LockedBoundary = 2;
 
     // The assignment's INSERT. It issues exactly three plain reads first - the role scope, the user, the
@@ -62,8 +40,12 @@ public sealed class OrganisationDeleteConcurrencyTests
     // itself see the row gone, so the method refuses from its own guard and never reaches the INSERT.
     private const int AssignInsertOrdinal = 4;
 
-    // The racing session gives up here. Long enough that an UNBLOCKED write never hits it, short enough
-    // that a whole sweep stays quick.
+    // The racing session bounds its own lock wait with this. Once the delete holds the row, the racing
+    // writer blocks - on a transaction that is itself suspended inside the hook waiting for that writer,
+    // so nothing releases the lock. A low session innodb_lock_wait_timeout is what breaks that: the
+    // server refuses the writer with the lock-wait timeout the store must map, and the delete proceeds.
+    // The hook's own cap is a diagnostic backstop, not the mechanism. Long enough that an UNBLOCKED write
+    // never hits it, short enough that a whole sweep stays quick.
     private const int LockWaitSeconds = 3;
 
     // Comfortably above the racing session's own bound, so an expiry here means something else hung.
@@ -147,7 +129,10 @@ public sealed class OrganisationDeleteConcurrencyTests
 
     // The assignment's INSERT takes a shared foreign-key lock on the organisation's asset row, so it
     // blocks behind the delete and its own session gives up first. That must come back as a conflict
-    // RESULT; unmapped it escapes the store as a MySqlException, and the endpoint answers a bare 500.
+    // RESULT. Unmapped it escapes the store as a MySqlException, and the endpoint answers a bare 500.
+    //
+    // This ending needs the delete held open, so the DELETE is the hooked side and the assignment blocks
+    // inside the hook.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task AnAssignmentBlockedByTheDeleteReturnsAConflict()
     {
@@ -174,6 +159,10 @@ public sealed class OrganisationDeleteConcurrencyTests
     // The shape production produces: the delete COMMITS while the assignment is between its plain
     // organisation-exists read and its INSERT, so the insert fails the foreign key instead of timing out.
     // The parent row is gone for good, so the answer must be invalid, not a retryable conflict.
+    //
+    // This ending needs the delete COMMITTED first, which a racing session can never reach - it times out
+    // before the delete finishes - so the ASSIGN is the hooked side instead and the delete runs to
+    // completion inside the hook.
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task AnAssignmentInsertingAfterACommittedDeleteReturnsInvalid()
     {
@@ -245,8 +234,10 @@ public sealed class OrganisationDeleteConcurrencyTests
         return await RaceOnceAsync(db, hooked, new MySqlComplianceWriteStore(hooked), boundary, write);
     }
 
-    // Returns the run rather than asserting on it: each caller decides what the pair must be, and the
-    // orphan check runs against the state this run left, before the next reset wipes it.
+    // The racing write commits at an exact statement boundary of the delete, driven by the counted
+    // command hook rather than a sleep. Returns the run rather than asserting on it: each caller decides
+    // what the pair must be, and the orphan check runs against the state this run left, before the next
+    // reset wipes it.
     private static async Task<Run> RaceOnceAsync(
         MySqlTestDatabase db,
         InstrumentedConnectionFactory hooked,
@@ -254,8 +245,6 @@ public sealed class OrganisationDeleteConcurrencyTests
         int boundary,
         Func<MySqlComplianceWriteStore, CancellationToken, Task<WriteResult>> write)
     {
-        // The racing writer must be able to give up: the delete is suspended inside the hook while it
-        // runs, so nothing else can release the row it waits for.
         var racingStore = new MySqlComplianceWriteStore(
             new LockWaitConnectionFactory(db.ConnectionFactory, LockWaitSeconds));
 
@@ -389,6 +378,11 @@ public sealed class OrganisationDeleteConcurrencyTests
     /// Puts the fixture back to the pre-race state: the organisation present, with no scope, no child,
     /// and no role assignment naming it. Runs on the uninstrumented factory and always BEFORE Arm, since
     /// Arm zeroes the command counter and a reset issued through the hook would shift every boundary.
+    ///
+    /// Every run resets, because BOTH sides of the race are destructive: the measuring run deletes the
+    /// organisation outright, a writer-wins run leaves a committed reference under it, and a delete-wins
+    /// run leaves it gone. Without the reset, every run after the first would race nothing and the
+    /// both-outcomes-occur assertion could pass by fixture exhaustion instead of by the race.
     /// </summary>
     private static async Task ResetAsync(MySqlTestDatabase db)
     {
