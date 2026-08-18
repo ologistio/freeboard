@@ -5,12 +5,8 @@ namespace Freeboard.Persistence;
 /// attestation runs, the 1:1 extension, plus a computed status per <c>(organisation, requirement,
 /// collector)</c> that has evidence.
 /// <para>
-/// Status is derived on read from each collector's latest run (pinned by <c>collected_at</c>,
-/// <c>received_at</c>, <c>created_at</c>, <c>id</c> descending) and that run's checks: <c>Passing</c>
-/// means "the latest run has no failing hard check", NOT "the requirement is satisfied" - with no
-/// expected-check catalogue a run can under-report, so a pass can be overclaimed. The store returns a
-/// status only for collectors that have a run and never emits <c>Unknown</c>; deriving <c>Unknown</c>
-/// for a configured collector with no run is the web caller's responsibility.
+/// <c>Passing</c> means "no assessed run has a failing hard check", NOT "the requirement is
+/// satisfied". With no expected-check catalogue a run can under-report, so a pass can be overclaimed.
 /// </para>
 /// </summary>
 public interface IEvidenceStore
@@ -31,11 +27,16 @@ public interface IEvidenceStore
 
     /// <summary>
     /// Returns a computed <see cref="CollectorEvidenceStatusRow"/> for each <c>(organisation,
-    /// requirement, collector)</c> under any of <paramref name="organisationIds"/> that has evidence,
-    /// derived from each collector's latest run. Status is <c>HardFailure</c>, <c>Stale</c>,
-    /// <c>SoftFailure</c>, or <c>Passing</c> (in that precedence); the store never emits <c>Unknown</c>
-    /// and does not enumerate configured collectors. A single call covers every supplied organisation so
-    /// the caller issues one batched read.
+    /// requirement, collector)</c> under any of <paramref name="organisationIds"/> that has evidence.
+    /// The status is derived over an assessed set of runs: the group's latest run alone when that run
+    /// carries no cycle, where latest means by <c>collected_at</c>, <c>received_at</c>,
+    /// <c>created_at</c>, then <c>id</c> descending, and otherwise every run of the group sharing the latest run's cycle, so one
+    /// collection cycle is assessed as one outcome and a machine absent from the newest cycle stops
+    /// contributing. Status is <c>HardFailure</c>, <c>Errored</c>, <c>Stale</c>, <c>SoftFailure</c>, or
+    /// <c>Passing</c> (in that precedence); the store never emits <c>Unknown</c>, which stays the
+    /// caller's status for a configured collector with no run, and it does not enumerate configured
+    /// collectors. A single call covers every supplied organisation so the caller issues one batched
+    /// read.
     /// </summary>
     Task<IReadOnlyList<CollectorEvidenceStatusRow>> GetCollectorEvidenceStatusesAsync(
         IReadOnlyCollection<string> organisationIds, CancellationToken cancellationToken = default);

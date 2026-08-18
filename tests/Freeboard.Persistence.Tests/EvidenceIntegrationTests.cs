@@ -8,9 +8,10 @@ using MySqlConnector;
 namespace Freeboard.Persistence.Tests;
 
 /// <summary>
-/// Integration tests for the evidence schema (migrations 011 and 015), the append-only store pair, and
-/// the computed per-collector evidence status (including Stale), against a real MySQL discovered via
-/// FREEBOARD_TEST_DB. Each test SKIPS cleanly when the env var is absent.
+/// Integration tests for the evidence schema (migrations 011, 015, and 024), the append-only store pair,
+/// both idempotency keys, and the computed per-collector evidence status (including Stale and Errored),
+/// against a real MySQL discovered via FREEBOARD_TEST_DB. Each test SKIPS cleanly when the env var is
+/// absent.
 /// </summary>
 [Trait("Category", TestCategories.Integration)]
 public sealed class EvidenceIntegrationTests
@@ -28,17 +29,21 @@ public sealed class EvidenceIntegrationTests
     private static NewEvidenceRun Run(
         string org,
         string requirement,
-        string vendor,
-        string collectorRef,
+        string? vendor,
+        string? collectorRef,
         string result = "Pass",
         DateTime? collectedAt = null,
         DateTime? receivedAt = null,
         string? rawPayload = null,
         string? collectorId = null,
         string? frequency = null,
+        string? assetId = null,
+        string? cycleId = null,
+        string? errorDetail = null,
         params NewEvidenceCheck[] checks) =>
         new(org, requirement, vendor, collectorRef, result,
-            collectedAt ?? DateTime.UtcNow, receivedAt, rawPayload, checks, collectorId, frequency);
+            collectedAt ?? DateTime.UtcNow, receivedAt, rawPayload, checks, collectorId, frequency,
+            assetId, cycleId, errorDetail);
 
     private static NewEvidenceCheck Check(string name, string severity, string result, string? detail = null) =>
         new(name, severity, result, detail);
@@ -356,6 +361,16 @@ public sealed class EvidenceIntegrationTests
             + "@Now, NULL, NULL, @Now, NULL, NULL);",
             new { Id = Id(1), Now = DateTime.UtcNow });
 
+        // A legacy Collector run whose collector_ref STARTS with ':': the delimiter is there but the
+        // prefix before it is empty, which names no collector. The empty string must not be recovered as
+        // an identity, or the group would report a phantom collector under an empty id.
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, received_at, raw_payload, created_at, collector_id, frequency) "
+            + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', ':run1', 'Pass', "
+            + "@Now, NULL, NULL, @Now, NULL, NULL);",
+            new { Id = Id(2), Now = DateTime.UtcNow });
+
         // A non-Collector run whose collector_ref does contain a ':': its prefix must not be mined for a
         // collector identity, because per-collector status covers Collector-kind runs only.
         var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
@@ -487,7 +502,7 @@ public sealed class EvidenceIntegrationTests
 
         var store = new MySqlEvidenceStore(db.ConnectionFactory);
         var runs = await store.GetEvidenceRunsAsync("org-tie", "req-tie");
-        Assert.Equal(["r1", "r2", "r3", "r4", "r5"], runs.Select(x => x.CollectorRef).ToArray());
+        Assert.Equal(["r1", "r2", "r3", "r4", "r5"], runs.Select(x => x.CollectorRef!).ToArray());
 
         var latest = await store.GetLatestEvidenceRunAsync("org-tie", "req-tie");
         Assert.Equal("r1", latest!.CollectorRef);
@@ -563,7 +578,10 @@ public sealed class EvidenceIntegrationTests
         await conn.OpenAsync();
 
         // Return the table to its pre-015 shape, then seed a legacy collector run and its check as they
-        // would exist before the additive migration ran.
+        // would exist before the additive migration ran. MySQL refuses to drop a column that a check
+        // constraint names, so the identity constraint over collector_id comes off first and is restored
+        // once 015 has put the column back.
+        await conn.ExecuteAsync("ALTER TABLE evidence_runs DROP CHECK ck_evidence_runs_cycle_identity;");
         await conn.ExecuteAsync("ALTER TABLE evidence_runs DROP COLUMN collector_id, DROP COLUMN frequency;");
         var collected = new DateTime(2025, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         var runId = Id(1);
@@ -579,6 +597,12 @@ public sealed class EvidenceIntegrationTests
 
         // Run 015 raw against the table that already holds the legacy row.
         await conn.ExecuteAsync(await ReadMigrationAsync("015_evidence_collector_identity.sql"));
+        await conn.ExecuteAsync(
+            "ALTER TABLE evidence_runs ADD CONSTRAINT ck_evidence_runs_cycle_identity CHECK ("
+            + "(vendor IS NOT NULL AND collector_ref IS NOT NULL AND cycle_id IS NULL) "
+            + "OR (collector_id IS NOT NULL AND TRIM(collector_id) <> _utf8mb4'' "
+            + "AND cycle_id IS NOT NULL AND TRIM(cycle_id) <> _utf8mb4'' "
+            + "AND vendor IS NULL AND collector_ref IS NULL));");
 
         // Both columns exist and are nullable.
         var columns = (await conn.QueryAsync<(string ColumnName, string IsNullable)>(
@@ -604,5 +628,403 @@ public sealed class EvidenceIntegrationTests
         var checkResult = await conn.ExecuteScalarAsync<string>(
             "SELECT result FROM evidence_checks WHERE evidence_id = @Id;", new { Id = runId });
         Assert.Equal("Pass", checkResult);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task Migration024AddsTheMachineCycleAndErrorShape()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var columns = (await conn.QueryAsync<(string ColumnName, string IsNullable, string Extra)>(
+            "SELECT column_name AS ColumnName, is_nullable AS IsNullable, extra AS Extra "
+            + "FROM information_schema.columns WHERE table_schema = DATABASE() "
+            + "AND table_name = 'evidence_runs';"))
+            .ToDictionary(c => c.ColumnName, c => c, StringComparer.Ordinal);
+
+        // The three recorded columns and the generated key part are all nullable and additive.
+        foreach (var added in new[] { "asset_id", "cycle_id", "error_detail", "asset_key" })
+        {
+            Assert.Equal("YES", columns[added].IsNullable);
+        }
+
+        Assert.Contains("GENERATED", columns["asset_key"].Extra, StringComparison.Ordinal);
+
+        // Relaxed so an in-process run need not fabricate a producer identity it does not have.
+        Assert.Equal("YES", columns["vendor"].IsNullable);
+        Assert.Equal("YES", columns["collector_ref"].IsNullable);
+
+        var cycleKey = (await conn.QueryAsync<string>(
+            "SELECT column_name FROM information_schema.statistics "
+            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_runs' "
+            + "AND index_name = 'uq_evidence_runs_cycle' AND non_unique = 0 ORDER BY seq_in_index;")).ToArray();
+        Assert.Equal(["cycle_id", "organisation_id", "requirement_id", "asset_key"], cycleKey);
+
+        var constraints = (await conn.QueryAsync<string>(
+            "SELECT constraint_name FROM information_schema.table_constraints "
+            + "WHERE table_schema = DATABASE() AND table_name = 'evidence_runs' "
+            + "AND constraint_type = 'CHECK';")).ToHashSet(StringComparer.Ordinal);
+        foreach (var name in new[]
+                 {
+                     "ck_evidence_runs_result", "ck_evidence_runs_error_detail",
+                     "ck_evidence_runs_ref_pair", "ck_evidence_runs_cycle_identity",
+                 })
+        {
+            Assert.Contains(name, constraints);
+        }
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ACycleKeyedRunRecordsItsMachineAndDedupsPerMachine()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+
+        // Two machines in one cycle both store: they differ in the generated asset_key.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, collectorId: "coll-a", frequency: "daily",
+            assetId: "machine-1", cycleId: "cycle-1", checks: [Check("h", "Hard", "Pass")]))).Ok);
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, collectorId: "coll-a", frequency: "daily",
+            assetId: "machine-2", cycleId: "cycle-1", checks: [Check("h", "Hard", "Pass")]))).Ok);
+
+        var runs = await store.GetEvidenceRunsAsync("org-a", "req-a");
+        Assert.Equal(2, runs.Count);
+        Assert.Equal(["machine-1", "machine-2"], runs.Select(r => r.AssetId!).Order(StringComparer.Ordinal).ToArray());
+        // The machine is a dimension under the organisation, never a replacement for it.
+        Assert.All(runs, r => Assert.Equal("org-a", r.OrganisationId));
+        Assert.All(runs, r => Assert.Equal("cycle-1", r.CycleId));
+        Assert.All(runs, r => Assert.Null(r.Vendor));
+
+        // A recorded cycle run is final: the retry collides and the recorded result stands.
+        var repeat = await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, "Fail", collectorId: "coll-a", frequency: "daily",
+            assetId: "machine-1", cycleId: "cycle-1", checks: [Check("h", "Hard", "Fail")]));
+        Assert.False(repeat.Ok);
+        Assert.Equal(2, (await store.GetEvidenceRunsAsync("org-a", "req-a")).Count);
+        Assert.All(await store.GetEvidenceRunsAsync("org-a", "req-a"), r => Assert.Equal("Pass", r.Result));
+
+        // The same machine in a DIFFERENT cycle is a different run.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, collectorId: "coll-a", frequency: "daily",
+            assetId: "machine-1", cycleId: "cycle-2", checks: [Check("h", "Hard", "Pass")]))).Ok);
+        Assert.Equal(3, (await store.GetEvidenceRunsAsync("org-a", "req-a")).Count);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task TwoOrganisationLevelRunsInOneCycleCollideOnTheGeneratedKey()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+
+        // Both carry a null asset_id, so both generate the empty asset_key and the key dedups them.
+        // Indexing asset_id itself would not, because MySQL treats each NULL as distinct.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, collectorId: "coll-a", cycleId: "cycle-1"))).Ok);
+        Assert.False((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, collectorId: "coll-a", cycleId: "cycle-1"))).Ok);
+
+        Assert.Single(await store.GetEvidenceRunsAsync("org-a", "req-a"));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task AnErroredRunRecordsWhyCollectionFailed()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+
+        // An error usually observed nothing, so it carries no checks.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "ref-error", "Error", errorDetail: "token could not be resolved"))).Ok);
+        // A partial collection observed some checks before it failed, and keeps them.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "ref-partial", "Error", errorDetail: "provider closed the connection",
+            checks: [Check("h", "Hard", "Pass")]))).Ok);
+
+        var runs = await store.GetEvidenceRunsAsync("org-a", "req-a");
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal("Error", r.Result));
+        Assert.Contains(runs, r => r.ErrorDetail == "token could not be resolved" && r.Checks.Count == 0);
+        Assert.Contains(runs, r => r.ErrorDetail == "provider closed the connection" && r.Checks.Count == 1);
+
+        // Recording an error with no reason is not recording it, and a blank reason is no reason.
+        Assert.False((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "ref-nodetail", "Error"))).Ok);
+        Assert.False((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "ref-blank", "Error", errorDetail: " "))).Ok);
+        // The detail belongs to an errored run alone, so the column means one thing.
+        Assert.False((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "ref-passdetail", errorDetail: "why?"))).Ok);
+
+        Assert.Equal(2, (await store.GetEvidenceRunsAsync("org-a", "req-a")).Count);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task AnAppendCarriesExactlyOneIdentity()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+
+        // Neither key could dedup this run.
+        Assert.False((await writes.AppendEvidenceAsync(Run("org-a", "req-a", null, null))).Ok);
+        // Both keys would claim this one, so "was this a duplicate" would have two answers.
+        Assert.False((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "ref-1", collectorId: "coll-a", cycleId: "cycle-1"))).Ok);
+        // A half-identified run would escape the legacy key, which does not dedup on a null part.
+        Assert.False((await writes.AppendEvidenceAsync(Run("org-a", "req-a", "v", null))).Ok);
+        Assert.False((await writes.AppendEvidenceAsync(Run("org-a", "req-a", null, "ref-1"))).Ok);
+        // Whitespace is absence: this is a run with no vendor, not a run with a vendor of one space.
+        Assert.False((await writes.AppendEvidenceAsync(Run("org-a", "req-a", " ", "ref-1"))).Ok);
+        // A cycle-keyed run names its collector, and a blank name names none.
+        Assert.False((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, collectorId: " ", cycleId: "cycle-1"))).Ok);
+        Assert.False((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", null, null, collectorId: "coll-a", cycleId: " "))).Ok);
+
+        Assert.Empty(await store.GetEvidenceRunsAsync("org-a", "req-a"));
+
+        // The legacy replay contract is unchanged for a run that carries no cycle.
+        Assert.True((await writes.AppendEvidenceAsync(Run("org-a", "req-a", "v", "ref-1"))).Ok);
+        Assert.False((await writes.AppendEvidenceAsync(Run("org-a", "req-a", "v", "ref-1"))).Ok);
+        Assert.Single(await store.GetEvidenceRunsAsync("org-a", "req-a"));
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task TheClosedResultSetIsCaseSensitiveAndTrailingSpaceSensitive()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        // Written raw, because the store rejects each of these before any SQL runs. Each row carries a
+        // vendor, a collector reference, a null cycle, and a null error detail, so ck_evidence_runs_result
+        // is the only constraint it can break - and the constraint the server names is what discriminates.
+        // Under a case-insensitive comparison the first row would pass this constraint and break the
+        // error-detail one instead; under a PAD SPACE collation the third row would store.
+        var n = 0;
+        foreach (var badResult in new[] { "error", "Error ", "Fail " })
+        {
+            var message = await ViolatedCheckAsync(
+                conn,
+                "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+                + "result, collected_at, created_at) "
+                + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', @Ref, @Result, @At, @At);",
+                new { Id = Id(++n), Ref = $"coll-a:r{n}", Result = badResult, At = DateTime.UtcNow });
+            Assert.Contains("ck_evidence_runs_result", message, StringComparison.Ordinal);
+        }
+
+        // An empty collector_id names no collector to the read side, so a cycle-keyed row carrying one
+        // would store and then be assessed for no collector at all.
+        var identity = await ViolatedCheckAsync(
+            conn,
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, created_at, collector_id, cycle_id) "
+            + "VALUES (@Id, 'Collector', 'org-a', 'req-a', NULL, NULL, 'Pass', @At, @At, '', 'cycle-1');",
+            new { Id = Id(++n), At = DateTime.UtcNow });
+        Assert.Contains("ck_evidence_runs_cycle_identity", identity, StringComparison.Ordinal);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ACycleIsAssessedAsOneOutcomeAcrossItsMachines()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var fresh = DateTime.UtcNow;
+
+        // One failing machine among passing siblings decides the cycle.
+        await SeedCycleAsync(writes, "req-fail", "coll-fail", "cycle-f", fresh,
+            [("machine-1", "Pass", "Pass"), ("machine-2", "Fail", "Pass"), ("machine-3", "Pass", "Pass")]);
+        // One errored machine among passing siblings does too.
+        await SeedCycleAsync(writes, "req-error", "coll-error", "cycle-e", fresh,
+            [("machine-1", "Pass", "Pass"), ("machine-2", "Pass", "Error"), ("machine-3", "Pass", "Pass")]);
+        // A machine that has left the fleet appears only in the older cycle, so it stops contributing.
+        await SeedCycleAsync(writes, "req-retired", "coll-retired", "cycle-old", fresh.AddHours(-2),
+            [("machine-1", "Pass", "Pass"), ("machine-gone", "Fail", "Pass")]);
+        await SeedCycleAsync(writes, "req-retired", "coll-retired", "cycle-new", fresh,
+            [("machine-1", "Pass", "Pass")]);
+
+        var results = (await store.GetCollectorEvidenceStatusesAsync(["org-a"]))
+            .ToDictionary(r => r.CollectorId, r => r.Status, StringComparer.Ordinal);
+
+        Assert.Equal("HardFailure", results["coll-fail"]);
+        Assert.Equal("Errored", results["coll-error"]);
+        Assert.Equal("Passing", results["coll-retired"]);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ErroredSitsBelowHardFailureAndAboveStale()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var fresh = DateTime.UtcNow;
+        var overdue = DateTime.UtcNow.AddDays(-2); // the daily window plus grace is 30h
+
+        // A fresh errored run is Errored, not Passing and not Stale.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-error", "v", "coll-e:r1", "Error", collectorId: "coll-e", frequency: "daily",
+            collectedAt: fresh, errorDetail: "provider rejected the credential"))).Ok);
+        // An observed hard failure outranks an error in the same cycle: red is reserved for the breach.
+        await SeedCycleAsync(writes, "req-mixed", "coll-mixed", "cycle-m", fresh,
+            [("machine-1", "Fail", "Pass"), ("machine-2", "Pass", "Error")]);
+        // The checks an errored run DID observe keep their full weight.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-partial", "v", "coll-p:r1", "Error", collectorId: "coll-p", frequency: "daily",
+            collectedAt: fresh, errorDetail: "provider closed the connection",
+            checks: [Check("h", "Hard", "Fail")]))).Ok);
+        // "The collection attempt failed" is sharper and fresher than "the last collection is overdue".
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-old", "v", "coll-o:r1", "Error", collectorId: "coll-o", frequency: "daily",
+            collectedAt: overdue, errorDetail: "provider unreachable"))).Ok);
+
+        var results = (await store.GetCollectorEvidenceStatusesAsync(["org-a"]))
+            .ToDictionary(r => r.CollectorId, r => r.Status, StringComparer.Ordinal);
+
+        Assert.Equal("Errored", results["coll-e"]);
+        Assert.Equal("HardFailure", results["coll-mixed"]);
+        Assert.Equal("HardFailure", results["coll-p"]);
+        Assert.Equal("Errored", results["coll-o"]);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task ARunWithNoCycleIsAssessedAlone()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var now = DateTime.UtcNow;
+
+        // Neither run carries a cycle, so the assessed set is the pinned run alone and the earlier hard
+        // failure does not reach the status - the behaviour a pre-migration collector already had.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "coll-a:r1", "Fail", collectorId: "coll-a", frequency: "daily",
+            collectedAt: now.AddHours(-2), checks: [Check("h", "Hard", "Fail")]))).Ok);
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "coll-a:r2", collectorId: "coll-a", frequency: "daily",
+            collectedAt: now, checks: [Check("h", "Hard", "Pass")]))).Ok);
+
+        var row = Assert.Single(await store.GetCollectorEvidenceStatusesAsync(["org-a"]));
+        Assert.Equal("Passing", row.Status);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task AnEmptyCollectorIdFallsBackToTheCollectorRefPrefix()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        // An empty collector_id is absence, not an identity. A COALESCE-shaped expression would read it as
+        // present and group the run under a collector named by the empty string.
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, created_at, collector_id) "
+            + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', 'legacy-coll:run1', 'Pass', @At, @At, '');",
+            new { Id = Id(1), At = DateTime.UtcNow });
+
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var row = Assert.Single(await store.GetCollectorEvidenceStatusesAsync(["org-a"]));
+        Assert.Equal("legacy-coll", row.CollectorId);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task TheDerivationComparesUnderABinaryNoPadCollation()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var fresh = DateTime.UtcNow;
+
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "coll-a:r1", collectorId: "coll-a", frequency: "daily",
+            collectedAt: fresh, checks: [Check("h", "Hard", "Pass")]))).Ok);
+
+        await using var conn = new MySqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        var runId = await conn.ExecuteScalarAsync<string>(
+            "SELECT id FROM evidence_runs WHERE collector_id = 'coll-a';");
+
+        // Written raw, because the store rejects both check rows. The columns inherit the server's
+        // case-insensitive default collation, so only the explicit binary NO PAD collation on each compared
+        // literal keeps the SQL accepting exactly what the ordinal comparison accepts.
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_checks (id, evidence_id, name, severity, result, ordinal, detail) "
+            + "VALUES (@Id, @Run, 'lowercase', 'hard', 'fail', 1, NULL);",
+            new { Id = Id(1), Run = runId });
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_checks (id, evidence_id, name, severity, result, ordinal, detail) "
+            + "VALUES (@Id, @Run, 'padded', 'Hard ', 'Fail ', 2, NULL);",
+            new { Id = Id(2), Run = runId });
+
+        var row = Assert.Single(await store.GetCollectorEvidenceStatusesAsync(["org-a"]));
+        Assert.Equal("Passing", row.Status);
+
+        // The kind filter is case-sensitive the same way, and the store writes only the PascalCase name.
+        await conn.ExecuteAsync(
+            "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+            + "result, collected_at, created_at, collector_id) "
+            + "VALUES (@Id, 'collector', 'org-a', 'req-b', 'v', 'coll-b:r1', 'Pass', @At, @At, 'coll-b');",
+            new { Id = Id(3), At = fresh });
+
+        var statuses = await store.GetCollectorEvidenceStatusesAsync(["org-a"]);
+        Assert.DoesNotContain(statuses, s => s.CollectorId == "coll-b");
+    }
+
+    // Seeds one collection cycle: one run per machine, each with a Hard check and a run-overall result.
+    private static async Task SeedCycleAsync(
+        MySqlEvidenceWriteStore writes,
+        string requirementId,
+        string collectorId,
+        string cycleId,
+        DateTime collectedAt,
+        IReadOnlyList<(string Asset, string HardCheck, string Result)> machines)
+    {
+        foreach (var (asset, hardCheck, result) in machines)
+        {
+            var errored = string.Equals(result, "Error", StringComparison.Ordinal);
+            var appended = await writes.AppendEvidenceAsync(Run(
+                "org-a", requirementId, null, null, result, collectorId: collectorId, frequency: "daily",
+                collectedAt: collectedAt, assetId: asset, cycleId: cycleId,
+                errorDetail: errored ? "provider unreachable" : null,
+                checks: errored ? [] : [Check("h", "Hard", hardCheck)]));
+            Assert.True(appended.Ok, appended.Error);
+        }
+    }
+
+    // Runs a statement expected to break a check constraint and returns the server's message, which names
+    // the constraint. The name is what tells one producer bug from another.
+    private static async Task<string> ViolatedCheckAsync(MySqlConnection conn, string sql, object args)
+    {
+        var ex = await Assert.ThrowsAsync<MySqlException>(() => conn.ExecuteAsync(sql, args));
+        Assert.Equal(3819, (int)ex.ErrorCode);
+        return ex.Message;
     }
 }
