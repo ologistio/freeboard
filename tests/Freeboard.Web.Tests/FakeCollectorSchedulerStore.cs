@@ -22,6 +22,9 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
 
     public int ClaimCalls { get; private set; }
 
+    /// <summary>Counts every <see cref="CompleteSuccessAsync"/> attempt, whether or not it matched a row.</summary>
+    public int CompleteSuccessCalls { get; private set; }
+
     private int renewCalls;
 
     public int RenewCalls
@@ -91,6 +94,9 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
                     {
                         r.FailureCount = 0;
                         r.LastError = null;
+                        // A revived collector starts a semantically new cycle, so the retained run token
+                        // goes with the old one and the next claim mints a fresh id.
+                        r.CurrentRunId = null;
                         if (r.Status == "dead")
                         {
                             r.NextDueAt = Now;
@@ -152,6 +158,15 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
             renewCalls++;
             if (RenewalsReportLost)
             {
+                // A renewal reports the lease lost because another holder took the row, which rotates the
+                // stored lease token. Rotating it here is what makes a later fenced write from this worker
+                // match no row, exactly as it would against the database.
+                if (rows.TryGetValue(collectorId, out var lost) && lost.LeaseToken == leaseToken)
+                {
+                    lost.LeaseToken = $"lease-{++tokenSeq}";
+                    lost.LeaseExpiresAt = Now + ttl;
+                }
+
                 return Task.FromResult(false);
             }
 
@@ -188,6 +203,7 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
     {
         lock (gate)
         {
+            CompleteSuccessCalls++;
             if (rows.TryGetValue(collectorId, out var r) && r.LeaseToken == leaseToken)
             {
                 r.NextDueAt = Now + interval;
