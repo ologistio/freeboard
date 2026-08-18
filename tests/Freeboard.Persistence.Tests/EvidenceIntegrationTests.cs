@@ -839,6 +839,27 @@ public sealed class EvidenceIntegrationTests
             + "VALUES (@Id, 'Collector', 'org-a', 'req-a', NULL, NULL, 'Pass', @At, @At, '', 'cycle-1');",
             new { Id = Id(++n), At = DateTime.UtcNow });
         Assert.Contains("ck_evidence_runs_cycle_identity", identity, StringComparison.Ordinal);
+
+        // A non-blank test rejects any whitespace, not only spaces, so the database and the store agree
+        // about which values name nothing. A tab would survive a comparison against the empty string.
+        foreach (var blank in new[] { "\t", " " })
+        {
+            var whitespace = await ViolatedCheckAsync(
+                conn,
+                "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+                + "result, collected_at, created_at, collector_id, cycle_id) "
+                + "VALUES (@Id, 'Collector', 'org-a', 'req-a', NULL, NULL, 'Pass', @At, @At, @Blank, 'cycle-1');",
+                new { Id = Id(++n), At = DateTime.UtcNow, Blank = blank });
+            Assert.Contains("ck_evidence_runs_cycle_identity", whitespace, StringComparison.Ordinal);
+
+            var detail = await ViolatedCheckAsync(
+                conn,
+                "INSERT INTO evidence_runs (id, kind, organisation_id, requirement_id, vendor, collector_ref, "
+                + "result, error_detail, collected_at, created_at) "
+                + "VALUES (@Id, 'Collector', 'org-a', 'req-a', 'v', @Ref, 'Error', @Blank, @At, @At);",
+                new { Id = Id(++n), Ref = $"coll-b:r{n}", At = DateTime.UtcNow, Blank = blank });
+            Assert.Contains("ck_evidence_runs_error_detail", detail, StringComparison.Ordinal);
+        }
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]

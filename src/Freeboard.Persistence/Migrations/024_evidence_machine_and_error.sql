@@ -1,8 +1,7 @@
 -- Add the machine dimension, the collection cycle, and the error result to evidence runs.
 -- asset_id names the machine asset a run describes. It is null for a run that describes the
 -- organisation as a whole. cycle_id records the scheduler's collection cycle. error_detail
--- carries why an errored collection failed. See the evidence-persistence capability for the
--- rules these columns serve.
+-- carries why an errored collection failed.
 --
 -- asset_id carries no foreign key, following organisation_id and collector_id. Evidence is
 -- append-only history, so a retired machine must not block an append or cascade a run away.
@@ -53,13 +52,13 @@ ALTER TABLE evidence_runs
         _utf8mb4'Error' COLLATE utf8mb4_0900_bin)),
     ADD CONSTRAINT ck_evidence_runs_error_detail CHECK (
         (result = _utf8mb4'Error' COLLATE utf8mb4_0900_bin
-            AND error_detail IS NOT NULL AND TRIM(error_detail) <> _utf8mb4'')
+            AND error_detail IS NOT NULL AND error_detail REGEXP '[^[:space:]]')
         OR (result <> _utf8mb4'Error' COLLATE utf8mb4_0900_bin AND error_detail IS NULL)),
     ADD CONSTRAINT ck_evidence_runs_ref_pair CHECK (
         (vendor IS NULL AND collector_ref IS NULL)
         OR (vendor IS NOT NULL AND collector_ref IS NOT NULL)),
     ADD CONSTRAINT ck_evidence_runs_cycle_identity CHECK (
         (vendor IS NOT NULL AND collector_ref IS NOT NULL AND cycle_id IS NULL)
-        OR (collector_id IS NOT NULL AND TRIM(collector_id) <> _utf8mb4''
-            AND cycle_id IS NOT NULL AND TRIM(cycle_id) <> _utf8mb4''
+        OR (collector_id IS NOT NULL AND collector_id REGEXP '[^[:space:]]'
+            AND cycle_id IS NOT NULL AND cycle_id REGEXP '[^[:space:]]'
             AND vendor IS NULL AND collector_ref IS NULL));

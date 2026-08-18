@@ -648,8 +648,9 @@ The migration SHALL relax `vendor` and `collector_ref` to nullable, SHALL KEEP t
 key `uq_evidence_runs_cycle (cycle_id, organisation_id, requirement_id, asset_key)`, and
 SHALL add four enforced check constraints:
 `ck_evidence_runs_result` requiring `result IN ('Pass', 'Fail', 'Error')`;
-`ck_evidence_runs_error_detail` requiring an `error_detail` that is non-null and not blank
-after trimming when `result` is `Error`, and a null `error_detail` otherwise;
+`ck_evidence_runs_error_detail` requiring an `error_detail` that is non-null and holds at
+least one non-whitespace character when `result` is `Error`, and a null `error_detail`
+otherwise;
 `ck_evidence_runs_ref_pair` requiring
 `vendor` and `collector_ref` to be both null or both non-null; and
 `ck_evidence_runs_cycle_identity` requiring EXACTLY ONE of the two identities - either a
@@ -657,7 +658,8 @@ non-null `vendor` with a non-null `collector_ref` and a null `cycle_id`, or a NO
 `collector_id` with a NON-BLANK `cycle_id` and a null `vendor` and `collector_ref`. The cycle
 arm tests for a non-blank value rather than a non-null one because an empty `collector_id`
 names no collector to the read side, so a row carrying one would store and then contribute to
-no collector's status.
+no collector's status. A non-blank test SHALL reject any run of whitespace, not only a run of
+spaces, so the database agrees with the store about which values name nothing.
 
 Every comparison of an enum-like evidence value in SQL SHALL accept exactly the values an
 ordinal comparison accepts. `evidence_runs.result`, `evidence_runs.kind`,
