@@ -1,4 +1,5 @@
 using Dapper;
+using Freeboard.Core.GitOps;
 using Freeboard.Persistence.Auth;
 using MySqlConnector;
 
@@ -239,6 +240,16 @@ public sealed class MySqlEvidenceWriteStore(IDbConnectionFactory connectionFacto
         if (hasCycleIdentity && run.CollectorId is null)
         {
             return WriteResult.Fail("A cycle-keyed evidence run must name the collector that produced it.");
+        }
+
+        // A cycle-keyed run must also carry a known cadence. Staleness derives its window from the
+        // cadence, so a run with none is never stale and holds its verdict forever. A cycle can be left
+        // part-written when its collector dies, and the newest cycle is the whole assessed set, so a
+        // part-written cycle with no cadence would report the machines that did land and never decay.
+        if (hasCycleIdentity && !CollectorFrequency.Tokens.Contains(run.Frequency ?? string.Empty))
+        {
+            return WriteResult.Fail(
+                "A cycle-keyed evidence run must record a known collection cadence.");
         }
 
         foreach (var check in run.Checks ?? [])

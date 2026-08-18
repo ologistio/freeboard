@@ -729,9 +729,11 @@ public sealed class EvidenceIntegrationTests
         // Both carry a null asset_id, so both generate the empty asset_key and the key dedups them.
         // Indexing asset_id itself would not, because MySQL treats each NULL as distinct.
         Assert.True((await writes.AppendEvidenceAsync(Run(
-            "org-a", "req-a", null, null, collectorId: "coll-a", cycleId: "cycle-1"))).Ok);
+            "org-a", "req-a", null, null, collectorId: "coll-a", frequency: "daily",
+            cycleId: "cycle-1"))).Ok);
         Assert.False((await writes.AppendEvidenceAsync(Run(
-            "org-a", "req-a", null, null, collectorId: "coll-a", cycleId: "cycle-1"))).Ok);
+            "org-a", "req-a", null, null, collectorId: "coll-a", frequency: "daily",
+            cycleId: "cycle-1"))).Ok);
 
         Assert.Single(await store.GetEvidenceRunsAsync("org-a", "req-a"));
     }
@@ -790,6 +792,17 @@ public sealed class EvidenceIntegrationTests
         Assert.False((await writes.AppendEvidenceAsync(Run("org-a", "req-a", null, "ref-1"))).Ok);
         // Whitespace is absence: this is a run with no vendor, not a run with a vendor of one space.
         Assert.False((await writes.AppendEvidenceAsync(Run("org-a", "req-a", " ", "ref-1"))).Ok);
+        // A cycle-keyed run records a cadence. Staleness derives its window from the cadence, so a run
+        // without one never goes stale, and a part-written cycle would hold its partial verdict for good.
+        foreach (var cadence in new[] { null, " ", "hourly" })
+        {
+            var noCadence = await writes.AppendEvidenceAsync(Run(
+                "org-a", "req-a", null, null, collectorId: "coll-a", frequency: cadence,
+                cycleId: "cycle-cadence"));
+            Assert.False(noCadence.Ok);
+            Assert.Contains("cadence", noCadence.Error, StringComparison.OrdinalIgnoreCase);
+        }
+
         // A cycle-keyed run names its collector, and a blank name names none.
         Assert.False((await writes.AppendEvidenceAsync(Run(
             "org-a", "req-a", null, null, collectorId: " ", cycleId: "cycle-1"))).Ok);

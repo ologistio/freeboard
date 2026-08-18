@@ -180,6 +180,18 @@ rejection a retry would repeat.
 - **THEN** the append fails and nothing is recorded, because a cycle-keyed run names its
   collector and a blank value names none
 
+A cycle-keyed run SHALL also carry a `frequency` drawn from the known cadence tokens. The
+newest cycle is the whole assessed set and a cycle can be left part-written when its collector
+stops, so a part-written cycle carrying no cadence would report only the machines that landed
+and would never decay into a stale reading.
+
+#### Scenario: A cycle-keyed run with no known cadence is rejected
+
+- **WHEN** a run is appended with a `cycle_id` and a `frequency` that is null, blank, or not
+  one of the known cadence tokens
+- **THEN** the append fails and nothing is recorded, because staleness derives its window from
+  the cadence, so a run without one is never stale and holds its verdict for good
+
 #### Scenario: A run that neither key can dedup is rejected
 
 - **WHEN** a run is appended with no `vendor` and no `collector_ref` and with no `cycle_id`
