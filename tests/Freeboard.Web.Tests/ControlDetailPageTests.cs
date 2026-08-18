@@ -195,6 +195,38 @@ public sealed class ControlDetailPageTests
         Assert.NotEqual(staleRegion, unknownRegion);
     }
 
+    [Fact]
+    public async Task ErroredProvingCheckRendersDegradedSealAndNamesTheFailedCollection()
+    {
+        var url = $"{DetailPath}?standard=std-a&org=org-a&requirement=req-a&control=ctrl-a";
+
+        // Collected just now, so only the Error result can move the seal off Passing.
+        var errored = new FakeEvidenceStore()
+            .AddCollectorRun("org-a", "req-a", "coll-a", "daily", DateTime.UtcNow, "Error");
+        using var erroredFactory = new AuthWebFactory { Compliance = SingleOrgStore(), EvidenceReads = errored };
+        using var erroredClient = NoRedirectClient(erroredFactory);
+        var erroredRegion = FacetRegion(await (await GetAsync(erroredFactory, erroredClient, url)).Content.ReadAsStringAsync());
+
+        // Amber, not red: a collection that failed observed no policy breach, so red stays reserved for a
+        // hard failure. The note is what tells this apart from a stopped collection.
+        Assert.Contains("<span class=\"fb-status warn\">", erroredRegion, StringComparison.Ordinal);
+        Assert.Contains("Drifting", erroredRegion, StringComparison.Ordinal);
+        Assert.Contains("Collection failed", erroredRegion, StringComparison.Ordinal);
+        Assert.DoesNotContain("Collection stopped", erroredRegion, StringComparison.Ordinal);
+        Assert.DoesNotContain("Passing", erroredRegion, StringComparison.Ordinal);
+
+        using var staleFactory = new AuthWebFactory { Compliance = SingleOrgStore(), EvidenceReads = StaleEvidence() };
+        using var staleClient = NoRedirectClient(staleFactory);
+        var staleRegion = FacetRegion(await (await GetAsync(staleFactory, staleClient, url)).Content.ReadAsStringAsync());
+
+        using var unknownFactory = new AuthWebFactory { Compliance = SingleOrgStore() };
+        using var unknownClient = NoRedirectClient(unknownFactory);
+        var unknownRegion = FacetRegion(await (await GetAsync(unknownFactory, unknownClient, url)).Content.ReadAsStringAsync());
+
+        Assert.NotEqual(staleRegion, erroredRegion);
+        Assert.NotEqual(unknownRegion, erroredRegion);
+    }
+
     // The accepted regression from the collector merge, pinned on BOTH surfaces the shared projection
     // feeds. The tag is derived from the collector's type, so a manual or training collector's check is
     // attestation-tagged and gets the bare "Attestation" note instead of an evidence status and a

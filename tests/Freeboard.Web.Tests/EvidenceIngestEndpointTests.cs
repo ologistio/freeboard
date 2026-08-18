@@ -148,6 +148,45 @@ public sealed class EvidenceIngestEndpointTests
     }
 
     [Fact]
+    public async Task AnIngestedRunCarriesNoMachineNoCycleAndBothHalvesOfTheReplayKey()
+    {
+        using var factory = FactoryFor("col-1");
+        var token = factory.SeedCollectorCredential("col-1");
+        using var client = ClientWith(factory, token);
+
+        var response = await client.PostAsync(Route, Body(Valid()));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var run = Assert.Single(factory.EvidenceStore.Appended);
+        // The wire contract defines neither a machine nor a collection cycle, so an ingested run carries
+        // neither and is dedupped by the vendor and the collector reference alone. Both halves of that key
+        // are always set, even though the store now allows either to be null.
+        Assert.Null(run.AssetId);
+        Assert.Null(run.CycleId);
+        Assert.NotNull(run.Vendor);
+        Assert.NotNull(run.CollectorRef);
+    }
+
+    [Fact]
+    public async Task AnAcceptedPayloadNeverAppendsAnErrorResult()
+    {
+        using var factory = FactoryFor("col-1");
+        var token = factory.SeedCollectorCredential("col-1");
+        using var client = ClientWith(factory, token);
+
+        var failing = await client.PostAsync(
+            Route,
+            Body(Valid(runId: "run-fail", checks: """[{"name":"c1","severity":"hard","result":"fail"}]""")));
+        var passing = await client.PostAsync(Route, Body(Valid(runId: "run-pass")));
+
+        Assert.Equal(HttpStatusCode.Created, failing.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, passing.StatusCode);
+        // Error records a collection that observed nothing, and this endpoint only ever receives an
+        // observation a collector already made.
+        Assert.Equal(["Fail", "Pass"], factory.EvidenceStore.Appended.Select(r => r.Result).ToArray());
+    }
+
+    [Fact]
     public async Task HardCheckFailureDerivesFailVerdict()
     {
         using var factory = FactoryFor("col-1");
@@ -535,7 +574,8 @@ public sealed class EvidenceIngestEndpointTests
         Assert.False(body.TryGetProperty("evidence_id", out _));
         Assert.Equal("col-1", body.GetProperty("collector_id").GetString());
         Assert.Equal(1, body.GetProperty("hard_fail_count").GetInt32());
-        // Only the first append landed; the replay wrote nothing.
+        // Only the first append landed; the replay wrote nothing. The store's second idempotency key
+        // changes nothing here, because an ingested run carries no cycle for it to act on.
         Assert.Single(factory.EvidenceStore.Appended);
     }
 

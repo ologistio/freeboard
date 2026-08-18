@@ -243,6 +243,26 @@ public sealed class StatementOfApplicabilityPageTests
     }
 
     [Fact]
+    public async Task ErroredCollectorRendersCollectionFailedDistinctFromStaleAndUnknown()
+    {
+        // The latest run is fresh, so nothing but its Error result can decide the badge.
+        var evidence = new FakeEvidenceStore()
+            .AddCollectorRun("org-a", "req-a", "coll-a", "daily", DateTime.UtcNow, "Error");
+        using var factory = Factory(DrilldownStore(), evidence: evidence);
+        using var client = NoRedirectClient(factory);
+
+        var response = await GetAuthenticatedAsync(factory, client, $"{Path}?standard=std-a");
+        var table = ResultsTable(await response.Content.ReadAsStringAsync());
+
+        var check = table[table.IndexOf("data-check-id=\"coll-a\"", StringComparison.Ordinal)..];
+        check = check[..check.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.Contains("data-collector-status=\"Errored\"", check, StringComparison.Ordinal);
+        Assert.Contains("collection failed", check, StringComparison.Ordinal);
+        Assert.DoesNotContain("collection stopped", check, StringComparison.Ordinal);
+        Assert.DoesNotContain("not collected", check, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task UnknownCollectorRendersNotCollectedDistinctFromStale()
     {
         // No evidence seeded: the configured collector coll-a has no run, so it is Unknown.
