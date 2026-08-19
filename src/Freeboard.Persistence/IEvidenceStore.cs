@@ -5,8 +5,9 @@ namespace Freeboard.Persistence;
 /// attestation runs, the 1:1 extension, plus a computed status per <c>(organisation, requirement,
 /// collector)</c> that has evidence.
 /// <para>
-/// <c>Passing</c> means "no assessed run has a failing hard check", NOT "the requirement is
-/// satisfied". With no expected-check catalogue a run can under-report, so a pass can be overclaimed.
+/// <c>Passing</c> means "no assessed run has a failing check, an <c>Error</c> result, or an
+/// overdue cadence", NOT "the requirement is satisfied". With no expected-check catalogue a run
+/// can under-report, so a pass can be overclaimed.
 /// </para>
 /// </summary>
 public interface IEvidenceStore

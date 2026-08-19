@@ -292,7 +292,7 @@ SHALL be exactly these six labels and no others:
 | `soft failure` | The newest collection cycle observed a failing advisory check. |
 | `hard failure` | The newest collection cycle observed a failing blocking check. |
 | `collection stopped` | The newest collection cycle is older than the cadence window plus grace. |
-| `collection failed` | A collection attempt in the newest cycle failed, so nothing was observed there. |
+| `collection failed` | A collection attempt in the newest cycle failed, so the requirement was not fully observed there. |
 | `not collected` | The collector has produced no evidence at all. |
 
 The carve-out is bounded three ways. It applies only to the evidence-status badge on a

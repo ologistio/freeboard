@@ -523,7 +523,7 @@ is not part of the config-tree consistency guarantee.
 
 The page SHALL render `Errored`, `Stale`, and `Unknown` each distinctly from the other two:
 `Errored` (the collector's latest collection attempt failed, so the requirement was not
-observed) SHALL be shown as a "collection failed" state, `Stale` (the collector's latest
+fully observed) SHALL be shown as a "collection failed" state, `Stale` (the collector's latest
 evidence is older than its cadence window plus grace) SHALL be shown as a "collection
 stopped" state, and `Unknown` SHALL be shown as a separate "not collected" state. A
 collector check that has no status from the store (an expected collector that never
