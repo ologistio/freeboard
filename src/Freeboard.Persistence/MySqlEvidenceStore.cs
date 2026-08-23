@@ -41,11 +41,11 @@ public sealed class MySqlEvidenceStore(IDbConnectionFactory connectionFactory, T
     // yields nothing, and a leading ':' yields nothing rather than an empty identity, so COALESCE cannot
     // express it - COALESCE reads '' as a present value. A run with no recoverable identity is excluded.
     //
-    // A window function pins each group's latest run, and the outer WHERE returns the assessed set: the
-    // pinned run alone when it carries no cycle, otherwise every run of the group sharing its cycle, so
-    // one collection cycle is assessed as one outcome and a machine absent from the newest cycle stops
-    // contributing. The two check outcomes aggregate server-side, so the result set is bounded by the
-    // newest cycle rather than by the whole run history and no second round trip is needed.
+    // A window function pins each group's latest run. The assessed set is that run alone when it carries
+    // no cycle, otherwise every run of the group sharing its cycle. So one cycle is assessed as one
+    // outcome, and a machine absent from the newest cycle stops contributing. The check outcomes
+    // aggregate server-side, which bounds the result set by the newest cycle rather than by the whole
+    // run history.
     //
     // Every compared literal declares COLLATE utf8mb4_0900_bin with the _utf8mb4 introducer, because
     // kind, severity, and result carry no explicit collation and so inherit the case-insensitive server

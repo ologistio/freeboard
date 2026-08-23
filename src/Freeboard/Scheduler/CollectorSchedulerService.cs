@@ -200,11 +200,9 @@ public sealed class CollectorSchedulerService(
 
         if (failure is null)
         {
-            // Attempted whether or not the linked token was cancelled. The lease fence is what guards a
-            // completion, not an early return: a write naming a lease token the row no longer carries
-            // matches no row and changes nothing, so a worker that lost its lease cannot overwrite the
-            // state of the holder that replaced it. A runner that returned normally is asserting that it
-            // finished its work, so its cycle ends here and the run token is cleared.
+            // Attempted whether or not the linked token was cancelled. The lease fence guards a
+            // completion, not an early return. A write naming a lease token the row no longer carries
+            // matches no row, so a worker that lost its lease cannot overwrite its replacement's state.
             var held = await schedulerStore.CompleteSuccessAsync(lease.CollectorId, lease.LeaseToken, interval.Value, completion.Token)
                 .ConfigureAwait(false);
             if (held)

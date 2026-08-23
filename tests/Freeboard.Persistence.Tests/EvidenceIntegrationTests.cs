@@ -128,6 +128,33 @@ public sealed class EvidenceIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task AnAttestationDropsTheCollectorOnlyFieldsButKeepsItsErrorDetail()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+
+        // A machine and a cycle describe a collection, which an attestation is not, so both are dropped
+        // by kind rather than stored and ignored. The error detail belongs to result, which every kind
+        // carries, so it survives.
+        var result = await writes.AppendAttestationResponseAsync(
+            Run("org-a", "req-a", "quiz-system", "submission-1", "Error",
+                collectorId: "coll-a", frequency: "daily", assetId: "machine-1", cycleId: "cycle-1",
+                errorDetail: "respondent session expired"),
+            new NewAttestationResponse("user-1", QuizPassed: false, Score: 0));
+        Assert.True(result.Ok, result.Error);
+
+        var run = await store.GetLatestEvidenceRunAsync("org-a", "req-a");
+        Assert.NotNull(run);
+        Assert.Null(run!.AssetId);
+        Assert.Null(run.CycleId);
+        Assert.Null(run.CollectorId);
+        Assert.Equal("respondent session expired", run.ErrorDetail);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task AttestationAppendPersistsExtensionAndChecks()
     {
         await using var db = await RequireDbAsync();
