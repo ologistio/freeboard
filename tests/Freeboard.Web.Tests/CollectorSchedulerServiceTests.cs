@@ -313,6 +313,56 @@ public sealed class CollectorSchedulerServiceTests
     }
 
     [Fact]
+    // A provider failure is not a cancellation, so it is recorded even when the lease was lost first.
+    // Only the exception's kind decides this, never the token's state: the fence makes the write safe.
+    public async Task AProviderFailureIsRecordedEvenWhenTheLeaseWasAlreadyLost()
+    {
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var store = new FakeCollectorSchedulerStore { RenewalsReportLost = true };
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, token) =>
+            {
+                // Wait for the lost-lease heartbeat to cancel us, then fail for an unrelated reason.
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+
+                throw new InvalidOperationException("provider down");
+            },
+        };
+        var service = Service(compliance, store, runner, Options(o => o.LeaseTtl = TimeSpan.FromMilliseconds(300)));
+
+        await service.RunCycleAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, store.CompleteFailureCalls);
+    }
+
+    [Fact]
+    // A runner that propagates our cancellation stopped because we told it to, so the dispatch records
+    // no outcome and the run token stays for the retry.
+    public async Task ACancellationPropagatedByTheRunnerRecordsNoOutcome()
+    {
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var store = new FakeCollectorSchedulerStore { RenewalsReportLost = true };
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, token) => await Task.Delay(Timeout.Infinite, token),
+        };
+        var service = Service(compliance, store, runner, Options(o => o.LeaseTtl = TimeSpan.FromMilliseconds(300)));
+
+        await service.RunCycleAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, store.CompleteFailureCalls);
+        var row = store.Peek("col-1")!;
+        Assert.Equal("run-1", row.CurrentRunId);
+    }
+
+    [Fact]
     // The runner here swallows the cancellation and returns normally, so the dispatch takes the success
     // arm and attempts its fenced completion. The fence is what makes that harmless: the row now carries
     // the new holder's lease token, so the write matches nothing.

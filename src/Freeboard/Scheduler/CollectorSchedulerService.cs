@@ -176,8 +176,9 @@ public sealed class CollectorSchedulerService(
         var heartbeat = HeartbeatAsync(lease, linked, heartbeatStop.Token);
 
         Exception? failure = null;
-        // Read at the throw, not after the finally. The finally awaits the heartbeat, and host shutdown
-        // during that await would otherwise make a genuine failure look like our own cancellation.
+        // Whether WE stopped the work, decided at the throw. Only a cancellation counts. Reading the
+        // token's state alone would suppress a provider failure that raced a shutdown, and reading it
+        // after the finally would widen that race to the whole heartbeat await.
         var stoppedOurselves = false;
         try
         {
@@ -186,7 +187,7 @@ public sealed class CollectorSchedulerService(
         catch (Exception ex) when (!IsFatal(ex))
         {
             failure = ex;
-            stoppedOurselves = linked.IsCancellationRequested;
+            stoppedOurselves = ex is OperationCanceledException && linked.IsCancellationRequested;
         }
         finally
         {

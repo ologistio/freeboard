@@ -31,6 +31,9 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
     /// <summary>Counts every <see cref="CompleteSuccessAsync"/> attempt, whether or not it matched a row.</summary>
     public int CompleteSuccessCalls { get; private set; }
 
+    /// <summary>Counts every <see cref="CompleteFailureAsync"/> attempt, whether or not it matched a row.</summary>
+    public int CompleteFailureCalls { get; private set; }
+
     private int renewCalls;
 
     public int RenewCalls
@@ -241,6 +244,7 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
     {
         lock (gate)
         {
+            CompleteFailureCalls++;
             if (rows.TryGetValue(collectorId, out var r) && r.LeaseToken == leaseToken)
             {
                 var newCount = r.FailureCount + 1;
