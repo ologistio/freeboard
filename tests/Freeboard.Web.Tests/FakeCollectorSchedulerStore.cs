@@ -18,6 +18,12 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
     /// <summary>When true every <see cref="RenewLeaseAsync"/> reports the lease lost (0 rows).</summary>
     public bool RenewalsReportLost { get; set; }
 
+    /// <summary>
+    /// Awaited on entry to <see cref="RenewLeaseAsync"/>, before the row is read, and given the caller's
+    /// token. A test parks a heartbeat renewal here to hold a dispatch inside its finally.
+    /// </summary>
+    public Func<CancellationToken, Task>? OnRenew { get; set; }
+
     public int EnsureCalls { get; private set; }
 
     public int ClaimCalls { get; private set; }
@@ -150,8 +156,18 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
         }
     }
 
-    public Task<bool> RenewLeaseAsync(
+    public async Task<bool> RenewLeaseAsync(
         string collectorId, string leaseToken, TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        if (OnRenew is not null)
+        {
+            await OnRenew(cancellationToken).ConfigureAwait(false);
+        }
+
+        return Renew(collectorId, leaseToken, ttl);
+    }
+
+    private bool Renew(string collectorId, string leaseToken, TimeSpan ttl)
     {
         lock (gate)
         {
@@ -167,16 +183,16 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
                     lost.LeaseExpiresAt = Now + ttl;
                 }
 
-                return Task.FromResult(false);
+                return false;
             }
 
             if (rows.TryGetValue(collectorId, out var r) && r.LeaseToken == leaseToken)
             {
                 r.LeaseExpiresAt = Now + ttl;
-                return Task.FromResult(true);
+                return true;
             }
 
-            return Task.FromResult(false);
+            return false;
         }
     }
 

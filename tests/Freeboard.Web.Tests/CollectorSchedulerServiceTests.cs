@@ -423,6 +423,54 @@ public sealed class CollectorSchedulerServiceTests
     }
 
     [Fact]
+    public async Task AGenuineFailureIsRecordedWhenTheHostStopsDuringTheHeartbeatAwait()
+    {
+        // Whether the runner's exception was our own cancellation is decided at the throw, not after the
+        // finally has awaited the heartbeat. This test lands host shutdown inside that await, where a
+        // dispatch that read the token afterwards would drop a real failure: no failure count, no backoff.
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var renewParked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var heartbeatStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRenew = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new FakeCollectorSchedulerStore
+        {
+            OnRenew = token =>
+            {
+                // The dispatch cancels this token in its finally, which runs after the catch. Waiting on
+                // it is how the test knows the throw was already classified, with the host still running.
+                token.Register(() => heartbeatStopped.TrySetResult());
+                renewParked.TrySetResult();
+                return releaseRenew.Task;
+            },
+        };
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, _) =>
+            {
+                // Throw only once the heartbeat is parked, so the finally has something slow to await.
+                await renewParked.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                throw new InvalidOperationException("provider down");
+            },
+        };
+        // Small TTL so the renewal the test parks on comes soon; the ordering is gated on the signals.
+        var service = Service(compliance, store, runner, Options(o => o.LeaseTtl = TimeSpan.FromMilliseconds(300)));
+
+        using var host = new CancellationTokenSource();
+        var cycle = service.RunCycleAsync(host.Token);
+
+        await heartbeatStopped.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.CancelAsync();
+        releaseRenew.TrySetResult();
+        await cycle.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var row = store.Peek("col-1")!;
+        Assert.Equal("error", row.Status);
+        Assert.Equal(1, row.FailureCount);
+        Assert.False(string.IsNullOrEmpty(row.CurrentRunId)); // retained for the retry
+        Assert.Null(row.LeaseToken); // lease released
+    }
+
+    [Fact]
     public async Task ADispatchThatSucceedsWhileTheHostStopsEndsItsCycle()
     {
         var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };

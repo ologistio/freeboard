@@ -176,6 +176,9 @@ public sealed class CollectorSchedulerService(
         var heartbeat = HeartbeatAsync(lease, linked, heartbeatStop.Token);
 
         Exception? failure = null;
+        // Read at the throw, not after the finally. The finally awaits the heartbeat, and host shutdown
+        // during that await would otherwise make a genuine failure look like our own cancellation.
+        var stoppedOurselves = false;
         try
         {
             await runner.RunAsync(collector, lease.CurrentRunId, linked.Token).ConfigureAwait(false);
@@ -183,6 +186,7 @@ public sealed class CollectorSchedulerService(
         catch (Exception ex) when (!IsFatal(ex))
         {
             failure = ex;
+            stoppedOurselves = linked.IsCancellationRequested;
         }
         finally
         {
@@ -224,7 +228,7 @@ public sealed class CollectorSchedulerService(
         // collector's failure count, apply a backoff, and at MaxAttempts move it to the terminal dead
         // status, from which only a config change revives it. This dispatch therefore records no outcome,
         // and the run token stays in place so the retry runs under the same cycle.
-        if (linked.IsCancellationRequested)
+        if (stoppedOurselves)
         {
             return;
         }
