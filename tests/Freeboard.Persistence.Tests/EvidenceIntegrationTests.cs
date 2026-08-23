@@ -988,6 +988,33 @@ public sealed class EvidenceIntegrationTests
     }
 
     [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
+    public async Task TwoCollectorsDifferingOnlyByTrailingSpaceKeepSeparateStatuses()
+    {
+        await using var db = await RequireDbAsync();
+        await MigrateAsync(db);
+
+        var writes = new MySqlEvidenceWriteStore(db.ConnectionFactory, new UlidFactory());
+        var store = new MySqlEvidenceStore(db.ConnectionFactory);
+        var fresh = DateTime.UtcNow;
+
+        // The id columns declare utf8mb4_bin, which is PAD SPACE, so a grouping that inherits it reads
+        // these two ids as one collector. The newer run would then pin for both and the older collector
+        // would lose its own verdict. The application compares ordinally, so the two must stay apart.
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "coll-a:r1", "Fail", collectorId: "coll-a", frequency: "daily",
+            collectedAt: fresh.AddHours(-1), checks: [Check("h", "Hard", "Fail")]))).Ok);
+        Assert.True((await writes.AppendEvidenceAsync(Run(
+            "org-a", "req-a", "v", "coll-b:r1", "Pass", collectorId: "coll-a ", frequency: "daily",
+            collectedAt: fresh, checks: [Check("h", "Hard", "Pass")]))).Ok);
+
+        var rows = await store.GetCollectorEvidenceStatusesAsync(["org-a"]);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("HardFailure", Assert.Single(rows, r => r.CollectorId == "coll-a").Status);
+        Assert.Equal("Passing", Assert.Single(rows, r => r.CollectorId == "coll-a ").Status);
+    }
+
+    [RequiresEnvVarFact(EnvVar = MySqlTestDatabase.EnvVar)]
     public async Task TheDerivationComparesUnderABinaryNoPadCollation()
     {
         await using var db = await RequireDbAsync();

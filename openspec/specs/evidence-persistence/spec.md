@@ -477,6 +477,19 @@ produced evidence).
 - **THEN** the derived status is unchanged, because the derivation's collation is NO PAD and
   the ordinal comparison does not match a padded value
 
+The NO PAD rule SHALL govern the grouping as well as the compared values. The organisation,
+requirement, and collector identity that pin a group SHALL be compared under a binary NO PAD
+collation, because the id columns declare a PAD SPACE collation and would otherwise merge two
+identities the application holds apart.
+
+#### Scenario: Two collector identities differing only by padding stay apart
+
+- **WHEN** two runs under one organisation and requirement record collector identities that
+  differ only by trailing whitespace
+- **THEN** each identity keeps its own derived status, because the grouping that pins the
+  latest run compares under the same NO PAD collation the application uses, rather than
+  inheriting the PAD SPACE collation of the id columns
+
 #### Scenario: A run with no cycle is assessed alone
 
 - **WHEN** a collector's latest run carries a null `cycle_id`

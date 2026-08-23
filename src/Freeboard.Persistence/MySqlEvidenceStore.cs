@@ -65,7 +65,7 @@ public sealed class MySqlEvidenceStore(IDbConnectionFactory connectionFactory, T
                            THEN collector_id
                        WHEN collector_ref IS NOT NULL AND LOCATE(_utf8mb4':', collector_ref) > 1
                            THEN LEFT(collector_ref, LOCATE(_utf8mb4':', collector_ref) - 1)
-                   END AS effective_collector_id
+                   END COLLATE utf8mb4_0900_bin AS effective_collector_id
             FROM evidence_runs
             WHERE kind = _utf8mb4'Collector' COLLATE utf8mb4_0900_bin
               AND organisation_id IN @OrganisationIds
@@ -73,7 +73,9 @@ public sealed class MySqlEvidenceStore(IDbConnectionFactory connectionFactory, T
         pinned AS (
             SELECT identified.*,
                    ROW_NUMBER() OVER (
-                       PARTITION BY organisation_id, requirement_id, effective_collector_id
+                       PARTITION BY organisation_id COLLATE utf8mb4_0900_bin,
+                                    requirement_id COLLATE utf8mb4_0900_bin,
+                                    effective_collector_id
                        ORDER BY {LatestOrder}) AS pin
             FROM identified
             WHERE effective_collector_id IS NOT NULL
@@ -105,8 +107,8 @@ public sealed class MySqlEvidenceStore(IDbConnectionFactory connectionFactory, T
                ) AS HasSoftFailure
         FROM pinned
         JOIN latest
-          ON latest.organisation_id = pinned.organisation_id
-         AND latest.requirement_id = pinned.requirement_id
+          ON latest.organisation_id = pinned.organisation_id COLLATE utf8mb4_0900_bin
+         AND latest.requirement_id = pinned.requirement_id COLLATE utf8mb4_0900_bin
          AND latest.effective_collector_id = pinned.effective_collector_id
         WHERE (latest.pinned_cycle_id IS NULL AND pinned.pin = 1)
            OR (latest.pinned_cycle_id IS NOT NULL AND pinned.cycle_id = latest.pinned_cycle_id);
