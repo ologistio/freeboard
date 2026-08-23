@@ -295,6 +295,12 @@ SHALL be exactly these six labels and no others:
 | `collection failed` | A collection attempt in the newest cycle failed, so the requirement was not fully observed there. |
 | `not collected` | The collector has produced no evidence at all. |
 
+These labels are mutually exclusive. More than one description can fit one cycle, so a row
+SHALL show the first that applies, reading `hard failure`, `collection failed`, `collection
+stopped`, `soft failure`, `passing`. That order is the derived status precedence. An errored
+cycle is therefore never labelled `passing`, and a cycle past its window is never labelled
+`soft failure`.
+
 The carve-out is bounded three ways. It applies only to the evidence-status badge on a
 collector row of the Statement of Applicability page. It admits no seventh label, so a new
 evidence state amends this table rather than inventing a word at the page. It suspends no
