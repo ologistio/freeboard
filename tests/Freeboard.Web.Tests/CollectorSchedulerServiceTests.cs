@@ -324,12 +324,10 @@ public sealed class CollectorSchedulerServiceTests
             OnRun = async (_, _, token) =>
             {
                 // Wait for the lost-lease heartbeat to cancel us, then fail for an unrelated reason.
-                try
+                var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await using (token.Register(() => cancelled.TrySetResult()).ConfigureAwait(false))
                 {
-                    await Task.Delay(Timeout.Infinite, token);
-                }
-                catch (OperationCanceledException)
-                {
+                    await cancelled.Task;
                 }
 
                 throw new InvalidOperationException("provider down");
