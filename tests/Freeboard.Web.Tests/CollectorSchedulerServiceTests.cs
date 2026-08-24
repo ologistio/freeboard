@@ -180,6 +180,9 @@ public sealed class CollectorSchedulerServiceTests
         await service.RunCycleAsync(CancellationToken.None);
 
         Assert.Equal("ok", store.Peek("col-1")!.Status);
+        // The revival cleared the retained run token, so the revived collector collects under a new cycle
+        // rather than re-running the one it died on.
+        Assert.NotEqual(runner.Dispatched[0].RunId, runner.Dispatched[1].RunId);
     }
 
     // The fingerprint is persisted and compared across process restarts and app upgrades, so its VALUE
@@ -310,7 +313,58 @@ public sealed class CollectorSchedulerServiceTests
     }
 
     [Fact]
-    public async Task LostLeaseCancelsInFlightDispatchAndSkipsCompletion()
+    // A provider failure is not a cancellation, so it is recorded even when the lease was lost first.
+    // Only the exception's kind decides this, never the token's state: the fence makes the write safe.
+    public async Task AProviderFailureIsRecordedEvenWhenTheLeaseWasAlreadyLost()
+    {
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var store = new FakeCollectorSchedulerStore { RenewalsReportLost = true };
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, token) =>
+            {
+                // Wait for the lost-lease heartbeat to cancel us, then fail for an unrelated reason.
+                var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await using (token.Register(() => cancelled.TrySetResult()).ConfigureAwait(false))
+                {
+                    await cancelled.Task;
+                }
+
+                throw new InvalidOperationException("provider down");
+            },
+        };
+        var service = Service(compliance, store, runner, Options(o => o.LeaseTtl = TimeSpan.FromMilliseconds(300)));
+
+        await service.RunCycleAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, store.CompleteFailureCalls);
+    }
+
+    [Fact]
+    // A runner that propagates our cancellation stopped because we told it to, so the dispatch records
+    // no outcome and the run token stays for the retry.
+    public async Task ACancellationPropagatedByTheRunnerRecordsNoOutcome()
+    {
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var store = new FakeCollectorSchedulerStore { RenewalsReportLost = true };
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, token) => await Task.Delay(Timeout.Infinite, token),
+        };
+        var service = Service(compliance, store, runner, Options(o => o.LeaseTtl = TimeSpan.FromMilliseconds(300)));
+
+        await service.RunCycleAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, store.CompleteFailureCalls);
+        var row = store.Peek("col-1")!;
+        Assert.Equal("run-1", row.CurrentRunId);
+    }
+
+    [Fact]
+    // The runner here swallows the cancellation and returns normally, so the dispatch takes the success
+    // arm and attempts its fenced completion. The fence is what makes that harmless: the row now carries
+    // the new holder's lease token, so the write matches nothing.
+    public async Task LostLeaseCancelsInFlightDispatchAndItsCompletionChangesNothing()
     {
         var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
         // Small TTL so the heartbeat fires quickly; renewals report the lease lost.
@@ -337,9 +391,13 @@ public sealed class CollectorSchedulerServiceTests
 
         // The runner observed cancellation triggered by the lost-lease heartbeat.
         Assert.True(cancelled.Task.IsCompletedSuccessfully);
-        // The lease was lost, so the service did not complete the run: the row stays running under the (now
-        // superseded) lease rather than being marked ok/error by this worker.
-        Assert.Equal("running", store.Peek("col-1")!.Status);
+        // The completion was ATTEMPTED once - the fence, not a skipped call, is what makes it harmless.
+        Assert.Equal(1, store.CompleteSuccessCalls);
+        // That completion matched no row, so the state stays with the new holder: the row is still
+        // running and keeps its run token, which the new holder re-dispatches.
+        var row = store.Peek("col-1")!;
+        Assert.Equal("running", row.Status);
+        Assert.Equal(runner.Dispatched[0].RunId, row.CurrentRunId);
     }
 
     [Fact]
@@ -373,8 +431,125 @@ public sealed class CollectorSchedulerServiceTests
         release.Release();
         await cycle.WaitAsync(TimeSpan.FromSeconds(10));
 
-        // Partial work under a stopping host is not force-completed; the lease is left to expire.
-        Assert.Equal("running", store.Peek("col-1")!.Status);
+        // This runner returns normally, which asserts that it finished its work, so the dispatch ends its
+        // cycle even though the host is stopping: the completion write does not take the stopping token.
+        var row = store.Peek("col-1")!;
+        Assert.Equal("ok", row.Status);
+        Assert.Null(row.CurrentRunId);
+        Assert.Equal(store.Now + TimeSpan.FromDays(1), row.NextDueAt);
+    }
+
+    [Fact]
+    public async Task ARunnerThatRethrowsCancellationUnderShutdownRecordsNoOutcome()
+    {
+        // A runner that honors its token throws instead of returning, and cancelling our own work must not
+        // cost the collector a failure: a recorded failure would back it off and, at MaxAttempts, kill it.
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var store = new FakeCollectorSchedulerStore();
+        var running = new TaskCompletionSource();
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, token) =>
+            {
+                running.TrySetResult();
+                await Task.Delay(Timeout.Infinite, token);
+            },
+        };
+        var service = Service(compliance, store, runner, Options());
+
+        using var host = new CancellationTokenSource();
+        var cycle = service.RunCycleAsync(host.Token);
+        await running.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.CancelAsync();
+        await cycle.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var row = store.Peek("col-1")!;
+        Assert.NotEqual("error", row.Status);
+        Assert.NotEqual("dead", row.Status);
+        Assert.Equal(0, row.FailureCount);
+        Assert.Equal(runner.Dispatched[0].RunId, row.CurrentRunId);
+    }
+
+    [Fact]
+    public async Task AGenuineFailureIsRecordedWhenTheHostStopsDuringTheHeartbeatAwait()
+    {
+        // Whether the runner's exception was our own cancellation is decided at the throw, not after the
+        // finally has awaited the heartbeat. This test lands host shutdown inside that await, where a
+        // dispatch that read the token afterwards would drop a real failure: no failure count, no backoff.
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var renewParked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var heartbeatStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRenew = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new FakeCollectorSchedulerStore
+        {
+            OnRenew = token =>
+            {
+                // The dispatch cancels this token in its finally, which runs after the catch. Waiting on
+                // it is how the test knows the throw was already classified, with the host still running.
+                token.Register(() => heartbeatStopped.TrySetResult());
+                renewParked.TrySetResult();
+                return releaseRenew.Task;
+            },
+        };
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, _) =>
+            {
+                // Throw only once the heartbeat is parked, so the finally has something slow to await.
+                await renewParked.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                throw new InvalidOperationException("provider down");
+            },
+        };
+        // Small TTL so the renewal the test parks on comes soon; the ordering is gated on the signals.
+        var service = Service(compliance, store, runner, Options(o => o.LeaseTtl = TimeSpan.FromMilliseconds(300)));
+
+        using var host = new CancellationTokenSource();
+        var cycle = service.RunCycleAsync(host.Token);
+
+        await heartbeatStopped.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.CancelAsync();
+        releaseRenew.TrySetResult();
+        await cycle.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var row = store.Peek("col-1")!;
+        Assert.Equal("error", row.Status);
+        Assert.Equal(1, row.FailureCount);
+        Assert.False(string.IsNullOrEmpty(row.CurrentRunId)); // retained for the retry
+        Assert.Null(row.LeaseToken); // lease released
+    }
+
+    [Fact]
+    public async Task ADispatchThatSucceedsWhileTheHostStopsEndsItsCycle()
+    {
+        var compliance = new FakeComplianceStore { Collectors = [Collector("col-1")] };
+        var store = new FakeCollectorSchedulerStore();
+        var running = new TaskCompletionSource();
+        using var release = new SemaphoreSlim(0);
+        var runner = new FakeScheduledCollectorRunner
+        {
+            OnRun = async (_, _, _) =>
+            {
+                running.TrySetResult();
+                await release.WaitAsync(TimeSpan.FromSeconds(10));
+            },
+        };
+        var service = Service(compliance, store, runner, Options());
+
+        using var host = new CancellationTokenSource();
+        var cycle = service.RunCycleAsync(host.Token);
+        await running.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.CancelAsync();
+        release.Release();
+        await cycle.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Null(store.Peek("col-1")!.CurrentRunId);
+
+        // Clearing the token is what makes the next claim mint a new one, so the next cycle is a different
+        // cycle and work keyed on the run id does not collide with this one.
+        store.MakeDue("col-1");
+        await service.RunCycleAsync(CancellationToken.None);
+        Assert.Equal(2, runner.Dispatched.Count);
+        Assert.NotEqual(runner.Dispatched[0].RunId, runner.Dispatched[1].RunId);
     }
 
     [Fact]

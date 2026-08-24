@@ -29,6 +29,12 @@ public sealed class CollectorSchedulerService(
     private const string IntegrationType = "integration";
     private const int MaxErrorLength = 1000;
 
+    // Wall-clock bound on a completion write, which runs off the host stopping token. There is one call
+    // site pair and no operator reason to tune it, so it stays a constant rather than an option. It reads
+    // the wall clock rather than the injected TimeProvider because it bounds a real database write, whose
+    // duration must not stretch or shrink when a test moves its own clock.
+    private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(10);
+
     private readonly SchedulerOptions options = options.Value;
 
     private bool ShouldSchedule => this.options.Enabled && databaseConfigured;
@@ -170,6 +176,10 @@ public sealed class CollectorSchedulerService(
         var heartbeat = HeartbeatAsync(lease, linked, heartbeatStop.Token);
 
         Exception? failure = null;
+        // Whether WE stopped the work, decided at the throw. Only a cancellation counts. Reading the
+        // token's state alone would suppress a provider failure that raced a shutdown, and reading it
+        // after the finally would widen that race to the whole heartbeat await.
+        var stoppedOurselves = false;
         try
         {
             await runner.RunAsync(collector, lease.CurrentRunId, linked.Token).ConfigureAwait(false);
@@ -177,6 +187,7 @@ public sealed class CollectorSchedulerService(
         catch (Exception ex) when (!IsFatal(ex))
         {
             failure = ex;
+            stoppedOurselves = ex is OperationCanceledException && linked.IsCancellationRequested;
         }
         finally
         {
@@ -186,16 +197,18 @@ public sealed class CollectorSchedulerService(
             await heartbeat.ConfigureAwait(false);
         }
 
-        // Lease lost mid-dispatch (heartbeat cancelled the linked token): the new holder owns the row, so do
-        // not complete. Host stopping: leave the lease to expire, no forced completion of partial work.
-        if (linked.IsCancellationRequested)
-        {
-            return;
-        }
+        // The completion write must outlive host shutdown, or a dispatch that finished between the runner
+        // returning and the write would leave its run token in place and the next cycle would append under
+        // a token that already names a finished cycle. It is bounded rather than uncancellable so a stalled
+        // database connection cannot hold this background service open through host teardown.
+        using var completion = new CancellationTokenSource(CompletionTimeout);
 
         if (failure is null)
         {
-            var held = await schedulerStore.CompleteSuccessAsync(lease.CollectorId, lease.LeaseToken, interval.Value, stoppingToken)
+            // Attempted whether or not the linked token was cancelled. The lease fence guards a
+            // completion, not an early return. A write naming a lease token the row no longer carries
+            // matches no row, so a worker that lost its lease cannot overwrite its replacement's state.
+            var held = await schedulerStore.CompleteSuccessAsync(lease.CollectorId, lease.LeaseToken, interval.Value, completion.Token)
                 .ConfigureAwait(false);
             if (held)
             {
@@ -211,9 +224,19 @@ public sealed class CollectorSchedulerService(
             return;
         }
 
+        // The runner threw while its token was cancelled, so we stopped our own work: the host is going
+        // down or the lease moved to another holder. Recording that as a run failure would increment the
+        // collector's failure count, apply a backoff, and at MaxAttempts move it to the terminal dead
+        // status, from which only a config change revives it. This dispatch therefore records no outcome,
+        // and the run token stays in place so the retry runs under the same cycle.
+        if (stoppedOurselves)
+        {
+            return;
+        }
+
         var outcome = await schedulerStore.CompleteFailureAsync(
             lease.CollectorId, lease.LeaseToken, Truncate(failure.Message), interval.Value,
-            options.BaseBackoff, options.MaxAttempts, stoppingToken).ConfigureAwait(false);
+            options.BaseBackoff, options.MaxAttempts, completion.Token).ConfigureAwait(false);
         switch (outcome)
         {
             case CollectorFailureOutcome.Dead:

@@ -12,14 +12,17 @@ namespace Freeboard.Web.Tests;
 internal sealed class FakeStoreDbException(string message) : DbException(message);
 
 /// <summary>
-/// In-memory <see cref="IEvidenceWriteStore"/> double. Keyed on <c>(vendor, collector_ref)</c>: a
-/// re-append of the same key returns <see cref="WriteResult.Conflict"/> (the idempotency collision),
-/// mirroring the real store's unique key. <see cref="Unreachable"/> makes every append throw to simulate
-/// a down store. Appended runs are recorded so tests can assert the mapped <see cref="NewEvidenceRun"/>.
+/// In-memory <see cref="IEvidenceWriteStore"/> double. Keyed the way the real store is: on
+/// <c>(vendor, collector_ref)</c> for a run carrying the producer identity, and on
+/// <c>(cycle_id, organisation_id, requirement_id, asset_id)</c> otherwise. A re-append of the same key
+/// returns <see cref="WriteResult.Conflict"/> (the idempotency collision), mirroring the real store's two
+/// unique keys. Keying every run on the producer pair alone would make every cycle-keyed run collide on a
+/// pair of nulls. <see cref="Unreachable"/> makes every append throw to simulate a down store. Appended
+/// runs are recorded so tests can assert the mapped <see cref="NewEvidenceRun"/>.
 /// </summary>
 internal sealed class FakeEvidenceWriteStore : IEvidenceWriteStore
 {
-    private readonly HashSet<(string, string)> _keys = [];
+    private readonly HashSet<(string?, string?, string?, string?)> _keys = [];
 
     public bool Unreachable { get; init; }
 
@@ -49,11 +52,14 @@ internal sealed class FakeEvidenceWriteStore : IEvidenceWriteStore
             return Task.FromResult(forced);
         }
 
-        var key = (run.Vendor, run.CollectorRef);
+        var key = run.Vendor is not null || run.CollectorRef is not null
+            ? (run.Vendor, run.CollectorRef, null, null)
+            : (run.CycleId, run.OrganisationId, run.RequirementId, run.AssetId ?? string.Empty);
         if (!_keys.Add(key))
         {
             return Task.FromResult(WriteResult.Conflict(
-                "This evidence already exists (duplicate vendor/collector reference or check name)."));
+                "This evidence already exists (duplicate vendor/collector reference, duplicate collection "
+                + "cycle for this organisation, requirement and machine, or duplicate check name)."));
         }
 
         Appended.Add(run);
@@ -66,12 +72,15 @@ internal sealed class FakeEvidenceWriteStore : IEvidenceWriteStore
 }
 
 /// <summary>
-/// In-memory <see cref="IEvidenceStore"/> read double. Holds seeded runs and derives the returned
-/// per-collector status set exactly as the real store does: the latest run per
-/// <c>(organisation, requirement, collector)</c> with the shared staleness rule applied and the
-/// precedence <c>HardFailure &gt; Stale &gt; SoftFailure &gt; Passing</c> - not a full-history dump. So a
-/// <c>Stale</c>-vs-<c>Unknown</c> render test exercises realistic store output. <see cref="Clock"/> is
-/// the clock staleness is judged against (default system).
+/// In-memory <see cref="IEvidenceStore"/> read double. Holds seeded runs and returns one status per
+/// <c>(organisation, requirement, collector)</c> - not a full-history dump - so a render test exercises
+/// realistic store output. It pins the latest run with the same tie-break as the real store, applies the
+/// shared staleness rule, and folds the same precedence,
+/// <c>HardFailure &gt; Errored &gt; Stale &gt; SoftFailure &gt; Passing</c>. It does NOT model the real
+/// store's assessed set: the real store widens the set to every run sharing the pinned run's
+/// <c>cycle_id</c>, and this double always assesses the pinned run alone, which is the real store's
+/// behaviour for a run that carries no cycle. Seed one run per collector to stay inside what it models.
+/// <see cref="Clock"/> is the clock staleness is judged against (default system).
 /// </summary>
 internal sealed class FakeEvidenceStore : IEvidenceStore
 {
@@ -100,10 +109,19 @@ internal sealed class FakeEvidenceStore : IEvidenceStore
 
     public List<EvidenceRunRow> Runs { get; } = [];
 
-    /// <summary>Seeds a collector run with its checks. Id and created_at follow insertion for a stable order.</summary>
+    /// <summary>Seeds a collector run whose run-overall result is <c>Pass</c>, with its checks.</summary>
     public FakeEvidenceStore AddCollectorRun(
         string organisationId, string requirementId, string collectorId, string? frequency,
         DateTime collectedAt, params (string Severity, string Result)[] checks)
+        => AddCollectorRun(organisationId, requirementId, collectorId, frequency, collectedAt, "Pass", checks);
+
+    /// <summary>
+    /// Seeds a collector run with an explicit run-overall <paramref name="result"/>, so a test can stage
+    /// an errored collection. Id and created_at follow insertion for a stable order.
+    /// </summary>
+    public FakeEvidenceStore AddCollectorRun(
+        string organisationId, string requirementId, string collectorId, string? frequency,
+        DateTime collectedAt, string result, params (string Severity, string Result)[] checks)
     {
         var n = Runs.Count + 1;
         var checkRows = checks
@@ -111,7 +129,8 @@ internal sealed class FakeEvidenceStore : IEvidenceStore
             .ToList();
         Runs.Add(new EvidenceRunRow(
             $"run-{n:D22}", "Collector", organisationId, requirementId, "vendor", $"{collectorId}:run{n}",
-            "Pass", collectedAt, collectedAt, null, collectedAt, checkRows, null, collectorId, frequency));
+            result, collectedAt, collectedAt, null, collectedAt, checkRows, null, collectorId, frequency,
+            null, null, string.Equals(result, "Error", StringComparison.Ordinal) ? "collection failed" : null));
         return this;
     }
 
@@ -151,7 +170,7 @@ internal sealed class FakeEvidenceStore : IEvidenceStore
                 var latest = g.OrderBy(r => r, Comparer<EvidenceRunRow>.Create(LatestFirst)).First();
                 var stale = CollectorFrequency.IsStale(latest.CollectedAt, latest.Frequency, nowUtc);
                 return new CollectorEvidenceStatusRow(
-                    g.Key.OrganisationId, g.Key.RequirementId, g.Key.Item3, DeriveStatus(latest.Checks, stale),
+                    g.Key.OrganisationId, g.Key.RequirementId, g.Key.Item3, DeriveStatus(latest, stale),
                     latest.CollectedAt);
             })
             .ToList();
@@ -159,6 +178,9 @@ internal sealed class FakeEvidenceStore : IEvidenceStore
         return Task.FromResult<IReadOnlyList<CollectorEvidenceStatusRow>>(results);
     }
 
+    // The real store states this fallback rule once, in the SQL of its status query. This double has no
+    // database behind it, so it needs its own copy: a deliberate stand-in, not a second statement of the
+    // rule to be deleted as a duplicate. A run carrying no legacy reference has none to fall back to.
     private static string? EffectiveCollectorId(EvidenceRunRow run)
     {
         if (!string.IsNullOrEmpty(run.CollectorId))
@@ -166,15 +188,25 @@ internal sealed class FakeEvidenceStore : IEvidenceStore
             return run.CollectorId;
         }
 
+        if (run.CollectorRef is null)
+        {
+            return null;
+        }
+
         var delimiter = run.CollectorRef.IndexOf(':', StringComparison.Ordinal);
         return delimiter > 0 ? run.CollectorRef[..delimiter] : null;
     }
 
-    private static string DeriveStatus(IReadOnlyList<EvidenceCheckRow> checks, bool stale)
+    private static string DeriveStatus(EvidenceRunRow run, bool stale)
     {
-        if (checks.Any(c => c.Severity == "Hard" && c.Result == "Fail"))
+        if (run.Checks.Any(c => c.Severity == "Hard" && c.Result == "Fail"))
         {
             return "HardFailure";
+        }
+
+        if (string.Equals(run.Result, "Error", StringComparison.Ordinal))
+        {
+            return "Errored";
         }
 
         if (stale)
@@ -182,7 +214,7 @@ internal sealed class FakeEvidenceStore : IEvidenceStore
             return "Stale";
         }
 
-        return checks.Any(c => c.Severity == "Soft" && c.Result == "Fail") ? "SoftFailure" : "Passing";
+        return run.Checks.Any(c => c.Severity == "Soft" && c.Result == "Fail") ? "SoftFailure" : "Passing";
     }
 
     private void Guard()

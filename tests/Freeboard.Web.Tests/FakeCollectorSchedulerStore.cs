@@ -18,9 +18,21 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
     /// <summary>When true every <see cref="RenewLeaseAsync"/> reports the lease lost (0 rows).</summary>
     public bool RenewalsReportLost { get; set; }
 
+    /// <summary>
+    /// Awaited on entry to <see cref="RenewLeaseAsync"/>, before the row is read, and given the caller's
+    /// token. A test parks a heartbeat renewal here to hold a dispatch inside its finally.
+    /// </summary>
+    public Func<CancellationToken, Task>? OnRenew { get; set; }
+
     public int EnsureCalls { get; private set; }
 
     public int ClaimCalls { get; private set; }
+
+    /// <summary>Counts every <see cref="CompleteSuccessAsync"/> attempt, whether or not it matched a row.</summary>
+    public int CompleteSuccessCalls { get; private set; }
+
+    /// <summary>Counts every <see cref="CompleteFailureAsync"/> attempt, whether or not it matched a row.</summary>
+    public int CompleteFailureCalls { get; private set; }
 
     private int renewCalls;
 
@@ -91,6 +103,9 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
                     {
                         r.FailureCount = 0;
                         r.LastError = null;
+                        // A revived collector starts a semantically new cycle, so the retained run token
+                        // goes with the old one and the next claim mints a fresh id.
+                        r.CurrentRunId = null;
                         if (r.Status == "dead")
                         {
                             r.NextDueAt = Now;
@@ -144,24 +159,43 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
         }
     }
 
-    public Task<bool> RenewLeaseAsync(
+    public async Task<bool> RenewLeaseAsync(
         string collectorId, string leaseToken, TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        if (OnRenew is not null)
+        {
+            await OnRenew(cancellationToken).ConfigureAwait(false);
+        }
+
+        return Renew(collectorId, leaseToken, ttl);
+    }
+
+    private bool Renew(string collectorId, string leaseToken, TimeSpan ttl)
     {
         lock (gate)
         {
             renewCalls++;
             if (RenewalsReportLost)
             {
-                return Task.FromResult(false);
+                // A renewal reports the lease lost because another holder took the row, which rotates the
+                // stored lease token. Rotating it here is what makes a later fenced write from this worker
+                // match no row, exactly as it would against the database.
+                if (rows.TryGetValue(collectorId, out var lost) && lost.LeaseToken == leaseToken)
+                {
+                    lost.LeaseToken = $"lease-{++tokenSeq}";
+                    lost.LeaseExpiresAt = Now + ttl;
+                }
+
+                return false;
             }
 
             if (rows.TryGetValue(collectorId, out var r) && r.LeaseToken == leaseToken)
             {
                 r.LeaseExpiresAt = Now + ttl;
-                return Task.FromResult(true);
+                return true;
             }
 
-            return Task.FromResult(false);
+            return false;
         }
     }
 
@@ -188,6 +222,7 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
     {
         lock (gate)
         {
+            CompleteSuccessCalls++;
             if (rows.TryGetValue(collectorId, out var r) && r.LeaseToken == leaseToken)
             {
                 r.NextDueAt = Now + interval;
@@ -209,6 +244,7 @@ internal sealed class FakeCollectorSchedulerStore : ICollectorSchedulerStore
     {
         lock (gate)
         {
+            CompleteFailureCalls++;
             if (rows.TryGetValue(collectorId, out var r) && r.LeaseToken == leaseToken)
             {
                 var newCount = r.FailureCount + 1;

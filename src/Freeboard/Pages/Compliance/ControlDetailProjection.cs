@@ -65,19 +65,23 @@ public static class ControlDetailProjection
 
     // Stale degrades every dependent check to the warn (Drifting) seal rather than a muted note, so stale
     // data never reads as passing and the degraded state is visible (S6); its NoteFor names the stale
-    // state. Unknown alone stays sealless and speaks through NoteFor. Red (Failing) stays reserved for a
-    // hard failure.
+    // state. Errored takes the same warn seal: a collection that failed observed no policy breach, so red
+    // (Failing) stays reserved for a hard failure (S3), and its note is what tells the two warn states
+    // apart. Unknown alone stays sealless and speaks through NoteFor. The product status vocabulary is
+    // closed, so an evidence state maps onto an existing member rather than adding one (S1).
     private static StatusKind? MapCollectorStatus(string status) => status switch
     {
         "Passing" => StatusKind.Passing,
         "HardFailure" => StatusKind.Failing,
         "SoftFailure" => StatusKind.Drifting,
+        "Errored" => StatusKind.Drifting,
         "Stale" => StatusKind.Drifting,
         _ => null,
     };
 
     private static string? NoteFor(string status) => status switch
     {
+        "Errored" => "Collection failed",
         "Stale" => "Collection stopped",
         "Unknown" => "Not collected",
         _ => null,

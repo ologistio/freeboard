@@ -123,8 +123,10 @@ public static class EvidenceIngestEndpoints
 
                 collector = found;
 
-                // main's evidence_runs.vendor is NOT NULL and half the idempotency key; a collector with
-                // no vendor cannot ingest. Reject with an operator-actionable detail; do NOT synthesise one.
+                // An ingested run is identified by (vendor, collector_ref), so a null vendor would leave it
+                // outside the replay key even though the column itself is nullable. A collector with no
+                // vendor therefore cannot ingest. Reject with an operator-actionable detail; do NOT
+                // synthesise one.
                 if (string.IsNullOrEmpty(collector.Vendor))
                 {
                     return MissingVendor(validated.CollectorId);
